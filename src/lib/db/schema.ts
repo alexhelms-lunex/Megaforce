@@ -1,0 +1,279 @@
+/**
+ * Drizzle mirror of db/migrations/*.sql.
+ *
+ * The SQL files are the source of truth -- they are what runs against Supabase.
+ * This file exists so application code gets types and a query builder. When the
+ * two drift, the SQL wins and this file is wrong.
+ */
+import { relations, sql } from "drizzle-orm";
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+const now = sql`now()`;
+const newUuid = sql`uuid_generate_v4()`;
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    authId: uuid("auth_id").unique(),
+    email: text("email").notNull().unique(),
+    fullName: text("full_name").notNull(),
+    /** 'rep' | 'manager' | 'admin' -- constrained by a CHECK in SQL. */
+    role: text("role").notNull(),
+    managerId: uuid("manager_id"),
+    /** Telephony extension, used to attribute an inbound call event to a rep. */
+    rcExtensionId: text("rc_extension_id").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [index("users_manager_id_idx").on(t.managerId)],
+);
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    name: text("name").notNull(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id),
+    industry: text("industry"),
+    status: text("status").notNull().default("active"),
+    domain: text("domain"),
+    /** Maintained by the t_bump_last_activity trigger, never written by hand. */
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+    /** Values for admin-defined fields; see fieldDefs. */
+    custom: jsonb("custom").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [
+    index("accounts_owner_id_idx").on(t.ownerId),
+    index("accounts_last_activity_at_idx").on(t.lastActivityAt),
+    index("accounts_status_idx").on(t.status),
+  ],
+);
+
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    email: text("email"),
+    /** Always E.164. Normalized on write by src/lib/phone.ts, never raw input. */
+    phoneE164: text("phone_e164"),
+    title: text("title"),
+    custom: jsonb("custom").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [index("contacts_account_id_idx").on(t.accountId)],
+);
+
+export const opportunities = pgTable(
+  "opportunities",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id),
+    name: text("name").notNull(),
+    stage: text("stage").notNull(),
+    /** numeric, not float. Money in a binary float is a rounding bug waiting. */
+    amount: numeric("amount", { precision: 14, scale: 2 }),
+    closeDate: date("close_date"),
+    custom: jsonb("custom").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [index("opportunities_owner_stage_idx").on(t.ownerId, t.stage)],
+);
+
+export const rawEvents = pgTable(
+  "raw_events",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    source: text("source").notNull(),
+    externalId: text("external_id"),
+    payload: jsonb("payload").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().default(now),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    error: text("error"),
+  },
+  (t) => [index("raw_events_source_idx").on(t.source, t.externalId)],
+);
+
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => users.id),
+    /** 'call' | 'email' | 'meeting' | 'note' */
+    type: text("type").notNull(),
+    /** 'inbound' | 'outbound' | null */
+    direction: text("direction"),
+    subject: text("subject"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    durationSeconds: integer("duration_seconds"),
+    /** Provider outcome verbatim: 'Call connected', 'Voicemail', 'No Answer'. */
+    result: text("result"),
+    source: text("source").notNull().default("manual"),
+    externalId: text("external_id"),
+    qualifies: boolean("qualifies").notNull().default(false),
+    /**
+     * Written on every row, pass or fail. This is the column that answers "why
+     * didn't my call log" without anyone opening a ticket.
+     */
+    qualificationReason: text("qualification_reason").notNull().default(""),
+    rawEventId: uuid("raw_event_id").references(() => rawEvents.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [
+    index("activities_account_occurred_idx").on(t.accountId, t.occurredAt),
+    index("activities_user_occurred_idx").on(t.userId, t.occurredAt),
+  ],
+);
+
+export const unmatchedActivities = pgTable(
+  "unmatched_activities",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    rawEventId: uuid("raw_event_id")
+      .notNull()
+      .references(() => rawEvents.id),
+    /** 'no_contact_match' | 'multiple_accounts' */
+    reason: text("reason").notNull(),
+    candidateAccountIds: uuid("candidate_account_ids").array(),
+    phoneE164: text("phone_e164"),
+    email: text("email"),
+    direction: text("direction"),
+    durationSeconds: integer("duration_seconds"),
+    result: text("result"),
+    subject: text("subject"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedToAccountId: uuid("resolved_to_account_id").references(() => accounts.id),
+    resolvedActivityId: uuid("resolved_activity_id").references(() => activities.id),
+  },
+  (t) => [uniqueIndex("unmatched_raw_event_uniq").on(t.rawEventId)],
+);
+
+export const fieldDefs = pgTable(
+  "field_defs",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    /** 'account' | 'contact' | 'opportunity' */
+    object: text("object").notNull(),
+    /** The key inside the target row's `custom` jsonb. */
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    /** 'text' | 'number' | 'date' | 'select' | 'boolean' */
+    type: text("type").notNull(),
+    /** For type='select': a JSON array of allowed values. */
+    options: jsonb("options").$type<string[] | null>(),
+    required: boolean("required").notNull().default(false),
+    sort: integer("sort").notNull().default(0),
+    archived: boolean("archived").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [uniqueIndex("field_defs_object_key_uniq").on(t.object, t.key)],
+);
+
+export const qualificationRules = pgTable("qualification_rules", {
+  id: uuid("id").primaryKey().default(newUuid),
+  activityType: text("activity_type").notNull(),
+  minDurationSeconds: integer("min_duration_seconds").notNull().default(0),
+  /** Empty array means any provider result is acceptable. */
+  allowedResults: text("allowed_results").array().notNull().default([]),
+  /** null means either direction qualifies. */
+  requiredDirection: text("required_direction"),
+  active: boolean("active").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+});
+
+export const savedViews = pgTable("saved_views", {
+  id: uuid("id").primaryKey().default(newUuid),
+  object: text("object").notNull(),
+  name: text("name").notNull(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
+  shared: boolean("shared").notNull().default(false),
+  definition: jsonb("definition").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+});
+
+// ---------------------------------------------------------------------------
+// Relations -- these power db.query.*.findMany({ with: ... })
+// ---------------------------------------------------------------------------
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  manager: one(users, { fields: [users.managerId], references: [users.id], relationName: "org" }),
+  reports: many(users, { relationName: "org" }),
+  accounts: many(accounts),
+}));
+
+export const accountsRelations = relations(accounts, ({ one, many }) => ({
+  owner: one(users, { fields: [accounts.ownerId], references: [users.id] }),
+  contacts: many(contacts),
+  opportunities: many(opportunities),
+  activities: many(activities),
+}));
+
+export const contactsRelations = relations(contacts, ({ one, many }) => ({
+  account: one(accounts, { fields: [contacts.accountId], references: [accounts.id] }),
+  activities: many(activities),
+}));
+
+export const opportunitiesRelations = relations(opportunities, ({ one }) => ({
+  account: one(accounts, { fields: [opportunities.accountId], references: [accounts.id] }),
+  owner: one(users, { fields: [opportunities.ownerId], references: [users.id] }),
+}));
+
+export const activitiesRelations = relations(activities, ({ one }) => ({
+  account: one(accounts, { fields: [activities.accountId], references: [accounts.id] }),
+  contact: one(contacts, { fields: [activities.contactId], references: [contacts.id] }),
+  user: one(users, { fields: [activities.userId], references: [users.id] }),
+  rawEvent: one(rawEvents, { fields: [activities.rawEventId], references: [rawEvents.id] }),
+}));
+
+export const unmatchedActivitiesRelations = relations(unmatchedActivities, ({ one }) => ({
+  rawEvent: one(rawEvents, { fields: [unmatchedActivities.rawEventId], references: [rawEvents.id] }),
+  resolvedToAccount: one(accounts, {
+    fields: [unmatchedActivities.resolvedToAccountId],
+    references: [accounts.id],
+  }),
+}));
+
+// Convenience types for application code.
+export type User = typeof users.$inferSelect;
+export type Account = typeof accounts.$inferSelect;
+export type Contact = typeof contacts.$inferSelect;
+export type Opportunity = typeof opportunities.$inferSelect;
+export type Activity = typeof activities.$inferSelect;
+export type RawEvent = typeof rawEvents.$inferSelect;
+export type UnmatchedActivity = typeof unmatchedActivities.$inferSelect;
+export type FieldDef = typeof fieldDefs.$inferSelect;
+export type QualificationRule = typeof qualificationRules.$inferSelect;
+export type SavedView = typeof savedViews.$inferSelect;
