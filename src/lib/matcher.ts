@@ -16,14 +16,21 @@
  *     each one leaves something behind that explains itself.
  */
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import type { PgliteDatabase } from "drizzle-orm/pglite";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "@/lib/db/schema";
 import { toE164 } from "@/lib/phone";
 import { qualify, toRule, type ActivityType, type Direction } from "@/lib/qualify";
 
-/** Works against Supabase in production and PGlite in tests. */
-export type Db = PostgresJsDatabase<typeof schema> | PgliteDatabase<typeof schema>;
+/**
+ * Works against Supabase in production and PGlite in tests.
+ *
+ * Expressed as the shared PgDatabase base rather than a union of the two
+ * concrete driver types. A union looks equivalent and is not: calling
+ * `.returning({ ... })` on a union of overloaded builders makes TypeScript
+ * intersect the call signatures, and the resulting signature accepts no
+ * arguments at all. One base type keeps method resolution intact.
+ */
+export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 // ---------------------------------------------------------------------------
 // Parsing

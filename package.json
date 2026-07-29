@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
-    "db:push": "tsx scripts/migrate.ts"
+    "db:push": "tsx scripts/migrate.ts",
+    "simulate": "tsx scripts/simulate-calls.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

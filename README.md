@@ -1,36 +1,302 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Megaforce CRM
 
-## Getting Started
+A CRM that captures phone calls automatically, decides which ones actually
+count, and tells you why when one doesn't.
 
-First, run the development server:
+**All data in this project is fake.** Phone numbers use the 555-01xx block that
+is reserved for movies and TV. Email domains end in `.test`, which nobody can
+register. No real person or company appears anywhere.
+
+---
+
+## What works right now
+
+| Thing | Status |
+|---|---|
+| Database design, permissions, indexes | Done, tested |
+| Fake data: 800 companies, 20,000 calls and emails | Done, runs in 9 seconds |
+| Matching a call to the right customer | Done, 77 tests passing |
+| Deciding if a call counts, and explaining why | Done |
+| Review queue for calls it refused to guess about | Done |
+| Account list, account detail, review queue screens | Done |
+| Fake call generator (stands in for RingCentral) | Done |
+| Pipeline screen, report builder | Not built yet |
+| Live RingCentral connection | Code is written, needs your sandbox login |
+
+---
+
+## Try it in 60 seconds, with no setup
+
+You need nothing installed except Node. No database, no accounts, no signups.
+
+```bash
+npm install
+npm test          # 77 tests against a real Postgres running inside the process
+npm run seed      # builds the whole fake company
+npm run simulate  # sends 10 fake phone calls through the real pipeline
+```
+
+`npm run simulate` prints a table like this:
+
+```
+connected call, 4 minutes          matched, QUALIFIED
+connected call, 119 seconds        matched, not qualified
+connected call, 121 seconds        matched, QUALIFIED
+voicemail, 5 minutes               matched, not qualified
+number written with an extension   matched, QUALIFIED
+unknown number                     review queue (no_contact_match)
+number at two accounts             review queue (multiple_accounts)
+withheld caller ID                 review queue (unusable_phone_number)
+same webhook delivered twice       already processed, ignored
+```
+
+That is the whole product in one screen. Every one of those rows is a real
+thing that happens to real phone systems.
+
+---
+
+## To see the actual screens, you need a database
+
+The screens need a login system, and the login system is Supabase. About ten
+minutes of clicking.
+
+### Step 1 — Make a Supabase project
+
+1. Go to **supabase.com** and sign up. It is free.
+2. Click **New project**. Name it `megaforce-dev`.
+3. Pick a password and **write it down**. You cannot see it again.
+4. Wait about two minutes while it builds.
+
+### Step 2 — Copy four values out of Supabase
+
+In your project, click the gear icon (**Project Settings**).
+
+Under **Database → Connection string → URI**, you will see two connection
+strings. You need both:
+
+- The one on port **6543** → this is your `DATABASE_URL`
+- The one on port **5432** → this is your `DIRECT_URL`
+
+> The 6543 one shares connections between visitors. Without it the app runs out
+> of database connections almost immediately once it is live.
+
+Under **API**, copy:
+
+- **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
+- **anon public** key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- **service_role** key → `SUPABASE_SERVICE_ROLE_KEY`
+
+> The service_role key ignores all permission rules. It belongs on the server
+> only. If it ever reaches a web page, every record in your database is public.
+
+### Step 3 — Put them in a file
+
+```bash
+cp .env.example .env.local
+```
+
+Open `.env.local` and paste your values in. Replace `PASSWORD` in both
+connection strings with the database password from Step 1.
+
+This file is already ignored by Git and will never be committed.
+
+### Step 4 — Build the tables
+
+In Supabase, click **SQL Editor** → **New query**. Then, **one at a time and in
+this order**, copy the whole contents of each file, paste, and click Run:
+
+1. `db/migrations/0001_schema.sql`
+2. `db/migrations/0002_rls.sql`
+3. `db/migrations/0003_config_defaults.sql`
+
+Each should say "Success". Order matters — the second file refers to tables the
+first one creates.
+
+### Step 5 — Fill it with fake data
+
+```bash
+npm run seed -- --remote
+```
+
+Takes about a minute. It prints landmarks at the end — write down the
+`ambiguousPhone` number, it is useful in a demo.
+
+### Step 6 — Give yourself a login
+
+In Supabase, go to **Authentication → Users → Add user**. Use
+`avery.stone@megaforce.test` and any password. Tick "Auto Confirm User".
+
+Then click the new user and copy their **UID**. Back in the SQL Editor, run
+this, pasting your UID where shown:
+
+```sql
+update users
+   set auth_id = 'PASTE-THE-UID-HERE'
+ where email = 'avery.stone@megaforce.test';
+```
+
+That connects your login to Avery Stone, the admin in the fake company.
+
+### Step 7 — Run it
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open **http://localhost:3000** and sign in.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## What to click, in order, when showing this to someone
 
-## Learn More
+1. **Accounts** — sorted coldest first. The red numbers on the right are
+   companies nobody has had a real conversation with in two months.
+2. Click any account. The right-hand panel is **entirely generated from a
+   database table**. Nobody wrote code for "Monthly Retainer". Adding a field is
+   one row in `field_defs` — no developer, no deploy.
+3. Look at the **Activity** tab. Every call says whether it counted, and *why*.
+   Find a voicemail: "call result 'Voicemail' is not one of the qualifying
+   results". That sentence is the whole pitch. A rep asks "why didn't my call
+   log" and you answer in five seconds instead of opening a ticket.
+4. **Review queue** — calls the system refused to guess about. Show the one
+   labelled "Two possible accounts": the number is on file at two customers, so
+   it stopped and asked a human instead of filing it against the wrong one.
+   Attach it to an account and watch it appear on that account's timeline.
+5. Run `npm run simulate` in a terminal while they watch, then refresh.
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## The rules, in plain English
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**What counts as a real call.** At least 2 minutes, and somebody actually
+answered. A five-minute voicemail does not count. A 119-second conversation does
+not count; 121 seconds does.
 
-## Deploy on Vercel
+These numbers live in a database table (`qualification_rules`), not in the code.
+Changing "2 minutes" to "1 minute" does not require a developer or a new
+release. To show this off, run this in the SQL Editor and re-run the simulator:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```sql
+update qualification_rules set min_duration_seconds = 60 where activity_type = 'call';
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Who sees what.**
+
+- A salesperson sees the companies they own.
+- A manager sees everything owned by anyone underneath them on the org chart —
+  their people, and their people's people, all the way down.
+- An admin sees everything.
+- **Only an admin can change who owns a company.** A manager can fix a wrong
+  deal amount but cannot quietly move a rep's account to somebody else.
+
+These rules are enforced by the database itself, not by the app. Even if a page
+had a bug and asked for every account, the database would return only the ones
+that person is allowed to see. There are 16 tests proving it.
+
+**When it refuses to guess.** If a phone number is on file at two different
+companies, the call goes to the review queue and no activity is created.
+Attaching it to the wrong customer is worse than asking a person.
+
+---
+
+## Connecting real RingCentral
+
+Not needed for a demo — the simulator drives the same pipeline. When you want
+the real thing:
+
+1. Register at **developers.ringcentral.com**. The sandbox is free and does not
+   involve your company.
+2. Create an app: **server-side**, **JWT auth**. Grant it Read Call Log and
+   Webhook Subscriptions.
+3. Put `RC_CLIENT_ID`, `RC_CLIENT_SECRET`, `RC_JWT` and a `RC_WEBHOOK_SECRET`
+   (any long random string you invent) into your environment.
+4. Deploy first. **RingCentral will not send calls to a laptop** — it needs a
+   public web address.
+5. Set `APP_URL` to your live address, then call `ensureSubscription()` from
+   `src/lib/ringcentral/client.ts` once.
+
+A scheduled job renews the subscription daily. That is not optional:
+subscriptions expire, and when one lapses calls simply stop arriving with no
+error anywhere. The first sign is a rep asking why nothing has logged since
+Tuesday.
+
+---
+
+## Deploying
+
+1. Push this repository to GitHub.
+2. In Vercel, **Add New → Project**, pick the repo.
+3. Add every variable from `.env.local` in Vercel's settings. **Never commit
+   them.**
+4. Deploy.
+
+Anything you have ever pasted into a chat window should be rotated in Supabase
+before going live.
+
+---
+
+## How the code is arranged
+
+```
+db/migrations/     The SQL. This is the source of truth for the database.
+db/seed.ts         Fake data, including deliberate messy cases.
+db/local.ts        Real Postgres running inside Node, for tests. No setup.
+db/rls.test.ts     Proves the permission rules actually work.
+
+src/lib/phone.ts       Turns any phone format into one canonical form.
+src/lib/qualify.ts     Decides if an activity counts. Always says why.
+src/lib/matcher.ts     Finds the right customer. Refuses to guess.
+src/lib/ingest.ts      Stores incoming webhooks exactly once.
+
+src/app/api/webhooks/  Receives calls and emails. Under 300ms, always.
+src/inngest/           Background processing, with retries.
+src/app/(app)/         The screens.
+
+scripts/seed.ts            npm run seed
+scripts/simulate-calls.ts  npm run simulate
+```
+
+### Two ways into the database, on purpose
+
+- **Pages and buttons** use the Supabase client, which carries the signed-in
+  user's identity, so the permission rules apply automatically.
+- **The webhook worker and the seed script** use a direct connection that
+  ignores permission rules — it has to, because it is attributing a phone call
+  to a company nobody has told it about yet.
+
+Mixing these up is how a CRM leaks every account to every salesperson, so they
+are kept in separate files with the reason written at the top of each.
+
+---
+
+## Commands
+
+```bash
+npm run dev                  Start the app
+npm test                     Run all 77 tests
+npm run seed                 Fake data, local
+npm run seed -- --remote     Fake data, Supabase
+npm run seed -- --small      A tiny dataset, for quick checks
+npm run simulate             Send 10 fake calls through the pipeline
+npm run simulate -- --http http://localhost:3000
+                             Same, but over real HTTP at the live endpoint
+npm run build                Production build
+```
+
+---
+
+## Known gaps
+
+- **Pipeline screen and report builder are not built.** Steps 8 and 9 of the
+  build plan.
+- **The screens need Supabase.** The pipeline, the matcher and the tests all run
+  with no setup, but the browser app needs a login system. Without credentials
+  it shows setup instructions instead of crashing.
+- **`last_activity_at` only updates when activity is added.** Deleting an
+  activity leaves the timestamp stale. Fine for a demo; a real deployment wants
+  a nightly recompute.
+- **International phone numbers are handled simply.** North American numbers are
+  exact. For real multi-country use, swap one branch of `src/lib/phone.ts` for
+  `libphonenumber-js`. Nothing else changes.
+- **Twelve npm audit warnings**, all in the code-checking tools that never ship
+  to users. Fixing them requires downgrading ESLint.
