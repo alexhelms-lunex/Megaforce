@@ -15,7 +15,7 @@ register. No real person or company appears anywhere.
 |---|---|
 | Database design, permissions, indexes | Done, tested |
 | Fake data: 800 companies, 20,000 calls and emails | Done, runs in 9 seconds |
-| Matching a call to the right customer | Done, 77 tests passing |
+| Matching a call to the right customer | Done, 85 tests passing |
 | Deciding if a call counts, and explaining why | Done |
 | Review queue for calls it refused to guess about | Done |
 | Account list, account detail, review queue screens | Done |
@@ -31,7 +31,7 @@ You need nothing installed except Node. No database, no accounts, no signups.
 
 ```bash
 npm install
-npm test          # 77 tests against a real Postgres running inside the process
+npm test          # 85 tests against a real Postgres running inside the process
 npm run seed      # builds the whole fake company
 npm run simulate  # sends 10 fake phone calls through the real pipeline
 ```
@@ -57,93 +57,92 @@ thing that happens to real phone systems.
 
 ## To see the actual screens, you need a database
 
-The screens need a login system, and the login system is Supabase. About ten
-minutes of clicking.
+The screens need a login system, and the login system is Supabase. There are
+three things to do, and only the first one involves any clicking.
 
-### Step 1 — Make a Supabase project
+### Step 1 — Make a Supabase project and copy five values
 
 1. Go to **supabase.com** and sign up. It is free.
 2. Click **New project**. Name it `megaforce-dev`.
-3. Pick a password and **write it down**. You cannot see it again.
+3. Pick a database password and **write it down**. You cannot see it again.
 4. Wait about two minutes while it builds.
 
-### Step 2 — Copy four values out of Supabase
+Then click the gear icon (**Project Settings**).
 
-In your project, click the gear icon (**Project Settings**).
+Under **Database → Connection string → URI** there are two strings. Take both:
 
-Under **Database → Connection string → URI**, you will see two connection
-strings. You need both:
-
-- The one on port **6543** → this is your `DATABASE_URL`
-- The one on port **5432** → this is your `DIRECT_URL`
+| Port | Goes in |
+|---|---|
+| **6543** | `DATABASE_URL` |
+| **5432** | `DIRECT_URL` |
 
 > The 6543 one shares connections between visitors. Without it the app runs out
 > of database connections almost immediately once it is live.
 
-Under **API**, copy:
+Under **API**, take three more:
 
-- **Project URL** → `NEXT_PUBLIC_SUPABASE_URL`
-- **anon public** key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- **service_role** key → `SUPABASE_SERVICE_ROLE_KEY`
+| In Supabase | Goes in |
+|---|---|
+| Project URL | `NEXT_PUBLIC_SUPABASE_URL` |
+| anon public | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+| service_role | `SUPABASE_SERVICE_ROLE_KEY` |
 
 > The service_role key ignores all permission rules. It belongs on the server
 > only. If it ever reaches a web page, every record in your database is public.
 
-### Step 3 — Put them in a file
+### Step 2 — Paste them into a file
 
 ```bash
 cp .env.example .env.local
 ```
 
-Open `.env.local` and paste your values in. Replace `PASSWORD` in both
-connection strings with the database password from Step 1.
+Open `.env.local` and paste your five values in. In **both** connection
+strings, replace the word `PASSWORD` with the database password from Step 1 —
+forgetting this is the most common mistake, and the setup command below will
+tell you if you did.
 
 This file is already ignored by Git and will never be committed.
 
-### Step 4 — Build the tables
-
-In Supabase, click **SQL Editor** → **New query**. Then, **one at a time and in
-this order**, copy the whole contents of each file, paste, and click Run:
-
-1. `db/migrations/0001_schema.sql`
-2. `db/migrations/0002_rls.sql`
-3. `db/migrations/0003_config_defaults.sql`
-
-Each should say "Success". Order matters — the second file refers to tables the
-first one creates.
-
-### Step 5 — Fill it with fake data
+### Step 3 — Run one command
 
 ```bash
-npm run seed -- --remote
+npm run setup
 ```
 
-Takes about a minute. It prints landmarks at the end — write down the
-`ambiguousPhone` number, it is useful in a demo.
+That is the whole thing. It creates the tables, installs the permission rules,
+loads 800 companies and 20,000 calls, creates your login, and prints the email
+and password to sign in with. It takes about a minute.
 
-### Step 6 — Give yourself a login
+If anything is wrong it stops and tells you which value to fix and where to
+find it. It is safe to run again as many times as you need.
 
-In Supabase, go to **Authentication → Users → Add user**. Use
-`avery.stone@megaforce.test` and any password. Tick "Auto Confirm User".
-
-Then click the new user and copy their **UID**. Back in the SQL Editor, run
-this, pasting your UID where shown:
-
-```sql
-update users
-   set auth_id = 'PASTE-THE-UID-HERE'
- where email = 'avery.stone@megaforce.test';
-```
-
-That connects your login to Avery Stone, the admin in the fake company.
-
-### Step 7 — Run it
+Then:
 
 ```bash
 npm run dev
 ```
 
-Open **http://localhost:3000** and sign in.
+Open **http://localhost:3000** and sign in with the details it printed.
+
+<details>
+<summary>Prefer to do it by hand?</summary>
+
+Everything `npm run setup` does can be done manually:
+
+1. In Supabase, **SQL Editor → New query**. Paste and Run each of these, in
+   order: `db/migrations/0001_schema.sql`, `0002_rls.sql`,
+   `0003_config_defaults.sql`.
+2. `npm run seed -- --remote`
+3. **Authentication → Users → Add user**, email
+   `avery.stone@megaforce.test`, any password, tick "Auto Confirm User". Copy
+   the new user's **UID**, then run:
+
+   ```sql
+   update users set auth_id = 'PASTE-THE-UID-HERE'
+    where email = 'avery.stone@megaforce.test';
+   ```
+
+</details>
 
 ---
 
@@ -272,8 +271,9 @@ are kept in separate files with the reason written at the top of each.
 ## Commands
 
 ```bash
+npm run setup                One-command Supabase setup. Re-runnable.
 npm run dev                  Start the app
-npm test                     Run all 77 tests
+npm test                     Run all 85 tests
 npm run seed                 Fake data, local
 npm run seed -- --remote     Fake data, Supabase
 npm run seed -- --small      A tiny dataset, for quick checks

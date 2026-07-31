@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
     "db:push": "tsx scripts/migrate.ts",
-    "simulate": "tsx scripts/simulate-calls.ts"
+    "simulate": "tsx scripts/simulate-calls.ts",
+    "setup": "tsx scripts/setup.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.4",
+    "@electric-sql/pglite-socket": "^0.2.7",
     "@eslint/eslintrc": "^3",
     "@faker-js/faker": "^10.5.0",
     "@tailwindcss/postcss": "^4",
