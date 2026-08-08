@@ -48,7 +48,13 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isPublic =
-    path === "/login" || path.startsWith("/api/webhooks") || path.startsWith("/api/inngest");
+    path === "/login" ||
+    path.startsWith("/api/webhooks") ||
+    path.startsWith("/api/inngest") ||
+    // Setup has to be reachable before any login exists -- it is the thing that
+    // creates the first one. Redirecting it to /login would make the app
+    // impossible to set up. It has its own key check.
+    path.startsWith("/api/setup");
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

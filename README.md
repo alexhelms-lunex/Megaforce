@@ -15,7 +15,7 @@ register. No real person or company appears anywhere.
 |---|---|
 | Database design, permissions, indexes | Done, tested |
 | Fake data: 800 companies, 20,000 calls and emails | Done, runs in 9 seconds |
-| Matching a call to the right customer | Done, 85 tests passing |
+| Matching a call to the right customer | Done, 92 tests passing |
 | Deciding if a call counts, and explaining why | Done |
 | Review queue for calls it refused to guess about | Done |
 | Account list, account detail, review queue screens | Done |
@@ -31,7 +31,7 @@ You need nothing installed except Node. No database, no accounts, no signups.
 
 ```bash
 npm install
-npm test          # 85 tests against a real Postgres running inside the process
+npm test          # 92 tests against a real Postgres running inside the process
 npm run seed      # builds the whole fake company
 npm run simulate  # sends 10 fake phone calls through the real pipeline
 ```
@@ -55,10 +55,74 @@ thing that happens to real phone systems.
 
 ---
 
-## To see the actual screens, you need a database
+## Setting it up without ever opening a terminal
 
-The screens need a login system, and the login system is Supabase. There are
-three things to do, and only the first one involves any clicking.
+If you would rather not touch a command line, you never have to. Everything
+below happens in two browser tabs: Supabase and Vercel.
+
+### 1. Get your five Supabase values
+
+In your Supabase project, click the **gear icon** (Project Settings).
+
+**Database → Connection string → URI** gives you two strings:
+
+| Port | Goes in |
+|---|---|
+| **5432** | `DIRECT_URL` |
+| **6543** | `DATABASE_URL` |
+
+**API** gives you three more:
+
+| In Supabase | Goes in |
+|---|---|
+| Project URL | `NEXT_PUBLIC_SUPABASE_URL` |
+| anon public | `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
+| service_role | `SUPABASE_SERVICE_ROLE_KEY` |
+
+In both connection strings, replace the word `PASSWORD` with your Supabase
+database password.
+
+### 2. Deploy from Vercel's website
+
+1. Go to **vercel.com** and sign in with GitHub.
+2. **Add New → Project**, pick the **Megaforce** repository, click **Import**.
+3. Open **Environment Variables** and add all five values above, plus one more:
+
+   | Name | Value |
+   |---|---|
+   | `SETUP_SECRET` | any long random string you make up |
+
+4. Click **Deploy** and wait a couple of minutes.
+
+### 3. Visit one web address
+
+Take the address Vercel gives you and add `/api/setup?key=` plus your
+`SETUP_SECRET`:
+
+```
+https://your-app.vercel.app/api/setup?key=YOUR-SETUP-SECRET
+```
+
+A page appears explaining what is about to happen. Click **Set up my CRM**.
+
+About half a minute later it shows you an email and a password. **Write the
+password down** — that page is the only place it appears. Click **Open the
+CRM**.
+
+### 4. Turn the setup page back off
+
+In Vercel, **Settings → Environment Variables**, delete `SETUP_SECRET`, and
+redeploy. The setup page stops existing.
+
+> The page erases the database before loading sample data, so it is not
+> something to leave switched on. Without `SETUP_SECRET` set, the route returns
+> a 404 — it cannot be reached at all.
+
+---
+
+## Setting it up from a terminal instead
+
+Same result, full-size dataset, three steps.
 
 ### Step 1 — Make a Supabase project and copy five values
 
@@ -272,8 +336,9 @@ are kept in separate files with the reason written at the top of each.
 
 ```bash
 npm run setup                One-command Supabase setup. Re-runnable.
+                             (Or visit /api/setup in a browser -- no terminal.)
 npm run dev                  Start the app
-npm test                     Run all 85 tests
+npm test                     Run all 92 tests
 npm run seed                 Fake data, local
 npm run seed -- --remote     Fake data, Supabase
 npm run seed -- --small      A tiny dataset, for quick checks
