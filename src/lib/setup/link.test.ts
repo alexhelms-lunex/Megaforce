@@ -5,7 +5,13 @@ import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import postgres from "postgres";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { ADMIN_EMAIL, describeError, linkExistingLogin, listAuthLogins } from "./run";
+import {
+  ADMIN_EMAIL,
+  describeError,
+  linkByAuthId,
+  linkExistingLogin,
+  listAuthLogins,
+} from "./run";
 
 /**
  * The rescue path.
@@ -203,5 +209,67 @@ describe("linking a login whose email is not the seed's placeholder", () => {
 
   it("still reports false for an address nobody made", async () => {
     expect(await linkExistingLogin(sql, "nobody@megaforce.test")).toBe(false);
+  });
+});
+
+describe("linking by the ID pasted from the dashboard", () => {
+  // The path that cannot be refused. Supabase keeps auth.users under a schema
+  // owned by its own role, and a project may not grant the app's role read
+  // access -- so listing the logins can fail while the login plainly exists.
+  // Writing our OWN users table never needs anyone's permission.
+  const UID = "52a67572-7bce-405d-93a3-77b8601ffc8d";
+
+  beforeAll(async () => {
+    await sql`delete from auth.users`;
+    await sql`delete from users`;
+    await sql`
+      insert into users (email, full_name, role)
+      values (${ADMIN_EMAIL}, 'Avery Stone', 'admin')
+    `;
+  });
+
+  it("links without ever reading the auth schema", async () => {
+    await linkByAuthId(sql, UID, "alex.helmsworth@megaforce.test");
+
+    const [profile] = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users where role = 'admin'
+    `;
+    expect(profile.auth_id).toBe(UID);
+    expect(profile.email).toBe("alex.helmsworth@megaforce.test");
+  });
+
+  it("tolerates surrounding whitespace from a copy and paste", async () => {
+    await expect(linkByAuthId(sql, `  ${UID}\n`)).resolves.toBeUndefined();
+  });
+
+  it("leaves the email alone when none is supplied", async () => {
+    const [before] = await sql<{ email: string }[]>`
+      select email from users where role = 'admin'
+    `;
+    await linkByAuthId(sql, UID);
+    const [after] = await sql<{ email: string }[]>`
+      select email from users where role = 'admin'
+    `;
+    expect(after.email).toBe(before.email);
+  });
+
+  it("rejects something that is not an ID, and shows where to find one", async () => {
+    for (const bad of ["", "not-a-uuid", "alex.helmsworth@megaforce.test", "1234"]) {
+      await expect(linkByAuthId(sql, bad), bad).rejects.toThrow(/does not look like a user ID/);
+    }
+    // The guidance points at the column in the dashboard, not at a spec. It
+    // lives on `fix`, which is what the page renders beneath the headline.
+    await linkByAuthId(sql, "nope").then(
+      () => expect.unreachable("should have thrown"),
+      (err) => {
+        expect(err.fix).toContain("Authentication → Users");
+        expect(err.fix).toContain("UID");
+      },
+    );
+  });
+
+  it("is safe to run twice with the same ID", async () => {
+    await linkByAuthId(sql, UID);
+    await expect(linkByAuthId(sql, UID)).resolves.toBeUndefined();
   });
 });

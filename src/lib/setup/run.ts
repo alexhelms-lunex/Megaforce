@@ -514,23 +514,84 @@ async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
 
 /**
  * The logins available to choose from, with the connection opened and closed
- * for us. Returns an empty list rather than throwing, because the page that
- * calls this has something useful to say either way.
+ * for us.
+ *
+ * Returns the reason on failure rather than an empty list. An earlier version
+ * swallowed errors and returned [], which made "the auth schema is not readable
+ * by this role" indistinguishable from "you have not made a login yet" -- and
+ * so told someone staring at their login in the Supabase dashboard that it did
+ * not exist. Reporting nothing found when the truth is that we could not look
+ * is worse than reporting the error.
  */
-export async function fetchAuthLogins(): Promise<{ id: string; email: string }[]> {
+export async function fetchAuthLogins(): Promise<{
+  logins: { id: string; email: string }[];
+  error?: string;
+}> {
   let sql: postgres.Sql;
   try {
     checkEnvironment();
     sql = await connect();
-  } catch {
-    return [];
+  } catch (err) {
+    return { logins: [], error: describeError(err) };
   }
   try {
-    return await listAuthLogins(sql);
-  } catch {
-    return [];
+    return { logins: await listAuthLogins(sql) };
+  } catch (err) {
+    return { logins: [], error: describeError(err) };
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Attach a login by its identifier, pasted straight from the Supabase
+ * dashboard's Users table.
+ *
+ * This is the path that cannot fail for lack of permission. Supabase keeps
+ * auth.users under a schema owned by its own role, and a project may not grant
+ * the application's role read access to it -- so listing the logins can be
+ * refused even though the login plainly exists. Writing our OWN users table
+ * never is.
+ *
+ * The UID is visible in the dashboard next to the login, so this asks for
+ * something already on screen rather than something to go and derive.
+ */
+export async function linkByAuthId(
+  sql: postgres.Sql,
+  authId: string,
+  email?: string,
+): Promise<void> {
+  const id = authId.trim();
+  if (!UUID.test(id)) {
+    throw new SetupError(
+      "That does not look like a user ID",
+      `Expected something shaped like 52a67572-7bce-405d-93a3-77b8601ffc8d.\n\n` +
+        `Find it in Supabase under Authentication → Users, in the UID column ` +
+        `beside your login.\n\nGot: ${id.slice(0, 60) || "(empty)"}`,
+    );
+  }
+
+  // auth_id is unique, so clear any previous pointer before re-aiming it.
+  await sql`update users set auth_id = null where auth_id = ${id}::uuid`;
+
+  const address = email?.trim().toLowerCase();
+  const linked = address
+    ? await sql<{ id: string }[]>`
+        update users set auth_id = ${id}::uuid, email = ${address}
+         where id = (select id from users where role = 'admin' order by created_at limit 1)
+        returning id`
+    : await sql<{ id: string }[]>`
+        update users set auth_id = ${id}::uuid
+         where id = (select id from users where role = 'admin' order by created_at limit 1)
+        returning id`;
+
+  if (linked.length === 0) {
+    throw new SetupError(
+      "No admin profile found in the CRM",
+      `The sample data should have created one. Run the full setup again.`,
+    );
   }
 }
 
@@ -539,7 +600,11 @@ export async function fetchAuthLogins(): Promise<{ id: string; email: string }[]
  * exists in Supabase. For when the Auth API could not be reached and the user
  * created the login through the dashboard instead.
  */
-export async function runLinkOnly(email?: string): Promise<SetupResult> {
+export async function runLinkOnly(options: {
+  email?: string;
+  /** Pasted from the dashboard. Takes precedence, since it cannot be refused. */
+  authId?: string;
+} = {}): Promise<SetupResult> {
   const steps: SetupStep[] = [];
   try {
     checkEnvironment();
@@ -561,7 +626,27 @@ export async function runLinkOnly(email?: string): Promise<SetupResult> {
   }
 
   try {
-    const target = (email ?? ADMIN_EMAIL).trim().toLowerCase();
+    // The pasted identifier wins. Looking a login up by address needs read
+    // access to Supabase's auth schema, which a project may not grant; writing
+    // our own table never needs anyone's permission.
+    if (options.authId) {
+      await linkByAuthId(sql, options.authId, options.email);
+      steps.push({
+        name: "Linking your login",
+        status: "ok",
+        detail: options.email?.trim() || options.authId.trim(),
+      });
+      return {
+        ok: true,
+        steps,
+        login: {
+          email: options.email?.trim() || "(the address you used in Supabase)",
+          password: "(the one you chose in Supabase)",
+        },
+      };
+    }
+
+    const target = (options.email ?? ADMIN_EMAIL).trim().toLowerCase();
     const linked = await linkExistingLogin(sql, target);
 
     if (!linked) {

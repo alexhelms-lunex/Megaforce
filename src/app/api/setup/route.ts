@@ -92,45 +92,68 @@ export async function GET(req: Request) {
     // Offer the logins that actually exist rather than demanding a specific
     // address. Whichever email was used in the dashboard is the right one; a
     // placeholder invented by a seed script is not something to have to match.
-    const logins = await fetchAuthLogins();
+    const { logins, error } = await fetchAuthLogins();
 
-    if (logins.length === 0) {
+    // The paste-the-UID form is ALWAYS offered, because it is the one that
+    // cannot be refused. Supabase keeps auth.users under a schema owned by its
+    // own role, and a project may not grant our role read access -- so the
+    // dropdown below can come back empty while the login plainly exists in the
+    // dashboard. Writing our own table never needs anyone's permission.
+    const manual = `
+      <form method="post">
+        <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+        <input type="hidden" name="link" value="1" />
+        <label for="authId">User UID</label>
+        <input id="authId" name="authId" placeholder="52a67572-7bce-405d-93a3-77b8601ffc8d"
+               autocomplete="off" spellcheck="false" />
+        <label for="manualEmail">Email on that login <span class="dim">(optional)</span></label>
+        <input id="manualEmail" name="email" type="email"
+               placeholder="you@megaforce.test" autocomplete="off" />
+        <button type="submit">Connect it</button>
+      </form>
+      <p class="dim">Find the UID in Supabase under <b>Authentication → Users</b>, in the
+      <b>UID</b> column beside your login. Copy the whole thing.</p>`;
+
+    if (logins.length > 0) {
+      const options = logins
+        .map((l) => `<option value="${escapeHtml(l.email)}">${escapeHtml(l.email)}</option>`)
+        .join("");
+
       return html(
         page(
-          "Make a login first",
-          `<p>No Supabase logins exist in this project yet. It takes about thirty
-           seconds:</p>
-           <ol>
-             <li>In Supabase: <b>Authentication → Users → Add user → Create new user</b></li>
-             <li>Email: anything you like</li>
-             <li>Password: anything. <b>Write it down.</b></li>
-             <li>Tick <b>Auto Confirm User</b>, then create it</li>
-           </ol>
-           <p>Then load this page again and it will appear here to pick.</p>`,
+          "Connect your login",
+          `<p>This does not touch your data. It connects a Supabase login to the CRM's
+           admin profile so you can sign in.</p>
+           <form method="post">
+             <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+             <input type="hidden" name="link" value="1" />
+             <label for="email">Which login is yours?</label>
+             <select id="email" name="email">${options}</select>
+             <button type="submit">Connect it</button>
+           </form>
+           <hr />
+           <h2>Or paste the ID yourself</h2>
+           ${manual}`,
         ),
       );
     }
 
-    const options = logins
-      .map((l) => `<option value="${escapeHtml(l.email)}">${escapeHtml(l.email)}</option>`)
-      .join("");
+    // Nothing listed. Say honestly which of the two reasons applies.
+    const why = error
+      ? `<p class="warn">Could not read the list of logins from this project. That does
+         <b>not</b> mean you have none — Supabase often withholds that table from the
+         app's database role. Paste the ID below instead and it will work.</p>
+         <pre class="dim">${escapeHtml(error)}</pre>`
+      : `<p>No logins turned up. If you have not made one yet, it takes about thirty
+         seconds:</p>
+         <ol>
+           <li>In Supabase: <b>Authentication → Users → Add user → Create new user</b></li>
+           <li>Email: anything you like</li>
+           <li>Password: anything. <b>Write it down.</b></li>
+           <li>Tick <b>Auto Confirm User</b>, then create it</li>
+         </ol>`;
 
-    return html(
-      page(
-        "Connect your login",
-        `<p>This does not touch your data. It connects a Supabase login to the CRM's
-         admin profile so you can sign in.</p>
-         <form method="post">
-           <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
-           <input type="hidden" name="link" value="1" />
-           <label for="email">Which login is yours?</label>
-           <select id="email" name="email">${options}</select>
-           <button type="submit">Connect it</button>
-         </form>
-         <p class="dim">Sign in afterwards with that address and the password you
-         chose in Supabase.</p>`,
-      ),
-    );
+    return html(page("Connect your login", `${why}<h2>Paste the ID</h2>${manual}`));
   }
 
   return html(
@@ -162,8 +185,12 @@ export async function POST(req: Request) {
   if (!keyMatches(key)) return html(page("Wrong key", "<p>That key is not correct.</p>"), 403);
 
   if (form && String(form.get("link") ?? "") === "1") {
-    const email = String(form.get("email") ?? "").trim() || ADMIN_EMAIL;
-    const linked = await runLinkOnly(email);
+    const authId = String(form.get("authId") ?? "").trim();
+    const email = String(form.get("email") ?? "").trim();
+    const linked = await runLinkOnly({
+      authId: authId || undefined,
+      email: email || (authId ? undefined : ADMIN_EMAIL),
+    });
     return html(renderResult(linked), linked.ok ? 200 : 500);
   }
 
@@ -269,9 +296,12 @@ function page(title: string, body: string): string {
                  cursor:pointer; text-decoration:none; }
   form { margin:1.25rem 0; }
   label { display:block; font-weight:600; margin-bottom:.4rem; }
-  select { display:block; width:100%; max-width:26rem; margin-bottom:1rem; padding:.6rem .7rem;
+  select, input[type=text], input[type=email], input:not([type]) {
+           display:block; width:100%; max-width:30rem; margin-bottom:1rem; padding:.6rem .7rem;
            font-size:1rem; border-radius:8px; border:1px solid var(--line);
-           background:var(--bg); color:var(--fg); }
+           background:var(--bg); color:var(--fg); font-family:inherit; }
+  input#authId { font-family: ui-monospace, Menlo, monospace; font-size:.95rem; }
+  hr { border:0; border-top:1px solid var(--line); margin:2rem 0 1.25rem; }
   ol { padding-left:1.2rem; } ol li { margin:.35rem 0; }
 </style></head>
 <body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
