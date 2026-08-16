@@ -66,9 +66,9 @@ beforeEach(async () => {
   ids.admin = await mkUser("admin@megaforce.test", "admin", AUTH.admin, null);
   ids.manager = await mkUser("manager@megaforce.test", "manager", AUTH.manager, ids.admin);
   ids.otherManager = await mkUser("other@megaforce.test", "manager", AUTH.otherManager, ids.admin);
-  ids.rep1 = await mkUser("rep1@megaforce.test", "rep", AUTH.rep1, ids.manager);
-  ids.rep2 = await mkUser("rep2@megaforce.test", "rep", AUTH.rep2, ids.manager);
-  ids.rep3 = await mkUser("rep3@megaforce.test", "rep", AUTH.rep3, ids.otherManager);
+  ids.rep1 = await mkUser("rep1@megaforce.test", "broker", AUTH.rep1, ids.manager);
+  ids.rep2 = await mkUser("rep2@megaforce.test", "broker", AUTH.rep2, ids.manager);
+  ids.rep3 = await mkUser("rep3@megaforce.test", "broker", AUTH.rep3, ids.otherManager);
 
   const mkAccount = async (name: string, ownerId: string) => {
     const res = await pg.query<{ id: string }>(
@@ -205,7 +205,7 @@ describe("who owns an account", () => {
     await becomeUser(pg, AUTH.manager);
     await expect(
       pg.query("update accounts set owner_id = $1 where id = $2", [ids.rep2, ids.acct1]),
-    ).rejects.toThrow(/ownership can only be changed by an admin/i);
+    ).rejects.toThrow(/belongs to another broker/i);
   });
 
   it("allows an admin to reassign it", async () => {
@@ -222,7 +222,7 @@ describe("who owns an account", () => {
 
   it("still lets a manager edit other columns on the same row", async () => {
     await becomeUser(pg, AUTH.manager);
-    await pg.query("update accounts set name = 'Renamed', status = 'churned' where id = $1", [
+    await pg.query("update accounts set name = 'Renamed', status = 'do_not_contact' where id = $1", [
       ids.acct1,
     ]);
     const res = await pg.query<{ name: string }>("select name from accounts where id = $1", [
@@ -295,5 +295,101 @@ describe("configuration", () => {
       "update qualification_rules set min_duration_seconds = 60 where activity_type = 'call'",
     );
     expect(allowed.affectedRows).toBe(1);
+  });
+});
+
+describe("the available pool", () => {
+  it("is visible to every broker, not just the owner's team", async () => {
+    // The pool has to be browsable or nobody can claim from it. rep3 sits under
+    // a different manager and would see nothing of rep1's book -- but an
+    // unowned account belongs to no book at all.
+    await becomeService(pg);
+    await pg.query("update accounts set owner_id = null where id = $1", [ids.acct1]);
+
+    for (const who of [AUTH.rep1, AUTH.rep3, AUTH.manager]) {
+      await becomeUser(pg, who);
+      const res = await pg.query<{ name: string }>(
+        "select name from accounts where owner_id is null",
+      );
+      expect(res.rows.map((r) => r.name), who).toContain("Account One");
+    }
+  });
+
+  it("lets any broker claim an unowned account", async () => {
+    await becomeService(pg);
+    await pg.query("update accounts set owner_id = null where id = $1", [ids.acct1]);
+
+    // rep3 is in a different part of the org chart entirely.
+    await becomeUser(pg, AUTH.rep3);
+    await pg.query("update accounts set owner_id = $1 where id = $2", [ids.rep3, ids.acct1]);
+
+    await becomeService(pg);
+    const res = await pg.query<{ owner_id: string }>(
+      "select owner_id from accounts where id = $1",
+      [ids.acct1],
+    );
+    expect(res.rows[0].owner_id).toBe(ids.rep3);
+  });
+
+  it("still refuses to let a broker take an account somebody else holds", async () => {
+    // The entire mechanic, and it is stopped twice over.
+    //
+    // rep3 cannot even SEE rep1's account, so RLS removes the row from the
+    // statement's scope and the UPDATE matches nothing -- the ownership trigger
+    // never gets a chance to run. Zero rows, no exception. Application code has
+    // to treat "nothing changed" as a failure rather than as success, which is
+    // exactly what claimAccount() does.
+    await becomeUser(pg, AUTH.rep3);
+    const attempt = await pg.query("update accounts set owner_id = $1 where id = $2", [
+      ids.rep3,
+      ids.acct1,
+    ]);
+    expect(attempt.affectedRows).toBe(0);
+
+    await becomeService(pg);
+    const res = await pg.query<{ owner_id: string }>(
+      "select owner_id from accounts where id = $1",
+      [ids.acct1],
+    );
+    expect(res.rows[0].owner_id).toBe(ids.rep1);
+  });
+
+  it("refuses a broker who CAN see the account but does not own it", async () => {
+    // A manager can see their whole team, so the row is in scope and the
+    // trigger is what stops them. This is the guard that RLS cannot provide,
+    // because RLS grants whole rows and cannot protect one column.
+    await becomeUser(pg, AUTH.manager);
+    await expect(
+      pg.query("update accounts set owner_id = $1 where id = $2", [ids.rep2, ids.acct1]),
+    ).rejects.toThrow(/belongs to another broker/i);
+  });
+
+  it("lets a broker give up an account they hold", async () => {
+    await becomeUser(pg, AUTH.rep1);
+    await pg.query("update accounts set owner_id = null where id = $1", [ids.acct1]);
+
+    await becomeService(pg);
+    const res = await pg.query<{ owner_id: string | null }>(
+      "select owner_id from accounts where id = $1",
+      [ids.acct1],
+    );
+    expect(res.rows[0].owner_id).toBeNull();
+  });
+});
+
+describe("the credit team", () => {
+  it("sees every account regardless of who owns it", async () => {
+    await becomeService(pg);
+    await pg.query(
+      `insert into users (email, full_name, role, auth_id) values
+       ('credit@megaforce.test', 'Credit Desk', 'credit', $1)`,
+      ["00000000-0000-0000-0000-0000000000e9"],
+    );
+
+    await becomeUser(pg, "00000000-0000-0000-0000-0000000000e9");
+    const res = await pg.query<{ c: string }>("select count(*)::text c from accounts");
+    // Alex's decision on record: credit assesses risk across the whole book, so
+    // ownership must not limit them.
+    expect(res.rows[0].c).toBe("3");
   });
 });

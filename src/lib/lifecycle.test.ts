@@ -1,0 +1,343 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
+import { createLocalDrizzle, type LocalDrizzle } from "../../db/drizzle-local";
+import type { LocalDb } from "../../db/local";
+import * as schema from "@/lib/db/schema";
+import {
+  accountState,
+  availableAccounts,
+  claimAccount,
+  claimHistory,
+  releaseAccount,
+  releaseOverdueAccounts,
+} from "@/lib/lifecycle";
+
+/**
+ * The ownership mechanic, tested against real Postgres.
+ *
+ * This is the part of the system a sales floor will argue about, so the rules
+ * are pinned down here rather than trusted to a screen: who can take what, what
+ * happens at each day boundary, and what the record shows afterwards.
+ */
+
+let db: LocalDrizzle;
+let pg: LocalDb;
+let dana: string;
+let kai: string;
+
+beforeAll(async () => {
+  ({ db, pg } = await createLocalDrizzle());
+});
+
+afterAll(async () => {
+  await pg?.close();
+});
+
+beforeEach(async () => {
+  await pg.exec(`
+    delete from account_claims;
+    delete from unmatched_activities;
+    delete from activities;
+    delete from raw_events;
+    delete from contacts;
+    delete from opportunities;
+    delete from accounts;
+    delete from users;
+
+    -- Restore the shipped thresholds. One test below deliberately changes them
+    -- to prove the rules are data; without this reset that change leaks into
+    -- every test that runs afterwards and they fail somewhere unrelated.
+    delete from account_retention_rules;
+    insert into account_retention_rules (applies_to, warning_days, expiring_days, release_days) values
+      ('prospect', 21, 30, 45),
+      ('engaged',  30, 45, 60),
+      ('customer', 60, 90, 120);
+  `);
+
+  [{ id: dana }] = await db
+    .insert(schema.users)
+    .values({ email: "dana@megaforce.test", fullName: "Dana Whitfield", role: "broker" })
+    .returning({ id: schema.users.id });
+  [{ id: kai }] = await db
+    .insert(schema.users)
+    .values({ email: "kai@megaforce.test", fullName: "Kai Osei", role: "broker" })
+    .returning({ id: schema.users.id });
+});
+
+/** An account owned by `owner`, whose last qualifying activity was N days ago. */
+async function makeAccount(opts: {
+  name?: string;
+  owner?: string | null;
+  daysSinceActivity?: number | null;
+  daysSinceClaim?: number;
+  status?: string;
+}) {
+  const [row] = await db
+    .insert(schema.accounts)
+    .values({
+      name: opts.name ?? "Ironwood Manufacturing",
+      ownerId: opts.owner ?? null,
+      status: opts.status ?? "prospect",
+    })
+    .returning({ id: schema.accounts.id });
+
+  // Set the clock columns directly. The claim trigger stamps claimed_at to now
+  // on insert-with-owner, which is not the history a test needs.
+  await db.execute(sql`
+    update accounts set
+      last_activity_at = ${opts.daysSinceActivity === null || opts.daysSinceActivity === undefined
+        ? null
+        : sql`now() - (${opts.daysSinceActivity} || ' days')::interval`},
+      claimed_at = ${opts.owner
+        ? sql`now() - (${opts.daysSinceClaim ?? 90} || ' days')::interval`
+        : null}
+    where id = ${row.id}
+  `);
+  return row.id;
+}
+
+const stateOf = async (id: string) => (await accountState(db, id))!.state;
+
+// ---------------------------------------------------------------------------
+
+describe("what state an account is in", () => {
+  it("calls an unowned account available", async () => {
+    const id = await makeAccount({ owner: null });
+    expect(await stateOf(id)).toBe("available");
+  });
+
+  // The thresholds for a prospect are 21 / 30 / 45 days, seeded in 0004.
+  it("walks through amber, red and overdue at the configured days", async () => {
+    const cases: [number, string][] = [
+      [1, "fresh"],
+      [20, "fresh"],
+      [21, "warning"],
+      [29, "warning"],
+      [30, "expiring"],
+      [44, "expiring"],
+      [45, "overdue"],
+      [90, "overdue"],
+    ];
+    for (const [days, expected] of cases) {
+      const id = await makeAccount({ owner: dana, daysSinceActivity: days });
+      expect(await stateOf(id), `${days} days`).toBe(expected);
+    }
+  });
+
+  it("counts from the claim date when a new owner has not worked it yet", async () => {
+    // Otherwise a broker inherits an account already in the red for somebody
+    // else's neglect, and loses it before they have had a chance.
+    const id = await makeAccount({ owner: dana, daysSinceActivity: null, daysSinceClaim: 2 });
+    expect(await stateOf(id)).toBe("fresh");
+  });
+
+  it("gives a converted customer a much longer leash than a prospect", async () => {
+    // Customers are Salesforce's problem; the CRM must not yank an account
+    // somebody has already won.
+    const prospect = await makeAccount({ owner: dana, daysSinceActivity: 50, status: "prospect" });
+    const customer = await makeAccount({ owner: dana, daysSinceActivity: 50, status: "customer" });
+    expect(await stateOf(prospect)).toBe("overdue");
+    expect(await stateOf(customer)).toBe("fresh");
+  });
+
+  it("obeys a threshold change made in the database, with no code change", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 25 });
+    expect(await stateOf(id)).toBe("warning");
+
+    await db.execute(
+      sql`update account_retention_rules set warning_days = 10, expiring_days = 20, release_days = 24 where applies_to = 'prospect'`,
+    );
+    expect(await stateOf(id)).toBe("overdue");
+  });
+
+  it("reports days remaining, going negative once past the deadline", async () => {
+    const soon = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+    const gone = await makeAccount({ owner: dana, daysSinceActivity: 50 });
+    expect((await accountState(db, soon))!.daysLeft).toBe(5);
+    expect((await accountState(db, gone))!.daysLeft).toBeLessThan(0);
+  });
+});
+
+describe("claiming from the pool", () => {
+  it("hands an unowned account to whoever asks", async () => {
+    const id = await makeAccount({ owner: null });
+    const result = await claimAccount(db, id, dana);
+
+    expect(result.ok).toBe(true);
+    const [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, id));
+    expect(account.ownerId).toBe(dana);
+    expect(account.claimedAt).not.toBeNull();
+  });
+
+  it("lets exactly one of two simultaneous claims win", async () => {
+    // The real race: two brokers click at the same moment. Protection is the
+    // isNull(ownerId) in the UPDATE, not a check-then-write in application code.
+    const id = await makeAccount({ owner: null });
+    const [first, second] = await Promise.all([
+      claimAccount(db, id, dana),
+      claimAccount(db, id, kai),
+    ]);
+
+    const winners = [first, second].filter((r) => r.ok);
+    expect(winners).toHaveLength(1);
+
+    const loser = [first, second].find((r) => !r.ok)!;
+    expect(loser.ok).toBe(false);
+    if (!loser.ok) expect(loser.reason).toBe("already_claimed");
+  });
+
+  it("names who took it, rather than just refusing", async () => {
+    const id = await makeAccount({ owner: dana });
+    const result = await claimAccount(db, id, kai);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("already_claimed");
+      expect(result.detail).toContain("Dana Whitfield");
+    }
+  });
+
+  it("says so when the account is gone entirely", async () => {
+    const result = await claimAccount(db, "00000000-0000-0000-0000-000000000000", dana);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("not_found");
+  });
+
+  it("puts a freshly claimed account straight back to fresh", async () => {
+    // Claimed from the pool after sitting cold for months. The new owner starts
+    // with a full clock.
+    const id = await makeAccount({ owner: null, daysSinceActivity: 200 });
+    await claimAccount(db, id, dana);
+    expect(await stateOf(id)).toBe("fresh");
+  });
+});
+
+describe("losing an account", () => {
+  it("returns it to the pool and records why", async () => {
+    const id = await makeAccount({ owner: dana });
+    await releaseAccount(db, id, "manual");
+
+    const [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, id));
+    expect(account.ownerId).toBeNull();
+    expect(await stateOf(id)).toBe("available");
+
+    const history = await claimHistory(db, id);
+    expect(history[0].releasedAt).not.toBeNull();
+    expect(history[0].releaseReason).toBe("manual");
+    expect(history[0].userName).toBe("Dana Whitfield");
+  });
+
+  it("keeps the full history across several owners", async () => {
+    // The question a territory argument turns on: who had this, and when.
+    const id = await makeAccount({ owner: null });
+    await claimAccount(db, id, dana);
+    await releaseAccount(db, id, "manual");
+    await claimAccount(db, id, kai);
+
+    const history = await claimHistory(db, id);
+    expect(history).toHaveLength(2);
+    expect(history.map((h) => h.userName)).toEqual(
+      expect.arrayContaining(["Dana Whitfield", "Kai Osei"]),
+    );
+    // The current holder's claim is still open.
+    expect(history.find((h) => h.userName === "Kai Osei")!.releasedAt).toBeNull();
+  });
+
+  it("shows the account in the available pool afterwards", async () => {
+    const id = await makeAccount({ owner: dana, name: "Redwood Distribution" });
+    expect((await availableAccounts(db)).map((a) => a.id)).not.toContain(id);
+
+    await releaseAccount(db, id, "manual");
+    const pool = await availableAccounts(db);
+    expect(pool.map((a) => a.id)).toContain(id);
+    expect(pool.find((a) => a.id === id)!.state).toBe("available");
+  });
+});
+
+describe("the nightly sweep", () => {
+  it("takes back only the accounts that are actually overdue", async () => {
+    const safe = await makeAccount({ owner: dana, daysSinceActivity: 10, name: "Safe Co" });
+    const amber = await makeAccount({ owner: dana, daysSinceActivity: 25, name: "Amber Co" });
+    const red = await makeAccount({ owner: dana, daysSinceActivity: 35, name: "Red Co" });
+    const gone = await makeAccount({ owner: dana, daysSinceActivity: 60, name: "Gone Co" });
+
+    const { released } = await releaseOverdueAccounts(db);
+
+    expect(released.map((r) => r.name)).toEqual(["Gone Co"]);
+    expect(await stateOf(safe)).toBe("fresh");
+    expect(await stateOf(amber)).toBe("warning");
+    expect(await stateOf(red)).toBe("expiring");
+    expect(await stateOf(gone)).toBe("available");
+  });
+
+  it("records the reason as expired, not as a manual give-up", async () => {
+    // A broker who lost an account to the clock should be able to see that is
+    // what happened, rather than a record implying they handed it over.
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 60 });
+    await releaseOverdueAccounts(db);
+
+    const history = await claimHistory(db, id);
+    expect(history[0].releaseReason).toBe("expired");
+  });
+
+  it("reports who lost each account, so the morning conversation can happen", async () => {
+    await makeAccount({ owner: dana, daysSinceActivity: 60, name: "One" });
+    await makeAccount({ owner: kai, daysSinceActivity: 60, name: "Two" });
+
+    const { released } = await releaseOverdueAccounts(db);
+    expect(released).toHaveLength(2);
+    expect(released.map((r) => r.ownerId)).toEqual(expect.arrayContaining([dana, kai]));
+  });
+
+  it("does nothing on a second run", async () => {
+    await makeAccount({ owner: dana, daysSinceActivity: 60 });
+    expect((await releaseOverdueAccounts(db)).released).toHaveLength(1);
+    expect((await releaseOverdueAccounts(db)).released).toHaveLength(0);
+  });
+
+  it("leaves customers alone even when long untouched", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 100, status: "customer" });
+    await releaseOverdueAccounts(db);
+    const [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, id));
+    expect(account.ownerId).toBe(dana);
+  });
+});
+
+describe("a qualifying call resets the clock", () => {
+  it("moves an expiring account back to fresh", async () => {
+    // The entire point of the mechanic: work the account and you keep it. This
+    // ties the call pipeline to ownership -- the trigger on activities updates
+    // last_activity_at, which is what account_state reads.
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 35 });
+    expect(await stateOf(id)).toBe("expiring");
+
+    await db.insert(schema.activities).values({
+      accountId: id,
+      type: "call",
+      occurredAt: new Date(),
+      durationSeconds: 300,
+      result: "Call connected",
+      qualifies: true,
+      qualificationReason: "qualified: result \"Call connected\", duration 300s met the 120s threshold",
+    });
+
+    expect(await stateOf(id)).toBe("fresh");
+  });
+
+  it("does not reset for a call that did not qualify", async () => {
+    // A 40 second wrong number must not buy another 45 days.
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 35 });
+
+    await db.insert(schema.activities).values({
+      accountId: id,
+      type: "call",
+      occurredAt: new Date(),
+      durationSeconds: 40,
+      result: "Call connected",
+      qualifies: false,
+      qualificationReason: "duration 40s is below the 120s threshold",
+    });
+
+    expect(await stateOf(id)).toBe("expiring");
+  });
+});

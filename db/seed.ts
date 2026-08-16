@@ -48,7 +48,7 @@ export const DEFAULT_VOLUMES: SeedVolumes = {
   days: 180,
 };
 
-// --- Flavour: a marketing agency and the local businesses it sells to -------
+// --- Flavour: a freight brokerage and the companies whose freight it moves --
 
 const NAME_PREFIXES = [
   "Cardinal", "Bluewater", "Summit", "Ironwood", "Northgate", "Riverbend",
@@ -61,24 +61,24 @@ const NAME_PREFIXES = [
 ];
 
 const INDUSTRIES = [
-  { name: "Home Services", suffixes: ["Roofing", "HVAC", "Plumbing", "Exteriors", "Landscaping"] },
-  { name: "Healthcare", suffixes: ["Dental", "Orthodontics", "Family Medicine", "Dermatology"] },
-  { name: "Legal", suffixes: ["Law Group", "Legal Partners", "Injury Attorneys"] },
-  { name: "Restaurants", suffixes: ["Grill", "Kitchen", "Hospitality Group", "Taproom"] },
-  { name: "Fitness & Wellness", suffixes: ["Fitness", "Athletic Club", "Wellness Studio"] },
-  { name: "Automotive", suffixes: ["Auto Group", "Motors", "Collision Center"] },
-  { name: "Real Estate", suffixes: ["Realty", "Properties", "Home Partners"] },
-  { name: "E-commerce", suffixes: ["Outfitters", "Supply Co", "Goods"] },
-  { name: "B2B Services", suffixes: ["Solutions", "Consulting", "Logistics"] },
-  { name: "Education", suffixes: ["Academy", "Learning Center", "Tutoring"] },
-  { name: "Financial Services", suffixes: ["Financial", "Wealth Partners", "Insurance Group"] },
-  { name: "Nonprofit", suffixes: ["Foundation", "Alliance", "Community Fund"] },
+  { name: "Food & Beverage", suffixes: ["Foods", "Beverage Co", "Provisions", "Farms"] },
+  { name: "Building Materials", suffixes: ["Lumber", "Supply Co", "Building Products", "Concrete"] },
+  { name: "Manufacturing", suffixes: ["Manufacturing", "Industries", "Fabrication", "Works"] },
+  { name: "Retail & Consumer Goods", suffixes: ["Brands", "Housewares", "Outfitters", "Goods"] },
+  { name: "Chemicals & Plastics", suffixes: ["Chemical", "Polymers", "Plastics", "Coatings"] },
+  { name: "Paper & Packaging", suffixes: ["Packaging", "Paper Co", "Container Corp"] },
+  { name: "Automotive Parts", suffixes: ["Auto Parts", "Components", "Driveline"] },
+  { name: "Agriculture", suffixes: ["Grain", "Agri Supply", "Produce Co"] },
+  { name: "Metals & Steel", suffixes: ["Steel", "Metals", "Alloy Co"] },
+  { name: "Furniture & Fixtures", suffixes: ["Furniture", "Millwork", "Casegoods"] },
+  { name: "Beverage Distribution", suffixes: ["Distributing", "Wholesale", "Depot"] },
+  { name: "Cold Chain", suffixes: ["Cold Storage", "Frozen Foods", "Creamery"] },
 ];
 
 const TITLES = [
-  "Owner", "Marketing Director", "VP Marketing", "Chief Marketing Officer",
-  "Office Manager", "Operations Manager", "General Manager", "Practice Manager",
-  "Director of Growth", "Marketing Coordinator", "Managing Partner", "President",
+  "Logistics Manager", "Transportation Manager", "VP Supply Chain", "Shipping Manager",
+  "Director of Logistics", "Traffic Manager", "Warehouse Manager", "Operations Manager",
+  "Supply Chain Analyst", "Procurement Manager", "Plant Manager", "Owner",
 ];
 
 const STAGES = [
@@ -89,9 +89,9 @@ const STAGES = [
   { name: "Closed Lost", weight: 15, probability: 0 },
 ];
 
-const SERVICES = ["Paid Search", "Paid Social", "SEO", "Email", "Creative", "Full Service"];
-const TIERS = ["Starter", "Growth", "Scale", "Enterprise"];
-const REFERRAL_SOURCES = ["Inbound", "Referral", "Outbound", "Event", "Partner"];
+const MODES = ["Dry Van", "Reefer", "Flatbed", "LTL", "Intermodal", "Expedited"];
+const VOLUME_BANDS = ["1-5 loads/wk", "5-20 loads/wk", "20-50 loads/wk", "50+ loads/wk"];
+const LEAD_SOURCES = ["Cold Call", "Inbound", "Referral", "Trade Show", "Salesforce Import", "List Purchase"];
 
 /** Area codes used by the fictional client base. */
 const AREA_CODES = ["704", "919", "336", "828", "980", "252", "743", "984"];
@@ -181,6 +181,7 @@ export async function seed(
   // multi-statement support, and TRUNCATE ... CASCADE would reach through the
   // users foreign key and empty qualification_rules with it.
   for (const table of [
+    "account_claims",
     "unmatched_activities",
     "activities",
     "raw_events",
@@ -217,7 +218,8 @@ export async function seed(
 
   const directorCount = 2;
   const managerCount = 7;
-  const repCount = volumes.users - 1 - directorCount - managerCount;
+  const creditCount = 3;
+  const repCount = volumes.users - 1 - directorCount - managerCount - creditCount;
 
   const directorIds: string[] = [];
   for (let i = 0; i < directorCount; i++) {
@@ -259,7 +261,7 @@ export async function seed(
       .values({
         email: `${slug(full)}${i}r@megaforce.test`,
         fullName: full,
-        role: "rep",
+        role: "broker",
         managerId: managerIds[i % managerIds.length],
         rcExtensionId: String(extension++),
       })
@@ -267,8 +269,21 @@ export async function seed(
     repIds.push(row.id);
   }
 
-  // Accounts belong to reps, plus a handful to managers so the manager rollup
-  // has something of its own to show.
+  // The credit team. They own no accounts -- credit is not a sales function --
+  // but they see every one of them, so the demo needs real people to sign in as.
+  for (let i = 0; i < creditCount; i++) {
+    const full = faker.person.fullName();
+    await db.insert(schema.users).values({
+      email: `${slug(full)}${i}c@megaforce.test`,
+      fullName: full,
+      role: "credit",
+      managerId: adminRow.id,
+      rcExtensionId: String(extension++),
+    });
+  }
+
+  // Accounts belong to brokers, plus a handful to managers so the manager
+  // rollup has something of its own to show.
   const ownerPool = [...repIds, ...managerIds.slice(0, 3)];
 
   // -------------------------------------------------------------------------
@@ -294,27 +309,29 @@ export async function seed(
     } while (usedNames.has(name));
     usedNames.add(name);
 
-    const tier = faker.helpers.arrayElement(TIERS);
+    const tier = faker.helpers.arrayElement(VOLUME_BANDS);
     accountSeeds.push({
       name,
       ownerId: faker.helpers.arrayElement(ownerPool),
       industry: industry.name,
       status: faker.helpers.weightedArrayElement([
-        { value: "active", weight: 78 },
-        { value: "prospect", weight: 15 },
-        { value: "churned", weight: 7 },
+        { value: "prospect", weight: 62 },
+        { value: "engaged", weight: 24 },
+        // Converted. Salesforce owns the relationship from here; this CRM only
+        // keeps the record so the broker stays credited.
+        { value: "customer", weight: 11 },
+        { value: "do_not_contact", weight: 3 },
       ]),
       domain: `${slug(name)}.test`,
       custom: {
-        monthly_retainer: faker.number.int({ min: 1500, max: 24000 }),
-        service_tier: tier,
-        renewal_date: faker.date
-          .between({ from: "2026-08-01", to: "2027-08-01" })
-          .toISOString()
-          .slice(0, 10),
-        referral_source: faker.helpers.arrayElement(REFERRAL_SOURCES),
-        referenceable: faker.datatype.boolean({ probability: 0.3 }),
-        primary_channel: faker.helpers.arrayElement(SERVICES),
+        annual_freight_spend: faker.number.int({ min: 80, max: 9000 }) * 1000,
+        volume_band: tier,
+        primary_mode: faker.helpers.arrayElement(MODES),
+        lead_source: faker.helpers.arrayElement(LEAD_SOURCES),
+        shipping_from: `${faker.location.city()}, ${faker.location.state({ abbreviated: true })}`,
+        salesforce_id: faker.datatype.boolean({ probability: 0.35 })
+          ? `001${faker.string.alphanumeric({ length: 15, casing: "mixed" })}`
+          : null,
       },
       createdAt: faker.date.between({ from: "2024-01-01", to: "2026-06-01" }),
     });
@@ -472,7 +489,7 @@ export async function seed(
   for (let i = 0; i < volumes.opportunities; i++) {
     const accountId = faker.helpers.arrayElement(accountIds);
     const stage = weighted(STAGES);
-    const service = faker.helpers.arrayElement(SERVICES);
+    const service = faker.helpers.arrayElement(MODES);
     const months = faker.helpers.arrayElement([6, 12, 12, 18, 24]);
     const monthly = faker.number.int({ min: 2000, max: 22000 });
 
@@ -620,6 +637,79 @@ export async function seed(
       ) s
      where a.id = s.account_id
   `);
+
+  // -------------------------------------------------------------------------
+  // Lifecycle spread
+  //
+  // Without this, every account carries whatever last_activity_at the random
+  // activity dates happened to produce, and the flags all come out the same
+  // colour. A demo needs an account in every state on the first screen, so the
+  // distribution is imposed deliberately rather than hoped for.
+  //
+  // Runs AFTER the recompute above, and overrides it on purpose.
+  // -------------------------------------------------------------------------
+  log("spreading accounts across the ownership lifecycle");
+
+  // The available pool: roughly one account in eight is unclaimed. Some were
+  // never worked, some were lost by a broker who went quiet.
+  await db.execute(sql`
+    update accounts set
+      owner_id = null,
+      claimed_at = null,
+      released_at = now() - (random() * 30 || ' days')::interval,
+      last_release_reason = case when random() < 0.7 then 'expired' else 'manual' end
+    where id in (
+      select id from accounts where status <> 'customer'
+      order by md5(id::text) limit greatest(1, (select count(*) from accounts) / 8)
+    )
+  `);
+
+  // Close the claim rows those accounts left behind, so the audit trail is
+  // consistent with the ownership that actually resulted.
+  await db.execute(sql`
+    update account_claims c set released_at = now(), release_reason = a.last_release_reason
+      from accounts a
+     where c.account_id = a.id and a.owner_id is null and c.released_at is null
+  `);
+
+  // Push a slice of the still-owned prospects into each warning band. The
+  // thresholds are 21 / 30 / 45 days, so these land in amber, red and overdue.
+  for (const [band, lo, hi] of [
+    ["warning", 22, 29],
+    ["expiring", 31, 44],
+    ["overdue", 46, 70],
+  ] as const) {
+    // The day bounds are inlined rather than bound as parameters. Postgres
+    // cannot infer a type for `$1 + random() * ($2 - $3)` and refuses with
+    // "could not choose a best candidate operator"; these are compile-time
+    // constants from the tuple above, so there is nothing to inject.
+    await db.execute(sql`
+      update accounts set last_activity_at =
+        now() - ((${sql.raw(String(lo))} + random() * ${sql.raw(String(hi - lo))}) || ' days')::interval
+      where id in (
+        select id from accounts
+         where owner_id is not null and status = 'prospect'
+           and last_activity_at > now() - interval '21 days'
+         order by md5(id::text || ${band})
+         limit greatest(1, (select count(*) from accounts where owner_id is not null) / 9)
+      )
+    `);
+  }
+
+  // claimed_at has to sit behind last_activity_at, or account_state judges from
+  // the claim date and every one of those bands comes back fresh.
+  await db.execute(sql`
+    update accounts set claimed_at = least(coalesce(claimed_at, now()), coalesce(last_activity_at, now()) - interval '5 days')
+    where owner_id is not null
+  `);
+
+  const spread = await db.execute<{ state: string; c: string }>(sql`
+    select account_state(owner_id, status, last_activity_at, claimed_at) state, count(*)::text c
+      from accounts group by 1 order by 1
+  `);
+  for (const row of (Array.isArray(spread) ? spread : (spread as { rows: { state: string; c: string }[] }).rows)) {
+    landmarks[`state_${row.state}`] = `${row.c} accounts`;
+  }
 
   // A saved view worth opening on stage.
   await db.insert(schema.savedViews).values({

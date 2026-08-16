@@ -51,14 +51,14 @@ beforeEach(async () => {
     .values({
       email: "dana@megaforce.test",
       fullName: "Dana Whitfield",
-      role: "rep",
+      role: "broker",
       rcExtensionId: "101",
     })
     .returning({ id: schema.users.id });
 
   [{ id: otherRepId }] = await db
     .insert(schema.users)
-    .values({ email: "kai@megaforce.test", fullName: "Kai Osei", role: "rep", rcExtensionId: "102" })
+    .values({ email: "kai@megaforce.test", fullName: "Kai Osei", role: "broker", rcExtensionId: "102" })
     .returning({ id: schema.users.id });
 
   [{ id: acmeId }] = await db

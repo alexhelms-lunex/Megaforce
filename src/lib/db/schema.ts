@@ -30,7 +30,7 @@ export const users = pgTable(
     authId: uuid("auth_id").unique(),
     email: text("email").notNull().unique(),
     fullName: text("full_name").notNull(),
-    /** 'rep' | 'manager' | 'admin' -- constrained by a CHECK in SQL. */
+    /** 'broker' | 'manager' | 'credit' | 'admin' -- constrained by a CHECK in SQL. */
     role: text("role").notNull(),
     managerId: uuid("manager_id"),
     /** Telephony extension, used to attribute an inbound call event to a rep. */
@@ -45,12 +45,19 @@ export const accounts = pgTable(
   {
     id: uuid("id").primaryKey().default(newUuid),
     name: text("name").notNull(),
-    ownerId: uuid("owner_id")
-      .notNull()
-      .references(() => users.id),
+    /**
+     * Null is not missing data -- it is the available pool, and it is the most
+     * important state in the system. An unowned account is one any broker can
+     * claim.
+     */
+    ownerId: uuid("owner_id").references(() => users.id),
     industry: text("industry"),
-    status: text("status").notNull().default("active"),
+    /** 'prospect' | 'engaged' | 'customer' | 'do_not_contact' */
+    status: text("status").notNull().default("prospect"),
     domain: text("domain"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    lastReleaseReason: text("last_release_reason"),
     /** Maintained by the t_bump_last_activity trigger, never written by hand. */
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
     /** Values for admin-defined fields; see fieldDefs. */
@@ -224,6 +231,55 @@ export const savedViews = pgTable("saved_views", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
 });
 
+/**
+ * How long a broker may hold an account without working it.
+ *
+ * Data rather than code, for the same reason the qualification thresholds are:
+ * "thirty days" is a commercial decision that will be argued about, and
+ * changing it must not require a release.
+ */
+export const accountRetentionRules = pgTable("account_retention_rules", {
+  id: uuid("id").primaryKey().default(newUuid),
+  /** 'prospect' | 'engaged' | 'customer' */
+  appliesTo: text("applies_to").notNull(),
+  /** Amber. Still yours, but it needs attention. */
+  warningDays: integer("warning_days").notNull().default(21),
+  /** Red. Days away from being taken. */
+  expiringDays: integer("expiring_days").notNull().default(30),
+  /** Gone. Returns to the pool. */
+  releaseDays: integer("release_days").notNull().default(45),
+  active: boolean("active").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+});
+
+/**
+ * Who held what, when, and why they stopped.
+ *
+ * The audit trail that settles territory arguments. Release is a recorded event
+ * rather than a column quietly going null.
+ */
+export const accountClaims = pgTable(
+  "account_claims",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().default(now),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    /** 'expired' | 'manual' | 'reassigned' | 'converted' */
+    releaseReason: text("release_reason"),
+    releasedBy: uuid("released_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [index("account_claims_account_idx").on(t.accountId, t.claimedAt)],
+);
+
 // ---------------------------------------------------------------------------
 // Relations -- these power db.query.*.findMany({ with: ... })
 // ---------------------------------------------------------------------------
@@ -236,6 +292,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   owner: one(users, { fields: [accounts.ownerId], references: [users.id] }),
+  claims: many(accountClaims),
   contacts: many(contacts),
   opportunities: many(opportunities),
   activities: many(activities),
@@ -277,3 +334,10 @@ export type UnmatchedActivity = typeof unmatchedActivities.$inferSelect;
 export type FieldDef = typeof fieldDefs.$inferSelect;
 export type QualificationRule = typeof qualificationRules.$inferSelect;
 export type SavedView = typeof savedViews.$inferSelect;
+export type AccountRetentionRule = typeof accountRetentionRules.$inferSelect;
+export type AccountClaim = typeof accountClaims.$inferSelect;
+
+export const accountClaimsRelations = relations(accountClaims, ({ one }) => ({
+  account: one(accounts, { fields: [accountClaims.accountId], references: [accounts.id] }),
+  user: one(users, { fields: [accountClaims.userId], references: [users.id] }),
+}));
