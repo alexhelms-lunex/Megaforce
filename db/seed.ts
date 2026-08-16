@@ -303,6 +303,7 @@ export async function seed(
     ownerId: string;
     industry: string;
     status: string;
+    stage: string;
     domain: string;
     custom: Record<string, unknown>;
     createdAt: Date;
