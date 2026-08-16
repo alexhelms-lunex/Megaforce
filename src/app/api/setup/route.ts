@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { BROWSER_VOLUMES, runSetup, type SetupResult } from "@/lib/setup/run";
+import { ADMIN_EMAIL, BROWSER_VOLUMES, runLinkOnly, runSetup, type SetupResult } from "@/lib/setup/run";
 import { DEFAULT_VOLUMES } from "../../../../db/seed";
 
 export const runtime = "nodejs";
@@ -77,6 +77,33 @@ export async function GET(req: Request) {
   const full = url.searchParams.get("full") === "1";
   const volumes = full ? DEFAULT_VOLUMES : BROWSER_VOLUMES;
 
+  // Rescue path. Supabase's login service is a separate host from the database,
+  // so it can be unreachable while everything else has already succeeded. This
+  // mode attaches a login created by hand in the dashboard, using only the
+  // database connection that has already proven it works.
+  if (url.searchParams.get("link") === "1") {
+    return html(
+      page(
+        "Connect a login you already made",
+        `<p>This does not touch your data. It only connects the Supabase login for
+         <code>${escapeHtml(ADMIN_EMAIL)}</code> to the CRM.</p>
+         <p>If you have not made that login yet, do this first — it takes about
+         thirty seconds:</p>
+         <ol>
+           <li>In Supabase: <b>Authentication → Users → Add user → Create new user</b></li>
+           <li>Email: <code>${escapeHtml(ADMIN_EMAIL)}</code></li>
+           <li>Password: anything you like. <b>Write it down.</b></li>
+           <li>Tick <b>Auto Confirm User</b>, then create it</li>
+         </ol>
+         <form method="post">
+           <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+           <input type="hidden" name="link" value="1" />
+           <button type="submit">Connect it</button>
+         </form>`,
+      ),
+    );
+  }
+
   return html(
     page(
       "Ready to set up your CRM",
@@ -104,6 +131,11 @@ export async function POST(req: Request) {
   const key = form ? String(form.get("key") ?? "") : new URL(req.url).searchParams.get("key");
 
   if (!keyMatches(key)) return html(page("Wrong key", "<p>That key is not correct.</p>"), 403);
+
+  if (form && String(form.get("link") ?? "") === "1") {
+    const linked = await runLinkOnly();
+    return html(renderResult(linked), linked.ok ? 200 : 500);
+  }
 
   const full = form ? String(form.get("full") ?? "0") === "1" : false;
   const result = await runSetup({ volumes: full ? DEFAULT_VOLUMES : BROWSER_VOLUMES });
@@ -143,6 +175,13 @@ function renderResult(result: SetupResult): string {
        instead of being filed against the wrong one.</p>`
     : "";
 
+  const stats = result.stats
+    ? `<p class="dim">${result.stats.accounts} companies,
+       ${result.stats.contacts} contacts,
+       ${result.stats.activities.toLocaleString()} calls and emails.
+       ${result.stats.qualifyingRate} of that activity counted under the current rules.</p>`
+    : "";
+
   return page(
     "Your CRM is ready",
     `<ul class="steps">${steps}</ul>
@@ -153,10 +192,7 @@ function renderResult(result: SetupResult): string {
        <p class="warn">Write the password down. This page is the only place it is shown.</p>
      </div>
      <p><a class="cta" href="/accounts">Open the CRM →</a></p>
-     <p class="dim">${result.stats!.accounts} companies,
-       ${result.stats!.contacts} contacts,
-       ${result.stats!.activities.toLocaleString()} calls and emails.
-       ${result.stats!.qualifyingRate} of that activity counted under the current rules.</p>
+     ${stats}
      ${tips}
      <p class="dim">Now delete <code>SETUP_SECRET</code> in Vercel → Settings →
      Environment Variables. That switches this page off for good.</p>`,

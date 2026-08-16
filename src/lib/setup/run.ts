@@ -103,6 +103,40 @@ function resolve(names: string[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The Supabase project URL, cleaned up.
+ *
+ * Pasting into a web form very easily carries a trailing space or newline, and
+ * a URL with whitespace in it does not fail with "bad URL" -- it fails deep
+ * inside fetch with a bare "fetch failed", which points nowhere useful.
+ * Trailing slashes are dropped for the same reason.
+ */
+export function supabaseUrl(): string {
+  return (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * Unwrap the real reason behind a thrown error.
+ *
+ * Node's fetch reports nearly every network problem as the single word "fetch
+ * failed" and hides the actual cause -- ENOTFOUND, ECONNREFUSED, a TLS failure
+ * -- one level down in `cause`. Reporting only the top-level message leaves
+ * someone staring at two words that describe every possible failure equally.
+ */
+export function describeError(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const e = current as { message?: string; code?: string; cause?: unknown };
+    const piece = [e.message, e.code && e.code !== e.message ? `(${e.code})` : null]
+      .filter(Boolean)
+      .join(" ");
+    if (piece && !parts.includes(piece)) parts.push(piece);
+    current = e.cause;
+  }
+  return parts.join(" — ") || String(err);
+}
+
 export function checkEnvironment(): void {
   const missing = REQUIRED.filter(({ names }) => !resolve(names));
   if (missing.length > 0) {
@@ -111,6 +145,28 @@ export function checkEnvironment(): void {
       missing
         .map((m) => `${m.names[0]}${m.names[1] ? ` (or ${m.names[1]})` : ""} — find it at: ${m.where}`)
         .join("\n"),
+    );
+  }
+
+  // A project URL with a stray space or newline -- trivially easy when pasting
+  // into a web form -- does not fail as "bad URL". It fails deep inside fetch
+  // as a bare "fetch failed", which describes every possible network problem
+  // equally and so points at none of them.
+  const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  if (/\s/.test(rawUrl.trim())) {
+    throw new SetupError(
+      "NEXT_PUBLIC_SUPABASE_URL has a space in the middle of it",
+      `It should be one unbroken web address, like https://yourproject.supabase.co\n\n` +
+        `Re-copy it from Supabase → Project Settings → API → Project URL, and make sure ` +
+        `nothing was picked up along with it.`,
+    );
+  }
+  if (!/^https?:\/\/[^\s/]+/i.test(rawUrl.trim())) {
+    throw new SetupError(
+      "NEXT_PUBLIC_SUPABASE_URL does not look like a web address",
+      `Got: ${rawUrl.trim().slice(0, 80) || "(empty)"}\n\n` +
+        `It should start with https:// and look like https://yourproject.supabase.co\n\n` +
+        `Copy it from Supabase → Project Settings → API → Project URL.`,
     );
   }
 
@@ -298,29 +354,91 @@ export function generatePassword(): string {
   return `${pick()}-${pick()}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+/**
+ * Attach an existing Supabase login to the CRM's admin row, using SQL only.
+ *
+ * Supabase keeps its users in an `auth.users` table in the same database we are
+ * already connected to. That matters: when the Auth REST API is unreachable,
+ * this path still works, because it never leaves the database connection that
+ * has already proven itself by running the migrations.
+ *
+ * Returns false when no Supabase login exists for the address yet.
+ */
+export async function linkExistingLogin(sql: postgres.Sql): Promise<boolean> {
+  const found = await sql<{ id: string }[]>`
+    select id from auth.users where lower(email) = ${ADMIN_EMAIL} limit 1
+  `;
+  if (found.length === 0) return false;
+
+  const linked = await sql`
+    update users set auth_id = ${found[0].id}::uuid
+     where email = ${ADMIN_EMAIL} returning id
+  `;
+  if (linked.length === 0) {
+    throw new SetupError(
+      `No CRM profile found for ${ADMIN_EMAIL}`,
+      `The sample data should have created it. Run setup again.`,
+    );
+  }
+  return true;
+}
+
+/** What to tell someone whose Auth API could not be reached. */
+function manualLoginInstructions(detail: string): SetupError {
+  return new SetupError(
+    "Could not reach Supabase's login service",
+    `Everything else worked — your database is built and full of data. Only the ` +
+      `login step failed.\n\nUnderlying error: ${detail}\n\n` +
+      `Create the login by hand instead. It takes about thirty seconds:\n\n` +
+      `1. In Supabase, go to Authentication → Users → Add user → Create new user.\n` +
+      `2. Email: ${ADMIN_EMAIL}\n` +
+      `3. Password: anything you like, and write it down.\n` +
+      `4. Tick "Auto Confirm User", then create it.\n` +
+      `5. Come back and add &link=1 to the end of this page's web address.\n\n` +
+      `That last step connects the login you just made to the CRM, without ` +
+      `needing Supabase's login service at all.`,
+  );
+}
+
 async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, supabaseSecretKey(), {
+  const url = supabaseUrl();
+  const admin = createClient(url, supabaseSecretKey(), {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
   let authId: string;
 
-  const created = await admin.auth.admin.createUser({
-    email: ADMIN_EMAIL,
-    password,
-    email_confirm: true,
-  });
+  let created: Awaited<ReturnType<typeof admin.auth.admin.createUser>>;
+  try {
+    created = await admin.auth.admin.createUser({
+      email: ADMIN_EMAIL,
+      password,
+      email_confirm: true,
+    });
+  } catch (err) {
+    // The Auth API is unreachable -- a bad project URL, stray whitespace in it,
+    // or a network problem. If a login happens to exist already we can still
+    // finish over SQL; otherwise explain the manual route.
+    if (await linkExistingLogin(sql)) return;
+    throw manualLoginInstructions(describeError(err));
+  }
 
   if (created.data?.user) {
     authId = created.data.user.id;
   } else {
     const message = created.error?.message ?? "";
 
-    if (/invalid|api key|jwt|unauthorized/i.test(message)) {
+    if (/fetch failed|network|ENOTFOUND|ECONNREFUSED|socket/i.test(message)) {
+      if (await linkExistingLogin(sql)) return;
+      throw manualLoginInstructions(message);
+    }
+    if (/invalid|api key|jwt|unauthorized|signature/i.test(message)) {
       throw new SetupError(
-        "Supabase rejected the service_role key",
-        `SUPABASE_SERVICE_ROLE_KEY is wrong, or belongs to a different project. ` +
-          `Copy it again from Supabase → Project Settings → API → service_role.`,
+        "Supabase rejected your secret key",
+        `SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY) is wrong, or belongs to a ` +
+          `different project.\n\nCopy it again from Supabase → Project Settings → ` +
+          `API Keys → the secret key. Make sure no spaces came along with it.\n\n` +
+          `Underlying error: ${message}`,
       );
     }
     if (!/already|registered|exists/i.test(message)) {
@@ -332,6 +450,8 @@ async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
     const { data } = await admin.auth.admin.listUsers({ perPage: 200 });
     const existing = data?.users.find((u) => u.email?.toLowerCase() === ADMIN_EMAIL);
     if (!existing) {
+      // The API says it exists but will not hand it over. SQL can see it.
+      if (await linkExistingLogin(sql)) return;
       throw new SetupError(
         "A login for this email exists but could not be read back",
         `Delete ${ADMIN_EMAIL} under Supabase → Authentication → Users, then run this again.`,
@@ -351,6 +471,70 @@ async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
       `No CRM profile found for ${ADMIN_EMAIL}`,
       `The sample data should have created it. Run setup again.`,
     );
+  }
+}
+
+/**
+ * Link-only mode: skip migrations and seeding, just attach a login that already
+ * exists in Supabase. For when the Auth API could not be reached and the user
+ * created the login through the dashboard instead.
+ */
+export async function runLinkOnly(): Promise<SetupResult> {
+  const steps: SetupStep[] = [];
+  try {
+    checkEnvironment();
+    steps.push({ name: "Checking your settings", status: "ok", detail: "all five present" });
+  } catch (err) {
+    const e = err as SetupError;
+    steps.push({ name: "Checking your settings", status: "failed", detail: e.problem });
+    return { ok: false, steps, problem: { problem: e.problem, fix: e.fix } };
+  }
+
+  let sql: postgres.Sql;
+  try {
+    sql = await connect();
+    steps.push({ name: "Connecting to Supabase", status: "ok", detail: "connected" });
+  } catch (err) {
+    const e = err as SetupError;
+    steps.push({ name: "Connecting to Supabase", status: "failed", detail: e.problem });
+    return { ok: false, steps, problem: { problem: e.problem, fix: e.fix } };
+  }
+
+  try {
+    const linked = await linkExistingLogin(sql);
+    if (!linked) {
+      steps.push({ name: "Linking your login", status: "failed", detail: "no such login yet" });
+      return {
+        ok: false,
+        steps,
+        problem: {
+          problem: `No Supabase login found for ${ADMIN_EMAIL}`,
+          fix:
+            `Create it first:\n\n` +
+            `1. In Supabase, go to Authentication → Users → Add user → Create new user.\n` +
+            `2. Email: ${ADMIN_EMAIL}\n` +
+            `3. Password: anything you like, and write it down.\n` +
+            `4. Tick "Auto Confirm User", then create it.\n` +
+            `5. Load this page again.`,
+        },
+      };
+    }
+
+    steps.push({ name: "Linking your login", status: "ok", detail: ADMIN_EMAIL });
+    return {
+      ok: true,
+      steps,
+      login: { email: ADMIN_EMAIL, password: "(the one you chose in Supabase)" },
+    };
+  } catch (err) {
+    const e =
+      err instanceof SetupError
+        ? err
+        : new SetupError("Could not link the login", describeError(err));
+    steps.push({ name: "Linking your login", status: "failed", detail: e.problem });
+    return { ok: false, steps, problem: { problem: e.problem, fix: e.fix } };
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
   }
 }
 
@@ -440,7 +624,7 @@ export async function runSetup(options: {
     const setupErr =
       err instanceof SetupError
         ? err
-        : new SetupError("Setup did not finish", (err as Error).message ?? String(err));
+        : new SetupError("Setup did not finish", describeError(err));
     steps.push({ name: "Setting up", status: "failed", detail: setupErr.problem });
     return fail(setupErr);
   } finally {
