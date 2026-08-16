@@ -97,3 +97,60 @@ are the values a filter and any import have to match exactly.
   account
 - Filtering by city, state and phone number
 - A controlled industry list, versus our free-text field
+
+---
+
+## Batch 2 — Rest of the industry list, and the Global Actions menu
+
+### The system underneath
+
+The Global Actions menu, the star/favourites control and the `+` button are
+Salesforce Lightning furniture. So the thing being replaced is **Salesforce
+with heavy customisation**, not a bespoke application. That matters for the
+import: the export will carry Salesforce's own field names and Ids.
+
+### Global Actions
+
+- New Task
+- New Event
+- **New Prospect**  ← the object is called Prospect here, not Account
+- **Log a Call**    ← manual call logging, alongside whatever is captured
+- Email
+
+Task and Event are Salesforce's standard activity objects. Our `activities`
+table currently covers call / email / meeting / note, which maps onto these but
+does not yet have Task as a first-class thing with an owner and a due date.
+
+### Industry list, continued
+
+Captured windows, in order:
+
+… Lumber · Meat/Poultry · Medical · Metal · Nuts/Grains · Oil/Oil Products ·
+Paper Products · Plastics · Produce · Recycling · Renewable Energy ·
+Restaurant (including QSR) · Rubber · Seafood · Textile · Toys · Tubes/Pipes ·
+Vitamins/Supplements/Dietary · **TBD**
+
+`TBD` is the final entry — a deliberate "not categorised yet" value, so the
+field is effectively required with an escape hatch.
+
+### Assembled list so far
+
+Animal Feed/Products · Appliances/Electronics · Auto and Auto Parts · Bakery ·
+Beauty Products · Beverages – alcoholic · **[gap]** · Equipment (including
+rental) · Event Staging · Fixtures/Supplies for Hospitality/R… · Food - Dry ·
+Food - Frozen · Food Ingredients · **[gap]** · Lumber · Meat/Poultry ·
+Medical · Metal · Nuts/Grains · Oil/Oil Products · Paper Products · Plastics ·
+Produce · Recycling · Renewable Energy · Restaurant (including QSR) · Rubber ·
+Seafood · Textile · Toys · Tubes/Pipes · Vitamins/Supplements/Dietary · TBD
+
+Two windows were not captured:
+
+1. Between **Beverages – alcoholic** and **Equipment** (the C–E entries)
+2. Between **Food Ingredients** and **Lumber** (the F–L entries)
+
+Also truncated: **Fixtures/Supplies for Hospitality/R…**
+
+These values have to match exactly for a Salesforce import to land in the right
+bucket, so the full list is worth getting verbatim rather than reconstructing.
+Easiest source is the Salesforce field definition itself rather than more
+screenshots — Setup → Object Manager → the field → Values.
