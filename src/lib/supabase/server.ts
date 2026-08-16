@@ -60,9 +60,26 @@ export async function currentUser() {
 
   const { data } = await supabase
     .from("users")
-    .select("id, full_name, email, role")
+    .select("id, full_name, email, role, location, start_date, prospect_limit, manager_id")
     .eq("auth_id", user.id)
     .maybeSingle();
 
-  return data as { id: string; full_name: string; email: string; role: string } | null;
+  return data as CurrentUser | null;
+}
+
+export interface CurrentUser {
+  id: string;
+  full_name: string;
+  email: string;
+  /** 'broker' | 'manager' | 'credit' | 'admin' */
+  role: string;
+  location: string | null;
+  start_date: string | null;
+  prospect_limit: number | null;
+  manager_id: string | null;
+}
+
+/** Roles that see the whole book rather than their own branch of the tree. */
+export function isPrivileged(role: string): boolean {
+  return role === "admin" || role === "credit";
 }

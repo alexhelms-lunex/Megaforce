@@ -60,19 +60,97 @@ const NAME_PREFIXES = [
   "Norwood", "Pemberton", "Quarry", "Rockvale", "Saltwater", "Tanglewood",
 ];
 
+/**
+ * Industries, using the exact values from the controlled list in 0009.
+ *
+ * Free-text industries were the earlier version of this and they were wrong:
+ * an import that writes "Food-Dry" next to "Food - Dry" splits every report
+ * that groups by industry, and the damage is invisible until somebody adds the
+ * two rows together by hand.
+ */
 const INDUSTRIES = [
-  { name: "Food & Beverage", suffixes: ["Foods", "Beverage Co", "Provisions", "Farms"] },
-  { name: "Building Materials", suffixes: ["Lumber", "Supply Co", "Building Products", "Concrete"] },
-  { name: "Manufacturing", suffixes: ["Manufacturing", "Industries", "Fabrication", "Works"] },
-  { name: "Retail & Consumer Goods", suffixes: ["Brands", "Housewares", "Outfitters", "Goods"] },
-  { name: "Chemicals & Plastics", suffixes: ["Chemical", "Polymers", "Plastics", "Coatings"] },
-  { name: "Paper & Packaging", suffixes: ["Packaging", "Paper Co", "Container Corp"] },
-  { name: "Automotive Parts", suffixes: ["Auto Parts", "Components", "Driveline"] },
-  { name: "Agriculture", suffixes: ["Grain", "Agri Supply", "Produce Co"] },
-  { name: "Metals & Steel", suffixes: ["Steel", "Metals", "Alloy Co"] },
-  { name: "Furniture & Fixtures", suffixes: ["Furniture", "Millwork", "Casegoods"] },
-  { name: "Beverage Distribution", suffixes: ["Distributing", "Wholesale", "Depot"] },
-  { name: "Cold Chain", suffixes: ["Cold Storage", "Frozen Foods", "Creamery"] },
+  { name: "Food - Dry", suffixes: ["Foods", "Provisions", "Pantry Co"] },
+  { name: "Food - Frozen", suffixes: ["Cold Storage", "Frozen Foods", "Creamery"] },
+  { name: "Food Ingredients", suffixes: ["Ingredients", "Flavor Co", "Blending"] },
+  { name: "Beverages - non-alcoholic", suffixes: ["Beverage Co", "Bottling", "Distributing"] },
+  { name: "Beverages - alcoholic", suffixes: ["Brewing", "Cellars", "Distillery"] },
+  { name: "Building Materials", suffixes: ["Supply Co", "Building Products", "Concrete"] },
+  { name: "Lumber", suffixes: ["Lumber", "Timber Co", "Sawmill"] },
+  { name: "Industrial Supplies", suffixes: ["Manufacturing", "Industries", "Fabrication", "Works"] },
+  { name: "Consumer Packaged Goods", suffixes: ["Brands", "Housewares", "Goods"] },
+  { name: "Chemicals", suffixes: ["Chemical", "Coatings", "Solvents"] },
+  { name: "Plastics", suffixes: ["Polymers", "Plastics", "Molding"] },
+  { name: "Paper Products", suffixes: ["Packaging", "Paper Co", "Container Corp"] },
+  { name: "Auto and Auto Parts", suffixes: ["Auto Parts", "Components", "Driveline"] },
+  { name: "Nuts/Grains", suffixes: ["Grain", "Agri Supply", "Milling"] },
+  { name: "Produce", suffixes: ["Produce Co", "Growers", "Orchards"] },
+  { name: "Meat/Poultry", suffixes: ["Meats", "Poultry Co", "Packing"] },
+  { name: "Dairy", suffixes: ["Dairy", "Cheese Co"] },
+  { name: "Metal", suffixes: ["Steel", "Metals", "Alloy Co"] },
+  { name: "Furniture", suffixes: ["Furniture", "Millwork", "Casegoods"] },
+  { name: "Grocery/Retail", suffixes: ["Markets", "Grocers", "Outfitters"] },
+  { name: "Medical", suffixes: ["Medical", "Surgical Supply"] },
+  { name: "Lawn and Garden", suffixes: ["Nursery", "Garden Co", "Turf Supply"] },
+  { name: "Recycling", suffixes: ["Recycling", "Fiber Co", "Salvage"] },
+  { name: "Beauty Products", suffixes: ["Beauty", "Cosmetics Co"] },
+];
+
+/**
+ * Where the fictional customers ship from, and where the branches sit.
+ *
+ * Real cities with real coordinates -- geography is public fact, and the map
+ * has to point somewhere plausible. The companies, people, phone numbers and
+ * credit lines placed at these coordinates are all invented.
+ */
+const METROS = [
+  { city: "Charlotte", state: "NC", zips: ["28202", "28208", "28217"], lat: 35.2271, lng: -80.8431 },
+  { city: "Atlanta", state: "GA", zips: ["30318", "30336", "30354"], lat: 33.749, lng: -84.388 },
+  { city: "Dallas", state: "TX", zips: ["75207", "75212", "75247"], lat: 32.7767, lng: -96.797 },
+  { city: "Fort Worth", state: "TX", zips: ["76106", "76137"], lat: 32.7555, lng: -97.3308 },
+  { city: "Chicago", state: "IL", zips: ["60632", "60638", "60609"], lat: 41.8781, lng: -87.6298 },
+  { city: "Joliet", state: "IL", zips: ["60431", "60436"], lat: 41.525, lng: -88.0817 },
+  { city: "Memphis", state: "TN", zips: ["38118", "38116"], lat: 35.1495, lng: -90.049 },
+  { city: "Nashville", state: "TN", zips: ["37210", "37217"], lat: 36.1627, lng: -86.7816 },
+  { city: "Indianapolis", state: "IN", zips: ["46241", "46231"], lat: 39.7684, lng: -86.1581 },
+  { city: "Columbus", state: "OH", zips: ["43217", "43228"], lat: 39.9612, lng: -82.9988 },
+  { city: "Harrisburg", state: "PA", zips: ["17110", "17111"], lat: 40.2732, lng: -76.8867 },
+  { city: "Allentown", state: "PA", zips: ["18109", "18106"], lat: 40.6084, lng: -75.4902 },
+  { city: "Savannah", state: "GA", zips: ["31408", "31415"], lat: 32.0809, lng: -81.0912 },
+  { city: "Jacksonville", state: "FL", zips: ["32218", "32254"], lat: 30.3322, lng: -81.6557 },
+  { city: "Lakeland", state: "FL", zips: ["33805", "33815"], lat: 28.0395, lng: -81.9498 },
+  { city: "Laredo", state: "TX", zips: ["78045", "78041"], lat: 27.5306, lng: -99.4803 },
+  { city: "Houston", state: "TX", zips: ["77032", "77015"], lat: 29.7604, lng: -95.3698 },
+  { city: "Kansas City", state: "MO", zips: ["64120", "64161"], lat: 39.0997, lng: -94.5786 },
+  { city: "Omaha", state: "NE", zips: ["68110", "68127"], lat: 41.2565, lng: -95.9345 },
+  { city: "Denver", state: "CO", zips: ["80216", "80239"], lat: 39.7392, lng: -104.9903 },
+  { city: "Salt Lake City", state: "UT", zips: ["84104", "84116"], lat: 40.7608, lng: -111.891 },
+  { city: "Phoenix", state: "AZ", zips: ["85043", "85009"], lat: 33.4484, lng: -112.074 },
+  { city: "Ontario", state: "CA", zips: ["91761", "91764"], lat: 34.0633, lng: -117.6509 },
+  { city: "Stockton", state: "CA", zips: ["95206", "95215"], lat: 37.9577, lng: -121.2908 },
+  { city: "Portland", state: "OR", zips: ["97218", "97203"], lat: 45.5152, lng: -122.6784 },
+  { city: "Tacoma", state: "WA", zips: ["98421", "98424"], lat: 47.2529, lng: -122.4443 },
+  { city: "Greenville", state: "SC", zips: ["29605", "29611"], lat: 34.8526, lng: -82.394 },
+  { city: "Richmond", state: "VA", zips: ["23234", "23231"], lat: 37.5407, lng: -77.436 },
+  { city: "Edison", state: "NJ", zips: ["08817", "08837"], lat: 40.5187, lng: -74.4121 },
+  { city: "Grand Rapids", state: "MI", zips: ["49512", "49548"], lat: 42.9634, lng: -85.6681 },
+];
+
+const STREET_NAMES = [
+  "Distribution", "Commerce", "Industrial", "Logistics", "Freight", "Terminal",
+  "Corporate", "Enterprise", "Gateway", "Crossdock", "Warehouse", "Frontage",
+];
+const STREET_TYPES = ["Drive", "Parkway", "Boulevard", "Court", "Way", "Road", "Lane"];
+
+/** The branches the sales floor works out of. */
+const BRANCHES = [
+  "Charlotte, NC",
+  "Atlanta, GA",
+  "Dallas, TX",
+  "Chicago, IL",
+  "Nashville, TN",
+  "Phoenix, AZ",
+  "Tampa, FL",
+  "Denver, CO",
 ];
 
 /** The approved sales-contact types from the prospecting policy. */
@@ -162,6 +240,47 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * A shipping address in one of the freight metros, jittered off the city
+ * centre so the pins do not all stack on one point.
+ *
+ * Roughly six hundredths of a degree is four or five miles -- enough to spread
+ * across an industrial belt, tight enough that the metro is still recognisable.
+ */
+function addressIn(metro: (typeof METROS)[number]) {
+  return {
+    billingStreet: `${faker.number.int({ min: 100, max: 9800 })} ${faker.helpers.arrayElement(
+      STREET_NAMES,
+    )} ${faker.helpers.arrayElement(STREET_TYPES)}${
+      faker.datatype.boolean({ probability: 0.18 })
+        ? `, Suite ${faker.number.int({ min: 100, max: 850 })}`
+        : ""
+    }`,
+    billingCity: metro.city,
+    billingState: metro.state,
+    billingPostalCode: faker.helpers.arrayElement(metro.zips),
+    billingCountry: "United States",
+    billingLatitude: (metro.lat + faker.number.float({ min: -0.06, max: 0.06 })).toFixed(6),
+    billingLongitude: (metro.lng + faker.number.float({ min: -0.06, max: 0.06 })).toFixed(6),
+  };
+}
+
+/**
+ * How many prospects a rep may hold, from the prospecting policy's tiers.
+ *
+ * Junior (0-12 months) is 200 and Unseasoned (2-3 years) is 100. That reads
+ * like a mistake and is not: a new broker is building a book from nothing and
+ * needs the width, while a rep two years in is expected to be converting what
+ * they already hold. Confirmed against the policy -- do not "fix" it.
+ */
+function prospectLimitFor(role: string, startDate: Date): number {
+  if (role === "manager") return 250; // National Account Directors
+  const months = (Date.now() - startDate.getTime()) / (30.44 * 86_400_000);
+  if (months < 12) return 200; // Junior
+  if (months < 36) return 100; // Unseasoned
+  return 100; // Veteran: 15 per customer setup, capped at 100
+}
+
 export interface SeedReport {
   users: number;
   accounts: number;
@@ -209,19 +328,35 @@ export async function seed(
   // completely untested by the demo.
   // -------------------------------------------------------------------------
   log(`creating ${volumes.users} users`);
-  const userRows: (typeof schema.users.$inferInsert)[] = [];
   let extension = 100;
 
-  const admin = {
-    email: "avery.stone@megaforce.test",
-    fullName: "Avery Stone",
-    role: "admin" as const,
-    managerId: null,
-    rcExtensionId: String(extension++),
-  };
-  userRows.push(admin);
+  /**
+   * Start dates are spread across six years so the policy's tiers are all
+   * represented -- a book where every rep is a veteran never exercises the
+   * junior limit, and the limit is the interesting part.
+   */
+  const startFor = (yearsAgoMax: number) =>
+    faker.date.between({
+      from: new Date(Date.now() - yearsAgoMax * 365 * 86_400_000),
+      to: new Date(Date.now() - 30 * 86_400_000),
+    });
 
-  const [adminRow] = await db.insert(schema.users).values(admin).returning({ id: schema.users.id });
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+  const adminStart = startFor(8);
+  const [adminRow] = await db
+    .insert(schema.users)
+    .values({
+      email: "avery.stone@megaforce.test",
+      fullName: "Avery Stone",
+      role: "admin",
+      managerId: null,
+      rcExtensionId: String(extension++),
+      location: BRANCHES[0],
+      startDate: iso(adminStart),
+      prospectLimit: null,
+    })
+    .returning({ id: schema.users.id });
 
   const directorCount = 2;
   const managerCount = 7;
@@ -231,6 +366,7 @@ export async function seed(
   const directorIds: string[] = [];
   for (let i = 0; i < directorCount; i++) {
     const full = faker.person.fullName();
+    const start = startFor(9);
     const [row] = await db
       .insert(schema.users)
       .values({
@@ -239,6 +375,9 @@ export async function seed(
         role: "manager",
         managerId: adminRow.id,
         rcExtensionId: String(extension++),
+        location: BRANCHES[i % BRANCHES.length],
+        startDate: iso(start),
+        prospectLimit: prospectLimitFor("manager", start),
       })
       .returning({ id: schema.users.id });
     directorIds.push(row.id);
@@ -247,6 +386,7 @@ export async function seed(
   const managerIds: string[] = [];
   for (let i = 0; i < managerCount; i++) {
     const full = faker.person.fullName();
+    const start = startFor(7);
     const [row] = await db
       .insert(schema.users)
       .values({
@@ -255,14 +395,26 @@ export async function seed(
         role: "manager",
         managerId: directorIds[i % directorIds.length],
         rcExtensionId: String(extension++),
+        location: BRANCHES[i % BRANCHES.length],
+        startDate: iso(start),
+        prospectLimit: prospectLimitFor("manager", start),
       })
       .returning({ id: schema.users.id });
     managerIds.push(row.id);
   }
 
   const repIds: string[] = [];
+  const repBranch = new Map<string, string>();
   for (let i = 0; i < repCount; i++) {
     const full = faker.person.fullName();
+    // Weighted young: a real floor has more juniors than veterans, and it is
+    // the juniors whose limits and clocks matter most.
+    const start = startFor(faker.helpers.weightedArrayElement([
+      { value: 1, weight: 30 },
+      { value: 3, weight: 40 },
+      { value: 6, weight: 30 },
+    ]));
+    const branch = BRANCHES[i % BRANCHES.length];
     const [row] = await db
       .insert(schema.users)
       .values({
@@ -271,21 +423,29 @@ export async function seed(
         role: "broker",
         managerId: managerIds[i % managerIds.length],
         rcExtensionId: String(extension++),
+        location: branch,
+        startDate: iso(start),
+        prospectLimit: prospectLimitFor("broker", start),
       })
       .returning({ id: schema.users.id });
     repIds.push(row.id);
+    repBranch.set(row.id, branch);
   }
 
   // The credit team. They own no accounts -- credit is not a sales function --
   // but they see every one of them, so the demo needs real people to sign in as.
   for (let i = 0; i < creditCount; i++) {
     const full = faker.person.fullName();
+    const start = startFor(6);
     await db.insert(schema.users).values({
       email: `${slug(full)}${i}c@megaforce.test`,
       fullName: full,
       role: "credit",
       managerId: adminRow.id,
       rcExtensionId: String(extension++),
+      location: BRANCHES[0],
+      startDate: iso(start),
+      prospectLimit: null,
     });
   }
 
@@ -298,16 +458,7 @@ export async function seed(
   // -------------------------------------------------------------------------
   log(`creating ${volumes.accounts} accounts`);
   const usedNames = new Set<string>();
-  const accountSeeds: {
-    name: string;
-    ownerId: string;
-    industry: string;
-    status: string;
-    stage: string;
-    domain: string;
-    custom: Record<string, unknown>;
-    createdAt: Date;
-  }[] = [];
+  const accountSeeds: (typeof schema.accounts.$inferInsert)[] = [];
 
   for (let i = 0; i < volumes.accounts; i++) {
     const industry = faker.helpers.arrayElement(INDUSTRIES);
@@ -317,20 +468,44 @@ export async function seed(
     } while (usedNames.has(name));
     usedNames.add(name);
 
+    const status = faker.helpers.weightedArrayElement([
+      { value: "prospect", weight: 62 },
+      { value: "engaged", weight: 24 },
+      // Converted. Salesforce owns the relationship from here; this CRM only
+      // keeps the record so the broker stays credited.
+      { value: "customer", weight: 11 },
+      { value: "do_not_contact", weight: 3 },
+    ]);
+
+    const metro = faker.helpers.arrayElement(METROS);
     const tier = faker.helpers.arrayElement(VOLUME_BANDS);
+    const domain = `${slug(name)}.test`;
+
+    // Credit exists on customers, is sometimes pending on engaged accounts, and
+    // never on a cold prospect -- a credit line is something you apply for once
+    // there is freight to move.
+    const creditStatus =
+      status === "customer"
+        ? faker.helpers.weightedArrayElement([
+            { value: "approved", weight: 78 },
+            { value: "on_hold", weight: 13 },
+            { value: "revoked", weight: 9 },
+          ])
+        : status === "engaged" && faker.datatype.boolean({ probability: 0.3 })
+          ? "requested"
+          : null;
+
     accountSeeds.push({
       name,
       ownerId: faker.helpers.arrayElement(ownerPool),
       industry: industry.name,
-      status: faker.helpers.weightedArrayElement([
-        { value: "prospect", weight: 62 },
-        { value: "engaged", weight: 24 },
-        // Converted. Salesforce owns the relationship from here; this CRM only
-        // keeps the record so the broker stays credited.
-        { value: "customer", weight: 11 },
-        { value: "do_not_contact", weight: 3 },
-      ]),
-      domain: `${slug(name)}.test`,
+      status,
+      domain,
+      website: `www.${domain}`,
+      // ~8% of companies have no switchboard on file, which is normal and is
+      // exactly the record a broker has to work harder to reach.
+      phoneE164: faker.datatype.boolean({ probability: 0.92 }) ? fictionalPhone() : null,
+      ...addressIn(metro),
       stage: faker.helpers.weightedArrayElement([
         { value: "Lead", weight: 38 },
         { value: "Contact", weight: 27 },
@@ -338,12 +513,21 @@ export async function seed(
         { value: "Quote", weight: 11 },
         { value: "Closed", weight: 6 },
       ]),
+      creditStatus,
+      creditLimit: creditStatus
+        ? String(faker.number.int({ min: 10, max: 500 }) * 1000)
+        : null,
+      // National status is proposed by sales and approved by somebody else, so
+      // a few sit in review rather than every flag being settled.
+      nationalAccount: status === "customer" && faker.datatype.boolean({ probability: 0.09 }),
+      nationalAccountInReview:
+        status !== "prospect" && faker.datatype.boolean({ probability: 0.03 }),
       custom: {
         annual_freight_spend: faker.number.int({ min: 80, max: 9000 }) * 1000,
         volume_band: tier,
         primary_mode: faker.helpers.arrayElement(MODES),
         lead_source: faker.helpers.arrayElement(LEAD_SOURCES),
-        shipping_from: `${faker.location.city()}, ${faker.location.state({ abbreviated: true })}`,
+        shipping_from: `${metro.city}, ${metro.state}`,
         salesforce_id: faker.datatype.boolean({ probability: 0.35 })
           ? `001${faker.string.alphanumeric({ length: 15, casing: "mixed" })}`
           : null,
@@ -366,6 +550,62 @@ export async function seed(
   }
 
   const landmarks: Record<string, string> = {};
+
+  // -------------------------------------------------------------------------
+  // Corporate hierarchy
+  //
+  // Freight customers are rarely one company. A location account sits above a
+  // handful of service accounts, and credit rolls up the tree while ownership
+  // does not -- each account is claimed and worked on its own. Without a few of
+  // these in the data, the hierarchy tab and the credit rollup are untested.
+  //
+  // Children are drawn only from accounts that are not themselves parents, so
+  // the tree stays two deep and no cycle is possible.
+  // -------------------------------------------------------------------------
+  log("building the corporate hierarchy");
+  const parentCount = Math.max(1, Math.floor(accountIds.length / 25));
+  const parentIds = accountIds.slice(0, parentCount);
+  const childPool = accountIds.slice(parentCount);
+  let childCursor = 0;
+
+  for (const parentId of parentIds) {
+    const howMany = faker.number.int({ min: 1, max: 4 });
+    const takes = childPool.slice(childCursor, childCursor + howMany);
+    childCursor += howMany;
+    if (takes.length === 0) break;
+    await db.execute(sql`
+      update accounts set parent_account_id = ${parentId}
+       where id in (${sql.join(takes.map((id) => sql`${id}`), sql`, `)})
+    `);
+  }
+  landmarks.parentAccount = accountNames.get(parentIds[0]) ?? "";
+
+  // -------------------------------------------------------------------------
+  // Account Directors, and national approval
+  //
+  // A prospect has exactly one owner. A customer can carry two: if an AD set it
+  // up, a broker runs it day to day and the AD takes a share of the commission.
+  // The database enforces "customers only" with a CHECK, so this update is
+  // deliberately scoped to them.
+  // -------------------------------------------------------------------------
+  await db.execute(sql`
+    update accounts set ad_owner_id = ${directorIds[0]}
+     where status = 'customer' and md5(id::text) < '4'
+  `);
+  await db.execute(sql`
+    update accounts set ad_owner_id = ${directorIds[1] ?? directorIds[0]}
+     where status = 'customer' and ad_owner_id is null and md5(id::text) < '6'
+  `);
+
+  // An approved national account has somebody's name against the approval. A
+  // flag with nobody behind it is the kind of field that quietly becomes
+  // meaningless.
+  await db.execute(sql`
+    update accounts
+       set national_account_approved_by = ${adminRow.id},
+           national_account_approved_at = now() - (random() * 400 || ' days')::interval
+     where national_account
+  `);
 
   // -------------------------------------------------------------------------
   // Contacts, including the planted mess
@@ -499,7 +739,10 @@ export async function seed(
   // -------------------------------------------------------------------------
   log(`creating ${volumes.opportunities} opportunities`);
   const accountOwner = new Map<string, string>();
-  for (let i = 0; i < accountIds.length; i++) accountOwner.set(accountIds[i], accountSeeds[i].ownerId);
+  for (let i = 0; i < accountIds.length; i++) {
+    const owner = accountSeeds[i].ownerId;
+    if (owner) accountOwner.set(accountIds[i], owner);
+  }
 
   const oppSeeds: (typeof schema.opportunities.$inferInsert)[] = [];
   for (let i = 0; i < volumes.opportunities; i++) {

@@ -1,223 +1,375 @@
 import Link from "next/link";
+import { Building2, ExternalLink, Network, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { LifecycleFlag } from "@/components/lifecycle-flag";
+import { FilterBar, type FilterOptions } from "./filter-bar";
 import { createClient, currentUser } from "@/lib/supabase/server";
-import { daysSince } from "@/lib/format";
-import type { LifecycleState } from "@/lib/lifecycle";
+import {
+  COLUMNS,
+  PAGE_SIZE,
+  PRESETS,
+  STATUS_LABEL,
+  defaultColumns,
+  parseFilters,
+  toQueryString,
+} from "@/lib/account-filters";
+import { LIST_COLUMNS, applyAccountFilters, pageRange, type AccountRow } from "@/lib/account-query";
+import { daysSince, formatMoney, staleTone } from "@/lib/format";
+import { formatPhone } from "@/lib/phone";
 
 export const dynamic = "force-dynamic";
-
-interface Search {
-  q?: string;
-  status?: string;
-  state?: string;
-  mine?: string;
-}
-
-const STATUSES = ["all", "prospect", "engaged", "customer", "do_not_contact"];
-const STATES = ["all", "overdue", "expiring", "warning", "fresh", "available"];
-
-const STATUS_LABEL: Record<string, string> = {
-  all: "Any status",
-  prospect: "Prospect",
-  engaged: "Engaged",
-  customer: "Customer",
-  do_not_contact: "Do not contact",
-};
-
-const STATE_LABEL: Record<string, string> = {
-  all: "Any state",
-  overdue: "Releasing",
-  expiring: "Expiring",
-  warning: "Needs attention",
-  fresh: "Active",
-  available: "Available",
-};
 
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<Search>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = await searchParams;
+  const raw = await searchParams;
+  const filters = parseFilters(raw);
   const supabase = await createClient();
   const me = await currentUser();
 
+  const colsParam = typeof raw.cols === "string" ? raw.cols : "";
+  const columns = colsParam
+    ? colsParam.split(",").filter((c) => COLUMNS.some((d) => d.key === c))
+    : defaultColumns();
+  const visible = COLUMNS.filter((c) => columns.includes(c.key));
+
+  const [from, to] = pageRange(filters.page);
+
   /*
-   * Reading from the accounts_with_state view rather than the table.
+   * Reading from accounts_with_state rather than the table.
    *
-   * The view computes the lifecycle state in SQL, which is what lets this page
-   * sort by urgency and filter by state at the database. Doing it in JavaScript
-   * would mean fetching the whole book to colour it, and the definition of
-   * "amber" would then exist in two places that could disagree.
+   * The view computes the lifecycle state in SQL, which is what lets this
+   * screen filter and sort by it at the database and page correctly. Doing it
+   * in JavaScript would mean fetching the whole book to colour it, and the
+   * definition of "amber" would then live in two places that can disagree.
    *
-   * The view is security_invoker, so the same row level security applies here
-   * as to a direct query -- a broker still sees only their own accounts, plus
-   * the unclaimed pool.
+   * security_invoker on the view means row level security applies exactly as it
+   * would to a direct query -- a broker sees their own book plus the pool.
    */
-  let query = supabase
-    .from("accounts_with_state")
-    .select("id, name, status, industry, last_activity_at, owner_id, owner_name, state, days_left, urgency")
-    // Most urgent first: the accounts about to be lost, then the ones going
-    // quiet. A broker opening this screen should see what needs doing today
-    // without sorting anything.
-    .order("urgency", { ascending: true })
-    .order("days_left", { ascending: true, nullsFirst: false })
-    .limit(200);
+  const listQuery = applyAccountFilters(
+    supabase.from("accounts_with_state").select(LIST_COLUMNS, { count: "exact" }),
+    filters,
+    me?.id ?? null,
+  ).range(from, to);
 
-  if (params.q) query = query.ilike("name", `%${params.q}%`);
-  if (params.status && params.status !== "all") query = query.eq("status", params.status);
-  if (params.state && params.state !== "all") query = query.eq("state", params.state);
-  if (params.mine === "1" && me) query = query.eq("owner_id", me.id);
+  const [listRes, optionsRes, ownersRes] = await Promise.all([
+    listQuery,
+    // One round trip for every dropdown's contents, read from the caller's own
+    // visible accounts -- so the State list contains the states that exist in
+    // this book and nothing else.
+    supabase.rpc("account_filter_options"),
+    supabase.from("users").select("id, full_name").order("full_name").limit(500),
+  ]);
 
-  const { data, error } = await query;
-
-  if (error) {
-    return <p className="text-sm text-destructive">Could not load accounts: {error.message}</p>;
+  if (listRes.error) {
+    return (
+      <p className="text-sm text-destructive">Could not load accounts: {listRes.error.message}</p>
+    );
   }
 
-  type Row = {
-    id: string;
-    name: string;
-    status: string;
-    industry: string | null;
-    last_activity_at: string | null;
-    owner_id: string | null;
-    owner_name: string | null;
-    state: LifecycleState;
-    days_left: number | null;
-  };
+  const rows = (listRes.data ?? []) as unknown as AccountRow[];
+  const total = listRes.count ?? rows.length;
+  const options = buildOptions(
+    (optionsRes.data ?? []) as { kind: string; value: string; uses: number }[],
+    (ownersRes.data ?? []) as { id: string; full_name: string }[],
+  );
 
-  const accounts = (data ?? []) as Row[];
-  const atRisk = accounts.filter((a) => a.state === "expiring" || a.state === "overdue").length;
+  const preset = PRESETS.find((p) => p.key === filters.preset);
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="mx-auto max-w-[1600px] space-y-4">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {preset ? preset.label : "Accounts"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            {accounts.length} visible, most urgent first.
-            {atRisk > 0 ? (
-              <span className="font-medium text-destructive"> {atRisk} at risk of release.</span>
-            ) : null}
+            {preset ? preset.description : "Every company you can see, most urgent first."}
           </p>
         </div>
-        <Link
-          href="/accounts/new"
-          className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          New company
-        </Link>
-      </div>
-
-      <form className="flex flex-wrap items-end gap-3" method="get">
-        <div className="w-56">
-          <Input name="q" placeholder="Search by company" defaultValue={params.q ?? ""} />
+        <div className="flex gap-2">
+          <Link
+            href="/available"
+            className="inline-flex h-9 items-center rounded-md border bg-card px-4 text-sm font-medium transition-colors hover:bg-accent"
+          >
+            Available pool
+          </Link>
+          <Link
+            href="/accounts/new"
+            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            New company
+          </Link>
         </div>
-        <select
-          name="state"
-          defaultValue={params.state ?? "all"}
-          className="h-9 rounded-md border bg-transparent px-3 text-sm"
-        >
-          {STATES.map((s) => (
-            <option key={s} value={s}>
-              {STATE_LABEL[s]}
-            </option>
-          ))}
-        </select>
-        <select
-          name="status"
-          defaultValue={params.status ?? "all"}
-          className="h-9 rounded-md border bg-transparent px-3 text-sm"
-        >
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </select>
-        <label className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
-          <input type="checkbox" name="mine" value="1" defaultChecked={params.mine === "1"} />
-          Only mine
-        </label>
-        <Button type="submit" variant="secondary">
-          Apply
-        </Button>
-        <Link
-          href="/accounts"
-          className="inline-flex h-9 items-center rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          Reset
-        </Link>
-      </form>
+      </header>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Company</TableHead>
-              <TableHead>Owner</TableHead>
-              <TableHead>Industry</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Last worked</TableHead>
-              <TableHead className="text-right">Clock</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {accounts.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                  Nothing matches those filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              accounts.map((account) => {
-                const idle = daysSince(account.last_activity_at);
-                return (
-                  <TableRow key={account.id}>
-                    <TableCell>
-                      <Link
-                        href={`/accounts/${account.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {account.name}
+      <FilterBar filters={filters} options={options} columns={columns} total={total} />
+
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                {visible.map((c) => (
+                  <th
+                    key={c.key}
+                    className={`whitespace-nowrap px-3 py-2.5 font-medium first:pl-4 last:pr-4 ${
+                      c.numeric || c.key === "clock" ? "text-right" : ""
+                    }`}
+                  >
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={visible.length} className="px-4 py-16 text-center">
+                    <Building2 className="mx-auto size-6 text-muted-foreground/50" aria-hidden />
+                    <p className="mt-2 text-sm font-medium">Nothing matches those filters.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Try clearing a filter, or{" "}
+                      <Link href="/available" className="text-primary hover:underline">
+                        claim something from the pool
                       </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {account.owner_name ?? (
-                        <span className="italic">unclaimed</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {account.industry ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{STATUS_LABEL[account.status] ?? account.status}</Badge>
-                    </TableCell>
-                    <TableCell className="tabular-nums text-muted-foreground">
-                      {idle === null ? "never" : idle === 0 ? "today" : `${idle}d ago`}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <LifecycleFlag state={account.state} daysLeft={account.days_left} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+                      .
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr key={row.id} className="border-b last:border-b-0 hover:bg-accent/40">
+                    {visible.map((c) => (
+                      <td
+                        key={c.key}
+                        className={`px-3 py-2.5 first:pl-4 last:pr-4 ${
+                          c.numeric || c.key === "clock" ? "text-right" : ""
+                        }`}
+                      >
+                        <Cell column={c.key} row={row} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {total > PAGE_SIZE ? (
+          <div className="flex items-center justify-between border-t px-4 py-2.5 text-sm">
+            <p className="text-muted-foreground tabular-nums">
+              {from + 1}–{Math.min(from + PAGE_SIZE, total)} of {total.toLocaleString()}
+            </p>
+            <div className="flex items-center gap-1">
+              <PageLink filters={filters} cols={colsParam} page={filters.page - 1} disabled={filters.page <= 1}>
+                Previous
+              </PageLink>
+              <span className="px-2 text-xs text-muted-foreground tabular-nums">
+                {filters.page} / {lastPage}
+              </span>
+              <PageLink
+                filters={filters}
+                cols={colsParam}
+                page={filters.page + 1}
+                disabled={filters.page >= lastPage}
+              >
+                Next
+              </PageLink>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+
+function PageLink({
+  filters,
+  cols,
+  page,
+  disabled,
+  children,
+}: {
+  filters: ReturnType<typeof parseFilters>;
+  cols: string;
+  page: number;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  if (disabled) {
+    return (
+      <span className="inline-flex h-8 cursor-not-allowed items-center rounded-md border px-3 text-xs text-muted-foreground/50">
+        {children}
+      </span>
+    );
+  }
+  const params = new URLSearchParams(toQueryString({ ...filters, page }));
+  if (cols) params.set("cols", cols);
+  return (
+    <Link
+      href={`/accounts?${params.toString()}`}
+      className="inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium transition-colors hover:bg-accent"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function Cell({ column, row }: { column: string; row: AccountRow }) {
+  switch (column) {
+    case "name":
+      return (
+        <div className="flex items-center gap-1.5">
+          <Link href={`/accounts/${row.id}`} className="font-medium hover:underline">
+            {row.name}
+          </Link>
+          {row.national_account ? (
+            <Star className="size-3.5 shrink-0 fill-brand-400 text-brand-500" aria-label="National account" />
+          ) : null}
+          {row.child_count > 0 ? (
+            <span
+              title={`${row.child_count} child accounts`}
+              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-secondary px-1 text-[10px] font-medium text-secondary-foreground"
+            >
+              <Network className="size-2.5" aria-hidden />
+              {row.child_count}
+            </span>
+          ) : null}
+          {row.contact_count === 0 ? (
+            <span
+              title="No contacts on file, so no inbound call can be matched to this company"
+              className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+            >
+              no contacts
+            </span>
+          ) : null}
+        </div>
+      );
+
+    case "owner":
+      return row.owner_name ? (
+        <span className="text-muted-foreground">{row.owner_name}</span>
+      ) : (
+        <Link href="/available" className="italic text-primary hover:underline">
+          unclaimed
+        </Link>
+      );
+
+    case "location":
+      return (
+        <span className="whitespace-nowrap text-muted-foreground">
+          {row.billing_city && row.billing_state
+            ? `${row.billing_city}, ${row.billing_state}`
+            : (row.billing_city ?? row.billing_state ?? "—")}
+        </span>
+      );
+
+    case "industry":
+      return <span className="text-muted-foreground">{row.industry ?? "—"}</span>;
+
+    case "status":
+      return (
+        <Badge variant={row.status === "customer" ? "default" : "outline"}>
+          {STATUS_LABEL[row.status] ?? row.status}
+        </Badge>
+      );
+
+    case "stage":
+      return <span className="text-muted-foreground">{row.stage}</span>;
+
+    case "phone":
+      return row.phone_e164 ? (
+        <a href={`tel:${row.phone_e164}`} className="whitespace-nowrap hover:underline">
+          {formatPhone(row.phone_e164)}
+        </a>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      );
+
+    case "website":
+      return row.website ? (
+        <a
+          href={normalizeUrl(row.website)}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+        >
+          {row.website.replace(/^https?:\/\//, "")}
+          <ExternalLink className="size-3" aria-hidden />
+        </a>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      );
+
+    case "parent":
+      return <span className="text-muted-foreground">{row.parent_account_name ?? "—"}</span>;
+
+    case "credit":
+      return (
+        <span className="whitespace-nowrap tabular-nums">
+          {formatMoney(row.credit_limit)}
+          {row.credit_status && row.credit_status !== "approved" ? (
+            <span className="ml-1 text-xs text-muted-foreground">({row.credit_status})</span>
+          ) : null}
+        </span>
+      );
+
+    // "Last contact" is any communication at all; "Last counted" is the one the
+    // clock listens to. Showing both is what separates "nothing has happened
+    // here" from "things happened but none of them qualified" -- the single
+    // most common misunderstanding this system produces.
+    case "contacted": {
+      const d = daysSince(row.last_communicated_at);
+      return (
+        <span className="whitespace-nowrap text-muted-foreground">
+          {d === null ? "never" : d === 0 ? "today" : `${d}d ago`}
+        </span>
+      );
+    }
+
+    case "activity": {
+      const d = daysSince(row.last_activity_at);
+      return (
+        <span className={`whitespace-nowrap ${staleTone(d)}`}>
+          {d === null ? "never" : d === 0 ? "today" : `${d}d ago`}
+        </span>
+      );
+    }
+
+    case "clock":
+      return <LifecycleFlag state={row.state} daysLeft={row.days_left} />;
+
+    default:
+      return null;
+  }
+}
+
+function buildOptions(
+  raw: { kind: string; value: string; uses: number }[],
+  owners: { id: string; full_name: string }[],
+): FilterOptions {
+  const of = (kind: string) => raw.filter((r) => r.kind === kind && r.value);
+  return {
+    industries: of("industry").map((r) => r.value),
+    states: of("state").map((r) => ({ value: r.value, uses: Number(r.uses) })),
+    // Cities are capped: a national book has thousands, and a dropdown with
+    // thousands of entries is a dropdown nobody scrolls. The search box covers
+    // the long tail.
+    cities: of("city")
+      .slice(0, 60)
+      .map((r) => ({ value: r.value, uses: Number(r.uses) })),
+    ownerLocations: of("owner_location").map((r) => r.value),
+    owners: owners.map((o) => ({ id: o.id, name: o.full_name })),
+  };
+}
+
+function normalizeUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }

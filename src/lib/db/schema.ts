@@ -35,6 +35,12 @@ export const users = pgTable(
     managerId: uuid("manager_id"),
     /** Telephony extension, used to attribute an inbound call event to a rep. */
     rcExtensionId: text("rc_extension_id").unique(),
+    /** Branch or office. Shown as a column in the account list. */
+    location: text("location"),
+    /** Drives the policy's tier: 0-12mo junior, 2-3yr unseasoned, 3yr+ veteran. */
+    startDate: date("start_date"),
+    /** How many prospects this rep may hold. Null falls back to the tier default. */
+    prospectLimit: integer("prospect_limit"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
   },
   (t) => [index("users_manager_id_idx").on(t.managerId)],
@@ -57,6 +63,37 @@ export const accounts = pgTable(
     /** Sales pipeline: Lead | Contact | Pitch | Quote | Closed. */
     stage: text("stage").notNull().default("Lead"),
     domain: text("domain"),
+    website: text("website"),
+    /** Switchboard number. Always E.164; normalized on write by src/lib/phone.ts. */
+    phoneE164: text("phone_e164"),
+
+    // Structured, not a text blob: "State = NC" has to be a filter, and the map
+    // needs the parts. Named billing_* to match the Salesforce field names.
+    billingStreet: text("billing_street"),
+    billingCity: text("billing_city"),
+    billingState: text("billing_state"),
+    billingPostalCode: text("billing_postal_code"),
+    billingCountry: text("billing_country").default("United States"),
+    billingLatitude: numeric("billing_latitude", { precision: 9, scale: 6 }),
+    billingLongitude: numeric("billing_longitude", { precision: 9, scale: 6 }),
+
+    /** Parent in the corporate hierarchy. Credit rolls up; ownership does not. */
+    parentAccountId: uuid("parent_account_id"),
+    nationalAccount: boolean("national_account").notNull().default(false),
+    nationalAccountInReview: boolean("national_account_in_review").notNull().default(false),
+    nationalAccountApprovedBy: uuid("national_account_approved_by").references(() => users.id),
+    nationalAccountApprovedAt: timestamp("national_account_approved_at", { withTimezone: true }),
+
+    /**
+     * The Account Director who set the customer up, alongside the broker who
+     * runs it. Customers only -- a prospect has exactly one owner.
+     */
+    adOwnerId: uuid("ad_owner_id").references(() => users.id),
+
+    creditLimit: numeric("credit_limit", { precision: 14, scale: 2 }),
+    /** 'none' | 'requested' | 'approved' | 'on_hold' | 'revoked' */
+    creditStatus: text("credit_status"),
+
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     releasedAt: timestamp("released_at", { withTimezone: true }),
     lastReleaseReason: text("last_release_reason"),
@@ -71,8 +108,22 @@ export const accounts = pgTable(
     index("accounts_owner_id_idx").on(t.ownerId),
     index("accounts_last_activity_at_idx").on(t.lastActivityAt),
     index("accounts_status_idx").on(t.status),
+    index("accounts_parent_idx").on(t.parentAccountId),
+    index("accounts_ad_owner_idx").on(t.adOwnerId),
   ],
 );
+
+/**
+ * The Salesforce Industry picklist, as a table.
+ *
+ * A controlled list rather than free text: near-duplicate values ("Food-Dry",
+ * "Food - Dry") silently split every report that groups by industry, and the
+ * damage is invisible until someone adds the two numbers up by hand.
+ */
+export const industries = pgTable("industries", {
+  name: text("name").primaryKey(),
+  sort: integer("sort").notNull().default(0),
+});
 
 export const contacts = pgTable(
   "contacts",
@@ -303,6 +354,13 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 
 export const accountsRelations = relations(accounts, ({ one, many }) => ({
   owner: one(users, { fields: [accounts.ownerId], references: [users.id] }),
+  adOwner: one(users, { fields: [accounts.adOwnerId], references: [users.id] }),
+  parent: one(accounts, {
+    fields: [accounts.parentAccountId],
+    references: [accounts.id],
+    relationName: "hierarchy",
+  }),
+  children: many(accounts, { relationName: "hierarchy" }),
   claims: many(accountClaims),
   contacts: many(contacts),
   opportunities: many(opportunities),
@@ -347,6 +405,7 @@ export type QualificationRule = typeof qualificationRules.$inferSelect;
 export type SavedView = typeof savedViews.$inferSelect;
 export type AccountRetentionRule = typeof accountRetentionRules.$inferSelect;
 export type AccountClaim = typeof accountClaims.$inferSelect;
+export type Industry = typeof industries.$inferSelect;
 
 export const accountClaimsRelations = relations(accountClaims, ({ one }) => ({
   account: one(accounts, { fields: [accountClaims.accountId], references: [accounts.id] }),

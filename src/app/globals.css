@@ -4,6 +4,44 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ---------------------------------------------------------------------------
+ * Brand
+ *
+ * Taken from megacorp.com: navy #00417A carries the chrome, green #00D563 is
+ * the call to action. The scales around them are generated so that a shade is
+ * always available rather than being eyeballed at the call site -- the reason
+ * an interface drifts off brand is never the primary colour, it is the fifteen
+ * almost-greys somebody picked in a hurry.
+ *
+ * Written in hex rather than oklch on purpose. These values get compared
+ * against a brand guide by eye, and "#00417A" can be checked in a second.
+ * ------------------------------------------------------------------------ */
+@theme {
+  --color-navy-50: #eff6fc;
+  --color-navy-100: #dbeafa;
+  --color-navy-200: #bfdbf5;
+  --color-navy-300: #93c3ee;
+  --color-navy-400: #5fa3e3;
+  --color-navy-500: #3a83d4;
+  --color-navy-600: #2666bd;
+  --color-navy-700: #00417a;
+  --color-navy-800: #05386a;
+  --color-navy-900: #082f58;
+  --color-navy-950: #041d3a;
+
+  --color-brand-50: #e8fdf1;
+  --color-brand-100: #c8fadd;
+  --color-brand-200: #94f3be;
+  --color-brand-300: #56e79a;
+  --color-brand-400: #00d563;
+  --color-brand-500: #00c058;
+  --color-brand-600: #009a47;
+  --color-brand-700: #007a3b;
+  --color-brand-800: #066032;
+  --color-brand-900: #074f2b;
+  --color-brand-950: #012c17;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -49,72 +87,85 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* A faintly cool page behind white cards, so the cards read as surfaces
+     rather than as the background with lines drawn on it. */
+  --background: #f4f7fa;
+  --foreground: #0d1b2a;
+  --card: #ffffff;
+  --card-foreground: #0d1b2a;
+  --popover: #ffffff;
+  --popover-foreground: #0d1b2a;
+
+  --primary: #00417a;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef5;
+  --secondary-foreground: #05386a;
+  --muted: #eef2f7;
+  --muted-foreground: #5a6b80;
+  --accent: #e8eef5;
+  --accent-foreground: #00417a;
+  --destructive: #c8102e;
+
+  --border: #d9e2ec;
+  --input: #cbd6e2;
+  --ring: #3a83d4;
+
+  /* Charts run navy → green, the two brand colours, rather than the default
+     rainbow. Dashboard series are comparisons, not categories. */
+  --chart-1: #00417a;
+  --chart-2: #2666bd;
+  --chart-3: #5fa3e3;
+  --chart-4: #00c058;
+  --chart-5: #56e79a;
+
+  --radius: 0.5rem;
+
+  --sidebar: #041d3a;
+  --sidebar-foreground: #c7d7e8;
+  --sidebar-primary: #00d563;
+  --sidebar-primary-foreground: #012c17;
+  --sidebar-accent: #0b2f57;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #123458;
+  --sidebar-ring: #00d563;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #071726;
+  --foreground: #e8eef5;
+  --card: #0c2136;
+  --card-foreground: #e8eef5;
+  --popover: #0c2136;
+  --popover-foreground: #e8eef5;
+
+  --primary: #5fa3e3;
+  --primary-foreground: #041d3a;
+  --secondary: #123458;
+  --secondary-foreground: #e8eef5;
+  --muted: #102a44;
+  --muted-foreground: #90a6bd;
+  --accent: #123458;
+  --accent-foreground: #ffffff;
+  --destructive: #f4576d;
+
+  --border: #1b3d5f;
+  --input: #24506f;
+  --ring: #3a83d4;
+
+  --chart-1: #5fa3e3;
+  --chart-2: #3a83d4;
+  --chart-3: #93c3ee;
+  --chart-4: #00d563;
+  --chart-5: #94f3be;
+
+  --sidebar: #041d3a;
+  --sidebar-foreground: #c7d7e8;
+  --sidebar-primary: #00d563;
+  --sidebar-primary-foreground: #012c17;
+  --sidebar-accent: #0b2f57;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #123458;
+  --sidebar-ring: #00d563;
 }
 
 @layer base {
@@ -123,8 +174,33 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* A CRM is read all day. Slightly tighter tracking on a dense table beats
+       the browser default, which is set for prose. */
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   html {
     @apply font-sans;
+  }
+  /* Numbers in a table must line up. Every figure column is tabular, so a
+     column of days-remaining scans as a column rather than as a ragged edge. */
+  th,
+  td {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  /* The navy band behind the top of a page, matching the site header. */
+  .brand-gradient {
+    background-image: linear-gradient(135deg, #00417a 0%, #05386a 55%, #041d3a 100%);
+  }
+  /* Used on the sidebar's active item and on stat cards, where a flat brand
+     green is too loud across a large area. */
+  .brand-accent-bar {
+    background-image: linear-gradient(180deg, #00d563 0%, #009a47 100%);
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 }
