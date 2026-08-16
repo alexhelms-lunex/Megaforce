@@ -5,6 +5,7 @@ import type { LocalDb } from "../../db/local";
 import * as schema from "@/lib/db/schema";
 import { storeRawEvent, extractExternalId } from "@/lib/ingest";
 import { openQueue, processRawEvent, resolveUnmatched } from "@/lib/matcher";
+import { qualify, toRule } from "@/lib/qualify";
 import { buildCallLogPayload, buildEmailPayload, buildTelephonySessionPayload } from "@/lib/ringcentral/payloads";
 
 /**
@@ -44,6 +45,16 @@ beforeEach(async () => {
     delete from opportunities;
     delete from accounts;
     delete from users;
+
+    -- Restore the shipped call rule. One test below deliberately changes the
+    -- threshold to prove the rules are data; without this reset that change
+    -- leaks into every later test, and they fail for a reason that has nothing
+    -- to do with what they are testing.
+    update qualification_rules
+       set min_duration_seconds = 60,
+           allowed_results = array['Call connected','Accepted'],
+           requires_outcome = true
+     where activity_type = 'call';
   `);
 
   [{ id: repId }] = await db
@@ -96,6 +107,49 @@ async function addContact(accountId: string, phone: string | null, email?: strin
 const countActivities = async () =>
   (await db.select().from(schema.activities)).length;
 
+/**
+ * Write a call up, as the RingCentral dock does.
+ *
+ * Under the prospecting policy a call is not an approved activity until a
+ * broker chooses a stage outcome, so a call arriving from the webhook always
+ * starts unqualified. Tests that care about qualification have to log it
+ * first -- which is the real behaviour, not a test artifact.
+ */
+async function writeUp(activityId: string, stage = "Contact") {
+  const [activity] = await db
+    .select()
+    .from(schema.activities)
+    .where(eq(schema.activities.id, activityId));
+  const [rule] = await db
+    .select()
+    .from(schema.qualificationRules)
+    .where(eq(schema.qualificationRules.activityType, "call"));
+
+  const verdict = qualify(
+    {
+      type: "call",
+      durationSeconds: activity.durationSeconds,
+      result: activity.result,
+      direction: activity.direction as "inbound" | "outbound" | null,
+      stageOutcome: stage,
+    },
+    rule ? toRule(rule) : null,
+  );
+
+  await db
+    .update(schema.activities)
+    .set({
+      stageOutcome: stage,
+      notes: "logged by test",
+      loggedBy: repId,
+      loggedAt: new Date(),
+      qualifies: verdict.qualifies,
+      qualificationReason: verdict.reason,
+    })
+    .where(eq(schema.activities.id, activityId));
+  return verdict;
+}
+
 // ---------------------------------------------------------------------------
 
 describe("a call that matches one contact", () => {
@@ -114,8 +168,14 @@ describe("a call that matches one contact", () => {
     expect(outcome.status).toBe("matched");
     if (outcome.status !== "matched") return;
     expect(outcome.accountId).toBe(acmeId);
-    expect(outcome.qualifies).toBe(true);
-    expect(outcome.reason).toContain("184s");
+    // Matched, but NOT yet counted. Policy: a call is not an approved activity
+    // until a broker chooses a stage outcome.
+    expect(outcome.qualifies).toBe(false);
+    expect(outcome.reason).toContain("not yet logged");
+
+    const verdict = await writeUp(outcome.activityId, "Pitch");
+    expect(verdict.qualifies).toBe(true);
+    expect(verdict.reason).toContain("184s");
   });
 
   it("matches even when the contact's number was stored in a different format", async () => {
@@ -186,29 +246,41 @@ describe("qualification is recorded, not just applied", () => {
       buildCallLogPayload({
         telephonySessionId: "s-010",
         counterpartyNumber: "+17045551234",
-        durationSeconds: 119,
+        durationSeconds: 45,
       }),
     );
 
     expect(outcome.status).toBe("matched");
+    if (outcome.status !== "matched") return;
+    await writeUp(outcome.activityId);
+
     const [activity] = await db.select().from(schema.activities);
-    // The call is still logged. It just does not count.
+    // The call is still recorded. It just does not count.
     expect(activity.qualifies).toBe(false);
-    expect(activity.qualificationReason).toContain("119s");
-    expect(activity.qualificationReason).toContain("120s");
+    expect(activity.qualificationReason).toContain("45s");
+    expect(activity.qualificationReason).toContain("60s");
   });
 
-  it("passes at 121 seconds", async () => {
+  it("holds the 60 second boundary from the policy, once written up", async () => {
+    // The build previously required 120 seconds, which rejected every call
+    // between 60 and 119 -- a broker who did the work lost the account anyway.
     await addContact(acmeId, "+17045551234");
-    await ingest(
-      buildCallLogPayload({
-        telephonySessionId: "s-011",
-        counterpartyNumber: "+17045551234",
-        durationSeconds: 121,
-      }),
-    );
-    const [activity] = await db.select().from(schema.activities);
-    expect(activity.qualifies).toBe(true);
+    for (const [id, duration, expected] of [
+      ["s-011a", 59, false],
+      ["s-011b", 60, true],
+      ["s-011c", 61, true],
+    ] as const) {
+      const { outcome } = await ingest(
+        buildCallLogPayload({
+          telephonySessionId: id,
+          counterpartyNumber: "+17045551234",
+          durationSeconds: duration,
+        }),
+      );
+      if (outcome.status !== "matched") throw new Error("expected a match");
+      const verdict = await writeUp(outcome.activityId);
+      expect(verdict.qualifies, `${duration}s`).toBe(expected);
+    }
   });
 
   it("logs voicemail without counting it, and says why", async () => {
@@ -226,25 +298,44 @@ describe("qualification is recorded, not just applied", () => {
     expect(activity.qualificationReason).toContain("Voicemail");
   });
 
+  it("refuses a long connected call nobody wrote up", async () => {
+    // The loophole this closes: hold a prospect forever by dialling and never
+    // recording anything.
+    await addContact(acmeId, "+17045551234");
+    await ingest(
+      buildCallLogPayload({
+        telephonySessionId: "s-014",
+        counterpartyNumber: "+17045551234",
+        durationSeconds: 900,
+      }),
+    );
+    const [activity] = await db.select().from(schema.activities);
+    expect(activity.qualifies).toBe(false);
+    expect(activity.loggedAt).toBeNull();
+    expect(activity.qualificationReason).toContain("not yet logged");
+  });
+
   it("obeys a rule change made in the database, with no code change", async () => {
     await addContact(acmeId, "+17045551234");
     // An admin drops the threshold to 60 seconds.
     await db
       .update(schema.qualificationRules)
-      .set({ minDurationSeconds: 60 })
+      .set({ minDurationSeconds: 300 })
       .where(eq(schema.qualificationRules.activityType, "call"));
 
-    await ingest(
+    const { outcome } = await ingest(
       buildCallLogPayload({
         telephonySessionId: "s-013",
         counterpartyNumber: "+17045551234",
         durationSeconds: 90,
       }),
     );
+    if (outcome.status !== "matched") throw new Error("expected a match");
+    const verdict = await writeUp(outcome.activityId);
 
-    const [activity] = await db.select().from(schema.activities);
-    expect(activity.qualifies).toBe(true);
-    expect(activity.qualificationReason).toContain("60s");
+    // 90 seconds cleared the shipped 60s rule; it does not clear 300.
+    expect(verdict.qualifies).toBe(false);
+    expect(verdict.reason).toContain("300s");
   });
 });
 
@@ -252,7 +343,7 @@ describe("the account's last activity timestamp", () => {
   it("moves only for a qualifying call", async () => {
     await addContact(acmeId, "+17045551234");
 
-    await ingest(
+    const short = await ingest(
       buildCallLogPayload({
         telephonySessionId: "s-020",
         counterpartyNumber: "+17045551234",
@@ -260,11 +351,12 @@ describe("the account's last activity timestamp", () => {
         startTime: new Date("2026-03-01T10:00:00Z"),
       }),
     );
+    if (short.outcome.status === "matched") await writeUp(short.outcome.activityId);
     let [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, acmeId));
     // A 30 second call must not make a dormant account look alive.
     expect(account.lastActivityAt).toBeNull();
 
-    await ingest(
+    const long = await ingest(
       buildCallLogPayload({
         telephonySessionId: "s-021",
         counterpartyNumber: "+17045551234",
@@ -272,13 +364,14 @@ describe("the account's last activity timestamp", () => {
         startTime: new Date("2026-03-02T10:00:00Z"),
       }),
     );
+    if (long.outcome.status === "matched") await writeUp(long.outcome.activityId);
     [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, acmeId));
     expect(account.lastActivityAt?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
   });
 
   it("never moves backwards when an older call arrives late", async () => {
     await addContact(acmeId, "+17045551234");
-    await ingest(
+    const recent = await ingest(
       buildCallLogPayload({
         telephonySessionId: "s-022",
         counterpartyNumber: "+17045551234",
@@ -286,8 +379,10 @@ describe("the account's last activity timestamp", () => {
         startTime: new Date("2026-03-10T10:00:00Z"),
       }),
     );
+    if (recent.outcome.status === "matched") await writeUp(recent.outcome.activityId);
+
     // Backfill of an older call -- common after a provider outage.
-    await ingest(
+    const older = await ingest(
       buildCallLogPayload({
         telephonySessionId: "s-023",
         counterpartyNumber: "+17045551234",
@@ -295,6 +390,7 @@ describe("the account's last activity timestamp", () => {
         startTime: new Date("2026-03-01T10:00:00Z"),
       }),
     );
+    if (older.outcome.status === "matched") await writeUp(older.outcome.activityId);
 
     const [account] = await db.select().from(schema.accounts).where(eq(schema.accounts.id, acmeId));
     expect(account.lastActivityAt?.toISOString()).toBe("2026-03-10T10:00:00.000Z");
@@ -447,7 +543,8 @@ describe("resolving from the review queue", () => {
 
     const [activity] = await db.select().from(schema.activities);
     expect(activity.accountId).toBe(globexId);
-    expect(activity.qualifies).toBe(true);
+    // Resolving attributes the call; it still has to be written up to count.
+    expect(activity.qualifies).toBe(false);
     expect(activity.qualificationReason).toContain("resolved from review queue");
     // The contact at the chosen account is attached, not the one at the other.
     expect(activity.contactId).not.toBeNull();
@@ -486,7 +583,7 @@ describe("resolving from the review queue", () => {
 
     const [activity] = await db.select().from(schema.activities);
     expect(activity.qualifies).toBe(false);
-    expect(activity.qualificationReason).toContain("40s");
+    expect(activity.qualificationReason).toContain("resolved from review queue");
   });
 });
 

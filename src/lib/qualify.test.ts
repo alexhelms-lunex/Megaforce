@@ -153,3 +153,59 @@ describe("qualify -- rules really are data", () => {
     expect(qualify(note, noteRule).qualifies).toBe(false);
   });
 });
+
+describe("qualify -- a call must be written up", () => {
+  /**
+   * From the prospecting policy: "Brokers must choose a stage outcome ... in
+   * order for the call to be saved correctly."
+   *
+   * So duration alone is not enough. A 90 second conversation nobody wrote up
+   * is not an approved activity and must not keep an account alive -- otherwise
+   * a broker holds a prospect forever by dialling and never recording anything.
+   */
+  const CALL_RULE_60: QualificationRule = {
+    activityType: "call",
+    minDurationSeconds: 60,
+    allowedResults: ["Call connected", "Accepted"],
+    requiredDirection: null,
+    requiresOutcome: true,
+  };
+
+  it("refuses a long connected call with no stage outcome", () => {
+    const v = qualify(call({ durationSeconds: 900, stageOutcome: null }), CALL_RULE_60);
+    expect(v.qualifies).toBe(false);
+    expect(v.reason).toContain("not yet logged");
+  });
+
+  it("counts the same call once an outcome is chosen", () => {
+    expect(qualify(call({ durationSeconds: 900, stageOutcome: "Pitch" }), CALL_RULE_60).qualifies).toBe(true);
+  });
+
+  it("says to write it up rather than quoting a duration that was fine", () => {
+    // Reporting "duration 90s" on a call that ran long enough sends the broker
+    // looking at the wrong thing entirely.
+    const v = qualify(call({ durationSeconds: 90, stageOutcome: null }), CALL_RULE_60);
+    expect(v.reason).not.toContain("90s");
+    expect(v.reason).toContain("stage outcome");
+  });
+
+  it("still refuses a short call even when written up", () => {
+    const v = qualify(call({ durationSeconds: 45, stageOutcome: "Contact" }), CALL_RULE_60);
+    expect(v.qualifies).toBe(false);
+    expect(v.reason).toContain("45s");
+    expect(v.reason).toContain("60s");
+  });
+
+  it("holds the 60 second boundary the policy actually specifies", () => {
+    // The build previously required 120, which rejected every call between 60
+    // and 119 seconds -- a broker who did the work lost the account anyway.
+    expect(qualify(call({ durationSeconds: 59, stageOutcome: "Lead" }), CALL_RULE_60).qualifies).toBe(false);
+    expect(qualify(call({ durationSeconds: 60, stageOutcome: "Lead" }), CALL_RULE_60).qualifies).toBe(true);
+    expect(qualify(call({ durationSeconds: 61, stageOutcome: "Lead" }), CALL_RULE_60).qualifies).toBe(true);
+  });
+
+  it("ignores the outcome requirement when the rule does not set it", () => {
+    const relaxed = { ...CALL_RULE_60, requiresOutcome: false };
+    expect(qualify(call({ durationSeconds: 90, stageOutcome: null }), relaxed).qualifies).toBe(true);
+  });
+});

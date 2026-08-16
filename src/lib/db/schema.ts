@@ -54,6 +54,8 @@ export const accounts = pgTable(
     industry: text("industry"),
     /** 'prospect' | 'engaged' | 'customer' | 'do_not_contact' */
     status: text("status").notNull().default("prospect"),
+    /** Sales pipeline: Lead | Contact | Pitch | Quote | Closed. */
+    stage: text("stage").notNull().default("Lead"),
     domain: text("domain"),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     releasedAt: timestamp("released_at", { withTimezone: true }),
@@ -85,6 +87,8 @@ export const contacts = pgTable(
     /** Always E.164. Normalized on write by src/lib/phone.ts, never raw input. */
     phoneE164: text("phone_e164"),
     title: text("title"),
+    /** Approved sales-contact type from the prospecting policy. */
+    type: text("type"),
     custom: jsonb("custom").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
   },
@@ -143,6 +147,11 @@ export const activities = pgTable(
     durationSeconds: integer("duration_seconds"),
     /** Provider outcome verbatim: 'Call connected', 'Voicemail', 'No Answer'. */
     result: text("result"),
+    /** Stage the broker selected when logging: Lead, Contact, Pitch, Quote, Closed. */
+    stageOutcome: text("stage_outcome"),
+    notes: text("notes"),
+    loggedBy: uuid("logged_by").references(() => users.id),
+    loggedAt: timestamp("logged_at", { withTimezone: true }),
     source: text("source").notNull().default("manual"),
     externalId: text("external_id"),
     qualifies: boolean("qualifies").notNull().default(false),
@@ -215,6 +224,8 @@ export const qualificationRules = pgTable("qualification_rules", {
   allowedResults: text("allowed_results").array().notNull().default([]),
   /** null means either direction qualifies. */
   requiredDirection: text("required_direction"),
+  /** When true, an outcome must be logged before the activity counts. */
+  requiresOutcome: boolean("requires_outcome").notNull().default(false),
   active: boolean("active").notNull().default(true),
   updatedBy: uuid("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),

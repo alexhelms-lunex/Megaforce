@@ -125,7 +125,10 @@ describe("migrations over the wire", () => {
       select activity_type, min_duration_seconds from qualification_rules
        where activity_type = 'call' and active
     `;
-    expect(rules[0]?.min_duration_seconds).toBe(120);
+    // 60 seconds, per the prospecting policy. An earlier build shipped 120,
+    // which rejected every call between 60 and 119 -- a broker who did the work
+    // lost the account anyway.
+    expect(rules[0]?.min_duration_seconds).toBe(60);
   });
 });
 

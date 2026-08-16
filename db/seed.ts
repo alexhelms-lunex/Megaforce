@@ -75,6 +75,13 @@ const INDUSTRIES = [
   { name: "Cold Chain", suffixes: ["Cold Storage", "Frozen Foods", "Creamery"] },
 ];
 
+/** The approved sales-contact types from the prospecting policy. */
+const CONTACT_TYPES = [
+  "Owner", "C Suite Level", "Director of Supply Chain / Logistics", "Procurement",
+  "Carrier Relations", "4PL Logistics Manager", "Logistics Manager",
+  "Logistics Coordinator", "Logistics Operations", "Sales", "Buyer / Purchasing", "Other",
+];
+
 const TITLES = [
   "Logistics Manager", "Transportation Manager", "VP Supply Chain", "Shipping Manager",
   "Director of Logistics", "Traffic Manager", "Warehouse Manager", "Operations Manager",
@@ -323,6 +330,13 @@ export async function seed(
         { value: "do_not_contact", weight: 3 },
       ]),
       domain: `${slug(name)}.test`,
+      stage: faker.helpers.weightedArrayElement([
+        { value: "Lead", weight: 38 },
+        { value: "Contact", weight: 27 },
+        { value: "Pitch", weight: 18 },
+        { value: "Quote", weight: 11 },
+        { value: "Closed", weight: 6 },
+      ]),
       custom: {
         annual_freight_spend: faker.number.int({ min: 80, max: 9000 }) * 1000,
         volume_band: tier,
@@ -383,6 +397,7 @@ export async function seed(
         : null,
       phoneE164,
       title: faker.helpers.arrayElement(TITLES),
+      type: faker.helpers.arrayElement(CONTACT_TYPES),
       custom: {
         decision_maker: faker.datatype.boolean({ probability: 0.35 }),
         preferred_channel: faker.helpers.arrayElement(["Email", "Phone", "Text"]),
@@ -596,7 +611,35 @@ export async function seed(
 
     // The seed runs the SAME qualifier the live pipeline runs. If these two
     // ever disagreed, the demo data would contradict the demo.
-    const verdict = qualify({ type, durationSeconds, result, direction }, activeRule);
+    /*
+     * Whether the broker wrote the call up.
+     *
+     * Under the policy a call is not an approved activity until a stage outcome
+     * is chosen, so seeding calls without one would leave nothing qualifying
+     * and every account showing as overdue. Most connected calls are logged;
+     * about one in six is not, because brokers forget -- and those are exactly
+     * the rows the RingCentral dock exists to surface.
+     */
+    const logged =
+      type === "call" && result === "Call connected"
+        ? faker.datatype.boolean({ probability: 0.84 })
+        : type !== "call";
+
+    const stageOutcome =
+      type === "call" && logged
+        ? faker.helpers.weightedArrayElement([
+            { value: "Lead", weight: 34 },
+            { value: "Contact", weight: 30 },
+            { value: "Pitch", weight: 20 },
+            { value: "Quote", weight: 11 },
+            { value: "Closed", weight: 5 },
+          ])
+        : null;
+
+    const verdict = qualify(
+      { type, durationSeconds, result, direction, stageOutcome },
+      activeRule,
+    );
     if (verdict.qualifies) qualifyingCount++;
 
     activitySeeds.push({
@@ -611,6 +654,10 @@ export async function seed(
       result,
       source: type === "call" ? "ringcentral" : type === "email" ? "email" : "manual",
       externalId: type === "call" ? `seed-call-${i}` : type === "email" ? `seed-mail-${i}` : null,
+      stageOutcome,
+      notes: stageOutcome ? subjectFor("note", direction, accountNames.get(accountId) ?? "") : null,
+      loggedBy: stageOutcome ? accountOwner.get(accountId) ?? null : null,
+      loggedAt: stageOutcome ? occurredAt : null,
       qualifies: verdict.qualifies,
       qualificationReason: verdict.reason,
     });

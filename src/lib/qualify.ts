@@ -28,6 +28,15 @@ export interface QualificationRule {
   allowedResults: string[];
   /** null means either direction qualifies. */
   requiredDirection: Direction;
+  /**
+   * When true, the activity does not count until somebody has logged an
+   * outcome against it.
+   *
+   * The policy: "Brokers must choose a stage outcome ... in order for the call
+   * to be saved correctly." So a 90 second call that nobody wrote up is not an
+   * approved activity, and must not keep an account alive.
+   */
+  requiresOutcome?: boolean;
 }
 
 /** The observable facts about one captured activity. */
@@ -37,6 +46,8 @@ export interface QualifiableActivity {
   /** Provider outcome verbatim: "Call connected", "Voicemail", "No Answer". */
   result: string | null;
   direction: Direction;
+  /** The stage the broker selected when logging it: Lead, Contact, Pitch, … */
+  stageOutcome?: string | null;
 }
 
 export interface QualificationVerdict {
@@ -47,9 +58,13 @@ export interface QualificationVerdict {
 /** The rule applied when the database has none for this activity type. */
 export const FALLBACK_RULE: QualificationRule = {
   activityType: "call",
-  minDurationSeconds: 120,
+  // 60 seconds, per the prospecting policy. An earlier build used 120, which
+  // rejected every call between 60 and 119 seconds -- a broker who did the work
+  // lost the account anyway.
+  minDurationSeconds: 60,
   allowedResults: ["Call connected", "Accepted"],
   requiredDirection: null,
+  requiresOutcome: true,
 };
 
 /**
@@ -96,6 +111,16 @@ export function qualify(
     }
   }
 
+  // Checked before duration so an unlogged call reports the thing the broker
+  // can actually act on -- write it up -- rather than a duration figure that
+  // was never the problem.
+  if (rule.requiresOutcome && !activity.stageOutcome) {
+    return {
+      qualifies: false,
+      reason: "not yet logged: a stage outcome is required before this call counts",
+    };
+  }
+
   if (rule.minDurationSeconds > 0) {
     const duration = activity.durationSeconds;
     if (duration === null || duration === undefined) {
@@ -131,11 +156,13 @@ export function toRule(row: {
   minDurationSeconds: number;
   allowedResults: string[] | null;
   requiredDirection: string | null;
+  requiresOutcome?: boolean | null;
 }): QualificationRule {
   return {
     activityType: row.activityType as ActivityType,
     minDurationSeconds: row.minDurationSeconds,
     allowedResults: row.allowedResults ?? [],
     requiredDirection: (row.requiredDirection ?? null) as Direction,
+    requiresOutcome: row.requiresOutcome ?? false,
   };
 }

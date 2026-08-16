@@ -14,7 +14,16 @@
 -- through a side door and silently defeat every policy in 0002 and 0005. With
 -- security_invoker the view runs as the caller, so the underlying accounts
 -- policies apply exactly as they do to a direct query.
-create or replace view accounts_with_state
+-- DROP then CREATE, never CREATE OR REPLACE.
+--
+-- The view selects a.* , so every column added to accounts changes its shape --
+-- and CREATE OR REPLACE refuses to add or reorder columns, failing with
+-- "cannot change name of view column". A later migration adding one column to
+-- accounts would make this file un-runnable, which is exactly what happened
+-- when 0008 introduced accounts.stage.
+drop view if exists accounts_with_state;
+
+create view accounts_with_state
 with (security_invoker = true) as
 select
   a.*,

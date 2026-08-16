@@ -30,6 +30,10 @@ logged but does not reset any clock.
 - **One contact per activity.** Group sends and multi-contact BCC do not count.
 - **Both directions count**: emails the broker sends, and emails received from
   a contact.
+- **Confirmed by Alex:** the on-file requirement applies to inbound too. An
+  email *from* somebody not in the CRM does not count either. So the rule is
+  symmetric — the counterparty must be a known contact whichever way the
+  message travelled.
 
 ### Text (RingCentral SMS)
 
@@ -108,9 +112,8 @@ Discretion still applies for effective brokers and ADs.
 limit reflects the new tier.** Brokers can request an override; a Sales Director
 approves a different limit.
 
-Note the Junior tier is *higher* than the Unseasoned tier. That reads like a
-mistake but it is what the policy says — worth confirming rather than
-"correcting" silently.
+Note the Junior tier (200) is *higher* than the Unseasoned tier (100).
+**Confirmed by Alex as correct, not a typo.** Do not "fix" it.
 
 ---
 
@@ -197,9 +200,11 @@ The entire customer clock keys off load activity, and loads live in the TMS.
 Nothing here can currently know. Needs a feed, an API, or a manual marker.
 The prospect and inactive-customer clocks are unaffected.
 
-### 2. What are the RingCentral "stage outcomes"?
+### ~~2. RingCentral stage outcomes~~ ANSWERED
 
-The policy requires one to be selected for a call to save. Need the list.
+**Lead · Contact · Pitch · Quote · Closed** — the same values as the account's
+Stage field, because they are the same field. Logging a call is what advances
+the stage.
 
 ### 3. Is the Junior tier limit (200) really higher than Unseasoned (100)?
 
@@ -208,7 +213,7 @@ The policy requires one to be selected for a call to save. Need the list.
 Section 6 mentions "no extension on the customer account" — presumably the same
 amnesty workflow, but worth confirming it is one mechanism rather than two.
 
-### 5. Does an inbound email need to be from a contact on file?
+### ~~5. Inbound email sender on file?~~ ANSWERED
 
-Outbound explicitly must go to a contact in the CRM. Inbound "will ALSO count" —
-same requirement, or looser?
+**Yes.** The counterparty must be a contact in the CRM whichever direction the
+message travelled.

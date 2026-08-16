@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SetupNotice } from "@/components/setup-notice";
+import { RcDock } from "@/components/rc-dock/dock";
 import { createClient, currentUser, isSupabaseConfigured } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +74,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      {/* Extra bottom padding so the dock's collapsed tab never covers the
+          last row of a table. */}
+      <main className="mx-auto max-w-7xl px-6 py-8 pb-20">{children}</main>
+
+      {/* Bottom-left on every screen, matching where it sits in Salesforce
+          today. A broker is on a call while looking at an account; a phone
+          that lives on its own page is a phone nobody uses. */}
+      <RcDock />
     </div>
   );
 }
