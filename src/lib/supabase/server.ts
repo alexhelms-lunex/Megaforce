@@ -1,5 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { SUPABASE_CLIENT_KEY, SUPABASE_URL, isSupabaseConfigured } from "./keys";
+
+export { isSupabaseConfigured };
 
 /**
  * The client every user-facing page and action uses.
@@ -27,34 +30,23 @@ import { cookies } from "next/headers";
 export async function createClient() {
   const cookieStore = await cookies();
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            for (const { name, value, options } of cookiesToSet) {
-              cookieStore.set(name, value, options);
-            }
-          } catch {
-            // Server Components cannot set cookies. The middleware refreshes
-            // the session instead, so this is safe to ignore here.
+  return createServerClient(SUPABASE_URL, SUPABASE_CLIENT_KEY, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          for (const { name, value, options } of cookiesToSet) {
+            cookieStore.set(name, value, options);
           }
-        },
+        } catch {
+          // Server Components cannot set cookies. The middleware refreshes the
+          // session instead, so this is safe to ignore here.
+        }
       },
     },
-  );
-}
-
-/** True when Supabase credentials are present. Drives the setup screen. */
-export function isSupabaseConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  );
+  });
 }
 
 /** The signed-in user's row from our own users table, or null. */

@@ -17,6 +17,7 @@ import postgres from "postgres";
 import { DEFAULT_VOLUMES, seed, type SeedVolumes } from "../../../db/seed";
 import * as schema from "@/lib/db/schema";
 import type { Db } from "@/lib/matcher";
+import { supabaseSecretKey } from "@/lib/supabase/keys";
 
 export const ADMIN_EMAIL = "avery.stone@megaforce.test";
 
@@ -61,29 +62,55 @@ export interface SetupResult {
 // 1. Environment
 // ---------------------------------------------------------------------------
 
-const REQUIRED: { key: string; where: string }[] = [
+/**
+ * Each required setting, and every name it is accepted under.
+ *
+ * The API keys have two spellings because Supabase renamed them: projects
+ * created before the change issue `anon` and `service_role`, newer ones issue
+ * `sb_publishable_…` and `sb_secret_…`. Both work. Accepting either name means
+ * whatever the dashboard shows can be pasted under the label printed beside it,
+ * with no working out which era the project belongs to.
+ */
+const REQUIRED: { names: string[]; where: string }[] = [
   {
-    key: "DIRECT_URL",
-    where: "Supabase → Project Settings → Database → Connection string → URI, the one on port 5432",
+    names: ["DIRECT_URL"],
+    where: "Supabase → Connect → Session pooler, the string containing port 5432",
   },
-  { key: "DATABASE_URL", where: "same screen, the one on port 6543" },
-  { key: "NEXT_PUBLIC_SUPABASE_URL", where: "Supabase → Project Settings → API → Project URL" },
   {
-    key: "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-    where: "Supabase → Project Settings → API → anon public",
+    names: ["DATABASE_URL"],
+    where: "Supabase → Connect → Transaction pooler, the string containing port 6543",
   },
   {
-    key: "SUPABASE_SERVICE_ROLE_KEY",
-    where: "Supabase → Project Settings → API → service_role",
+    names: ["NEXT_PUBLIC_SUPABASE_URL"],
+    where: "Supabase → Project Settings → API → Project URL",
+  },
+  {
+    names: ["NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"],
+    where: "Supabase → Project Settings → API Keys → the publishable (or anon) key",
+  },
+  {
+    names: ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"],
+    where: "Supabase → Project Settings → API Keys → the secret (or service_role) key",
   },
 ];
 
+/** First of the accepted names that is actually set. */
+function resolve(names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export function checkEnvironment(): void {
-  const missing = REQUIRED.filter(({ key }) => !process.env[key]?.trim());
+  const missing = REQUIRED.filter(({ names }) => !resolve(names));
   if (missing.length > 0) {
     throw new SetupError(
       `${missing.length} setting${missing.length === 1 ? " is" : "s are"} missing`,
-      missing.map((m) => `${m.key} — find it at: ${m.where}`).join("\n"),
+      missing
+        .map((m) => `${m.names[0]}${m.names[1] ? ` (or ${m.names[1]})` : ""} — find it at: ${m.where}`)
+        .join("\n"),
     );
   }
 
@@ -208,11 +235,9 @@ export function generatePassword(): string {
 }
 
 async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, supabaseSecretKey(), {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 
   let authId: string;
 

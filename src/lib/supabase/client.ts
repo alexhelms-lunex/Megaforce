@@ -1,9 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { SUPABASE_CLIENT_KEY, SUPABASE_URL } from "./keys";
 
-/** Browser-side client. Anon key only -- never the service role key. */
+/** Browser-side client. Publishable/anon key only -- never the secret one. */
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  return createBrowserClient(SUPABASE_URL, SUPABASE_CLIENT_KEY);
 }

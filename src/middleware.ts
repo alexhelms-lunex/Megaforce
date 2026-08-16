@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { SUPABASE_CLIENT_KEY, SUPABASE_URL, isSupabaseConfigured } from "@/lib/supabase/keys";
 
 /**
  * Keeps the auth session fresh.
@@ -15,16 +16,13 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function middleware(request: NextRequest) {
   // Without credentials there is no session to refresh, and the app renders a
   // setup screen instead of crashing on every request.
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  if (!isSupabaseConfigured()) {
     return NextResponse.next({ request });
   }
 
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_CLIENT_KEY, {
       cookies: {
         getAll() {
           return request.cookies.getAll();

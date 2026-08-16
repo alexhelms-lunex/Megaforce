@@ -36,15 +36,23 @@ export const env = {
   get NEXT_PUBLIC_SUPABASE_URL() {
     return required("NEXT_PUBLIC_SUPABASE_URL");
   },
+  /**
+   * The browser-safe key. Supabase renamed these: older projects issue `anon`,
+   * newer ones `sb_publishable_…`. Either name is accepted.
+   */
   get NEXT_PUBLIC_SUPABASE_ANON_KEY() {
-    return required("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    return (
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+      required("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    );
   },
   /**
    * Bypasses row level security. Server-only, and only for the webhook worker.
    * If this ever reaches a browser bundle, every row in the database is public.
+   * Named `service_role` on older projects, `sb_secret_…` on newer ones.
    */
   get SUPABASE_SERVICE_ROLE_KEY() {
-    return required("SUPABASE_SERVICE_ROLE_KEY");
+    return process.env.SUPABASE_SECRET_KEY ?? required("SUPABASE_SERVICE_ROLE_KEY");
   },
 
   // RingCentral. Absent until a sandbox app exists; the simulator does not need
