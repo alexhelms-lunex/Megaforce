@@ -154,3 +154,87 @@ These values have to match exactly for a Salesforce import to land in the right
 bucket, so the full list is worth getting verbatim rather than reconstructing.
 Easiest source is the Salesforce field definition itself rather than more
 screenshots — Setup → Object Manager → the field → Values.
+
+---
+
+## Batch 3 — The Account record page
+
+Confirms the platform outright: `megacorp.lightning.force.com/lightning/r/Account/001Vs00000JAR48IAH/view`.
+Salesforce Lightning, org "MegaCorp", standard **Account** object (the `001`
+prefix), inside a console app called "MegaCorp Sales Co…".
+
+Browser tabs alongside it: **My Shipments – DAT** (twice), **Loadboard –
+MegaCorp**, **Posting – MegaCorp**. The DAT loadboard and posting tools are
+where freight actually moves, entirely separate from this. Consistent with what
+Alex said: no loads in the CRM.
+
+### Record page tabs
+
+Overview · Contacts · Activities · **Account Request** · **Quote** ·
+**ZoomInfo** · **Ticket Manager** · More…
+
+Four of those have no equivalent in our build and none are self-explanatory:
+
+- **Account Request** — possibly how a broker asks for an account to be
+  assigned or released. Would sit right on top of our claim mechanic.
+- **Quote** — pricing, presumably lane or rate quotes.
+- **ZoomInfo** — third-party enrichment, already integrated. The original build
+  plan anticipated exactly this and stubbed an enrichment interface for it.
+- **Ticket Manager** — internal support or issue tracking.
+
+### Account Details, as laid out on screen
+
+| Field | Value in the example | Notes |
+|---|---|---|
+| Account Name | FakeCustomer Test POC | |
+| Parent Account | *(empty)* | **hierarchy** |
+| Website | *(empty)* | inline editable |
+| **National Account** | ✓ | checkbox |
+| Shipping Address | 281 Clara Street, San Francisco, California 94107, United States | rendered with a map |
+| **National Account In Review** | ✓ | checkbox — pairs with the National Account Approval button from batch 1 |
+| Number of Children Accounts | 0 | rollup |
+| Phone | (879) 657-1023 | |
+| Parent Account ID | *(empty)* | |
+| **Stage** | Lead | |
+| **Status** | Inactive | |
+
+A **RingCentral** section header sits below Status, so RingCentral is already
+embedded in the record page today.
+
+### What this changes about the model
+
+**1. Accounts form a hierarchy.** Parent Account, Parent Account ID and a
+children rollup. National accounts have subsidiaries, and ownership of a parent
+almost certainly implies something about its children. Our accounts table is
+flat. This is the most structural gap found so far.
+
+**2. Stage and Status are separate axes.** Stage is Lead here while Status is
+Inactive. We collapsed both into one `status` column. Stage looks like sales
+progression; Status looks like the active/inactive/at-risk lifecycle the filter
+presets referred to.
+
+**3. National Account is a flag plus an approval state.** "National Account" and
+"National Account In Review" together with the "National Account Approval"
+button describe a request-and-approve workflow, not a checkbox.
+
+**4. Addresses are structured and geocoded.** Street, city, state, postal code,
+country — which is what makes the city and state filters from batch 1 possible.
+We store no address at all.
+
+**5. Enrichment already exists** via ZoomInfo, so the stub interface in the
+original plan has a real provider to swap in behind it.
+
+---
+
+## Open questions to resolve before building
+
+Recorded here rather than asked one at a time, since Alex is about to explain
+the requirements and may answer several of them already.
+
+1. What is **Account Request**? It may already be the claim/assign flow.
+2. Exact meaning of **Ad Owner** and **Owner Location**.
+3. The two truncated columns on the list, after "Last Activity In Days".
+4. Full **Stage** and **Status** value sets, and which drives expiry.
+5. Does owning a parent account confer anything over its children?
+6. The two missing windows of the industry list.
+7. Whether **Quote** and **Ticket Manager** are in scope at all.
