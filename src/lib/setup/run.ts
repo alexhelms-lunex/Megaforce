@@ -355,29 +355,67 @@ export function generatePassword(): string {
 }
 
 /**
- * Attach an existing Supabase login to the CRM's admin row, using SQL only.
+ * Every Supabase login that exists, read straight out of the database.
+ *
+ * Used to offer a choice rather than demand an exact address. Nobody should
+ * have to match a placeholder email invented by a seed script.
+ */
+export async function listAuthLogins(
+  sql: postgres.Sql,
+): Promise<{ id: string; email: string }[]> {
+  // Ordered by email, not by creation time. Newest-first would read slightly
+  // better, but this is the path someone reaches when something else has
+  // already failed, so it leans on the fewest columns it can: id and email are
+  // the two that cannot move.
+  const rows = await sql<{ id: string; email: string | null }[]>`
+    select id, email from auth.users where email is not null order by email limit 50
+  `;
+  return rows
+    .filter((r): r is { id: string; email: string } => Boolean(r.email))
+    .map((r) => ({ id: r.id, email: r.email }));
+}
+
+/**
+ * Attach an existing Supabase login to the CRM's admin profile, using SQL only.
  *
  * Supabase keeps its users in an `auth.users` table in the same database we are
  * already connected to. That matters: when the Auth REST API is unreachable,
  * this path still works, because it never leaves the database connection that
  * has already proven itself by running the migrations.
  *
+ * The admin profile is found by ROLE, not by address, and its email is then
+ * updated to match the login. Whatever address was used to create the login in
+ * the dashboard becomes the right one, rather than the seed's placeholder.
+ *
  * Returns false when no Supabase login exists for the address yet.
  */
-export async function linkExistingLogin(sql: postgres.Sql): Promise<boolean> {
+export async function linkExistingLogin(
+  sql: postgres.Sql,
+  email: string = ADMIN_EMAIL,
+): Promise<boolean> {
+  const target = email.trim().toLowerCase();
+
   const found = await sql<{ id: string }[]>`
-    select id from auth.users where lower(email) = ${ADMIN_EMAIL} limit 1
+    select id from auth.users where lower(email) = ${target} limit 1
   `;
   if (found.length === 0) return false;
 
-  const linked = await sql`
-    update users set auth_id = ${found[0].id}::uuid
-     where email = ${ADMIN_EMAIL} returning id
+  // Clear the link from any other profile first: auth_id is unique, so a
+  // previous attempt pointing at a different row would otherwise collide.
+  await sql`update users set auth_id = null where auth_id = ${found[0].id}::uuid`;
+
+  const linked = await sql<{ id: string }[]>`
+    update users
+       set auth_id = ${found[0].id}::uuid,
+           email   = ${target}
+     where id = (select id from users where role = 'admin' order by created_at limit 1)
+    returning id
   `;
+
   if (linked.length === 0) {
     throw new SetupError(
-      `No CRM profile found for ${ADMIN_EMAIL}`,
-      `The sample data should have created it. Run setup again.`,
+      "No admin profile found in the CRM",
+      `The sample data should have created one. Run the full setup again.`,
     );
   }
   return true;
@@ -475,11 +513,33 @@ async function ensureLogin(sql: postgres.Sql, password: string): Promise<void> {
 }
 
 /**
+ * The logins available to choose from, with the connection opened and closed
+ * for us. Returns an empty list rather than throwing, because the page that
+ * calls this has something useful to say either way.
+ */
+export async function fetchAuthLogins(): Promise<{ id: string; email: string }[]> {
+  let sql: postgres.Sql;
+  try {
+    checkEnvironment();
+    sql = await connect();
+  } catch {
+    return [];
+  }
+  try {
+    return await listAuthLogins(sql);
+  } catch {
+    return [];
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+/**
  * Link-only mode: skip migrations and seeding, just attach a login that already
  * exists in Supabase. For when the Auth API could not be reached and the user
  * created the login through the dashboard instead.
  */
-export async function runLinkOnly(): Promise<SetupResult> {
+export async function runLinkOnly(email?: string): Promise<SetupResult> {
   const steps: SetupStep[] = [];
   try {
     checkEnvironment();
@@ -501,30 +561,41 @@ export async function runLinkOnly(): Promise<SetupResult> {
   }
 
   try {
-    const linked = await linkExistingLogin(sql);
+    const target = (email ?? ADMIN_EMAIL).trim().toLowerCase();
+    const linked = await linkExistingLogin(sql, target);
+
     if (!linked) {
       steps.push({ name: "Linking your login", status: "failed", detail: "no such login yet" });
+
+      // Say which logins DO exist. "Not found" plus a list of what was found is
+      // a fix; "not found" on its own is a puzzle.
+      const existing = await listAuthLogins(sql);
+      const found = existing.length
+        ? `\n\nLogins that DO exist in this project:\n${existing.map((l) => `  • ${l.email}`).join("\n")}`
+        : `\n\nThere are no Supabase logins in this project yet.`;
+
       return {
         ok: false,
         steps,
         problem: {
-          problem: `No Supabase login found for ${ADMIN_EMAIL}`,
+          problem: `No Supabase login found for ${target}`,
           fix:
-            `Create it first:\n\n` +
+            `Create it first, or pick one of the addresses below:\n\n` +
             `1. In Supabase, go to Authentication → Users → Add user → Create new user.\n` +
-            `2. Email: ${ADMIN_EMAIL}\n` +
-            `3. Password: anything you like, and write it down.\n` +
+            `2. Use any email you like.\n` +
+            `3. Password: anything, and write it down.\n` +
             `4. Tick "Auto Confirm User", then create it.\n` +
-            `5. Load this page again.`,
+            `5. Load this page again.` +
+            found,
         },
       };
     }
 
-    steps.push({ name: "Linking your login", status: "ok", detail: ADMIN_EMAIL });
+    steps.push({ name: "Linking your login", status: "ok", detail: target });
     return {
       ok: true,
       steps,
-      login: { email: ADMIN_EMAIL, password: "(the one you chose in Supabase)" },
+      login: { email: target, password: "(the one you chose in Supabase)" },
     };
   } catch (err) {
     const e =

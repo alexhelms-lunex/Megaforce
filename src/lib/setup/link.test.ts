@@ -5,7 +5,7 @@ import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import postgres from "postgres";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { ADMIN_EMAIL, describeError, linkExistingLogin } from "./run";
+import { ADMIN_EMAIL, describeError, linkExistingLogin, listAuthLogins } from "./run";
 
 /**
  * The rescue path.
@@ -37,7 +37,9 @@ beforeAll(async () => {
     create or replace function auth.uid() returns uuid as $$
       select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
     $$ language sql stable;
-    -- Stands in for the table Supabase Auth maintains.
+    -- Stands in for the table Supabase Auth maintains. Deliberately minimal:
+    -- id and email only, so anything relying on a column beyond those two
+    -- fails here rather than on someone's deployment.
     create table if not exists auth.users (
       id uuid primary key default uuid_generate_v4(),
       email text unique
@@ -143,5 +145,63 @@ describe("describeError", () => {
 
   it("survives being handed something that is not an error", () => {
     expect(describeError("just a string")).toBe("just a string");
+  });
+});
+
+describe("linking a login whose email is not the seed's placeholder", () => {
+  // The first real deployment made a login called alex.helmsworth@megaforce.test
+  // because that is a sensible thing to type. Requiring an exact match with a
+  // name invented by a seed script would have meant deleting it and starting
+  // again for no reason.
+  const MINE = "alex.helmsworth@megaforce.test";
+
+  it("attaches any address to the admin profile, and adopts it", async () => {
+    await sql`delete from auth.users`;
+    await sql`delete from users`;
+    await sql`
+      insert into users (email, full_name, role)
+      values (${ADMIN_EMAIL}, 'Avery Stone', 'admin')
+    `;
+    const [mine] = await sql<{ id: string }[]>`
+      insert into auth.users (email) values (${MINE}) returning id
+    `;
+
+    expect(await linkExistingLogin(sql, MINE)).toBe(true);
+
+    const [profile] = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users where role = 'admin'
+    `;
+    expect(profile.auth_id).toBe(mine.id);
+    // The address used in the dashboard becomes the CRM's address, rather than
+    // leaving the app displaying a name the user never chose.
+    expect(profile.email).toBe(MINE);
+  });
+
+  it("moves the link cleanly when a different login is chosen afterwards", async () => {
+    // auth_id is unique, so re-linking has to clear the old pointer first or
+    // the update collides.
+    const OTHER = "someone.else@megaforce.test";
+    const [other] = await sql<{ id: string }[]>`
+      insert into auth.users (email) values (${OTHER}) returning id
+    `;
+
+    expect(await linkExistingLogin(sql, OTHER)).toBe(true);
+
+    const [profile] = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users where role = 'admin'
+    `;
+    expect(profile.auth_id).toBe(other.id);
+    expect(profile.email).toBe(OTHER);
+  });
+
+  it("lists the logins that do exist, so a miss is a fix and not a puzzle", async () => {
+    const logins = await listAuthLogins(sql);
+    expect(logins.map((l) => l.email)).toEqual(
+      expect.arrayContaining([MINE, "someone.else@megaforce.test"]),
+    );
+  });
+
+  it("still reports false for an address nobody made", async () => {
+    expect(await linkExistingLogin(sql, "nobody@megaforce.test")).toBe(false);
   });
 });

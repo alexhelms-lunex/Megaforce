@@ -1,5 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
-import { ADMIN_EMAIL, BROWSER_VOLUMES, runLinkOnly, runSetup, type SetupResult } from "@/lib/setup/run";
+import {
+  ADMIN_EMAIL,
+  BROWSER_VOLUMES,
+  fetchAuthLogins,
+  runLinkOnly,
+  runSetup,
+  type SetupResult,
+} from "@/lib/setup/run";
 import { DEFAULT_VOLUMES } from "../../../../db/seed";
 
 export const runtime = "nodejs";
@@ -82,24 +89,46 @@ export async function GET(req: Request) {
   // mode attaches a login created by hand in the dashboard, using only the
   // database connection that has already proven it works.
   if (url.searchParams.get("link") === "1") {
+    // Offer the logins that actually exist rather than demanding a specific
+    // address. Whichever email was used in the dashboard is the right one; a
+    // placeholder invented by a seed script is not something to have to match.
+    const logins = await fetchAuthLogins();
+
+    if (logins.length === 0) {
+      return html(
+        page(
+          "Make a login first",
+          `<p>No Supabase logins exist in this project yet. It takes about thirty
+           seconds:</p>
+           <ol>
+             <li>In Supabase: <b>Authentication → Users → Add user → Create new user</b></li>
+             <li>Email: anything you like</li>
+             <li>Password: anything. <b>Write it down.</b></li>
+             <li>Tick <b>Auto Confirm User</b>, then create it</li>
+           </ol>
+           <p>Then load this page again and it will appear here to pick.</p>`,
+        ),
+      );
+    }
+
+    const options = logins
+      .map((l) => `<option value="${escapeHtml(l.email)}">${escapeHtml(l.email)}</option>`)
+      .join("");
+
     return html(
       page(
-        "Connect a login you already made",
-        `<p>This does not touch your data. It only connects the Supabase login for
-         <code>${escapeHtml(ADMIN_EMAIL)}</code> to the CRM.</p>
-         <p>If you have not made that login yet, do this first — it takes about
-         thirty seconds:</p>
-         <ol>
-           <li>In Supabase: <b>Authentication → Users → Add user → Create new user</b></li>
-           <li>Email: <code>${escapeHtml(ADMIN_EMAIL)}</code></li>
-           <li>Password: anything you like. <b>Write it down.</b></li>
-           <li>Tick <b>Auto Confirm User</b>, then create it</li>
-         </ol>
+        "Connect your login",
+        `<p>This does not touch your data. It connects a Supabase login to the CRM's
+         admin profile so you can sign in.</p>
          <form method="post">
            <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
            <input type="hidden" name="link" value="1" />
+           <label for="email">Which login is yours?</label>
+           <select id="email" name="email">${options}</select>
            <button type="submit">Connect it</button>
-         </form>`,
+         </form>
+         <p class="dim">Sign in afterwards with that address and the password you
+         chose in Supabase.</p>`,
       ),
     );
   }
@@ -133,7 +162,8 @@ export async function POST(req: Request) {
   if (!keyMatches(key)) return html(page("Wrong key", "<p>That key is not correct.</p>"), 403);
 
   if (form && String(form.get("link") ?? "") === "1") {
-    const linked = await runLinkOnly();
+    const email = String(form.get("email") ?? "").trim() || ADMIN_EMAIL;
+    const linked = await runLinkOnly(email);
     return html(renderResult(linked), linked.ok ? 200 : 500);
   }
 
@@ -238,6 +268,11 @@ function page(title: string, body: string): string {
                  border-radius:8px; padding:.7rem 1.2rem; font-size:1rem; font-weight:600;
                  cursor:pointer; text-decoration:none; }
   form { margin:1.25rem 0; }
+  label { display:block; font-weight:600; margin-bottom:.4rem; }
+  select { display:block; width:100%; max-width:26rem; margin-bottom:1rem; padding:.6rem .7rem;
+           font-size:1rem; border-radius:8px; border:1px solid var(--line);
+           background:var(--bg); color:var(--fg); }
+  ol { padding-left:1.2rem; } ol li { margin:.35rem 0; }
 </style></head>
 <body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
 }
