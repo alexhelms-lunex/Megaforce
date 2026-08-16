@@ -81,19 +81,109 @@ describe("the settings check", () => {
   });
 
   it("catches the placeholder password, which is the mistake everyone makes", () => {
-    setEnv({ DIRECT_URL: "postgresql://postgres.abc:PASSWORD@db.supabase.com:5432/postgres" });
-    try {
-      checkEnvironment();
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      const e = err as SetupError;
-      expect(e.problem).toContain("PASSWORD");
-      expect(e.fix).toContain("Reset database password");
+    // Both spellings Supabase has used in its dashboard.
+    for (const placeholder of ["PASSWORD", "[YOUR-PASSWORD]", "YOUR-PASSWORD"]) {
+      setEnv({
+        DIRECT_URL: `postgresql://postgres.abc:${placeholder}@db.supabase.com:5432/postgres`,
+      });
+      try {
+        checkEnvironment();
+        expect.unreachable(`should have thrown for ${placeholder}`);
+      } catch (err) {
+        const e = err as SetupError;
+        expect(e.problem, placeholder).toContain("placeholder");
+        expect(e.fix, placeholder).toContain("Reset database password");
+      }
     }
   });
 
   it("accepts a fully filled-in set", () => {
     setEnv();
+    expect(() => checkEnvironment()).not.toThrow();
+  });
+
+  it("accepts the new publishable/secret key names as well as the legacy ones", () => {
+    setEnv({
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: undefined,
+      SUPABASE_SERVICE_ROLE_KEY: undefined,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_abc123",
+      SUPABASE_SECRET_KEY: "sb_secret_abc123",
+    });
+    expect(() => checkEnvironment()).not.toThrow();
+  });
+
+  it("names both spellings when a key is missing under either", () => {
+    setEnv({ SUPABASE_SERVICE_ROLE_KEY: undefined, SUPABASE_SECRET_KEY: undefined });
+    try {
+      checkEnvironment();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      const e = err as SetupError;
+      expect(e.fix).toContain("SUPABASE_SERVICE_ROLE_KEY");
+      expect(e.fix).toContain("SUPABASE_SECRET_KEY");
+    }
+  });
+});
+
+describe("passwords that need percent-encoding", () => {
+  // Supabase warns about this beside the connection string, in text nobody
+  // reads. An unescaped "@" is the worst of them: a URL's password ends at the
+  // LAST "@", so it silently redirects the connection to a hostname that does
+  // not exist, and the error blames the host rather than the password.
+  it("catches an unescaped @ and says how to fix it", () => {
+    setEnv({
+      DIRECT_URL:
+        "postgresql://postgres.abc:my@password@aws-0-us-east-2.pooler.supabase.com:5432/postgres",
+    });
+    try {
+      checkEnvironment();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      const e = err as SetupError;
+      expect(e.problem).toContain('"@"');
+      expect(e.fix).toContain("Reset");
+      expect(e.fix).toContain("%40");
+    }
+  });
+
+  it("catches the other characters that break a connection string", () => {
+    for (const [char, pw] of [
+      ["/", "pa/ss"],
+      ["?", "pa?ss"],
+      ["#", "pa#ss"],
+      [" ", "pa ss"],
+    ] as const) {
+      setEnv({
+        DIRECT_URL: `postgresql://postgres.abc:${pw}@aws-0.pooler.supabase.com:5432/postgres`,
+      });
+      expect(() => checkEnvironment(), char).toThrow(/needs escaping/);
+    }
+  });
+
+  it("leaves ordinary passwords alone", () => {
+    // "hunter2password" is here on purpose: an earlier version searched the
+    // whole connection string for the substring "password" and rejected any
+    // real password that happened to contain the word.
+    for (const pw of [
+      "simple123",
+      "with-dashes-99",
+      "UPPER_lower_1234",
+      "tilde~and.dots",
+      "hunter2password",
+    ]) {
+      setEnv({
+        DIRECT_URL: `postgresql://postgres.abc:${pw}@aws-0.pooler.supabase.com:5432/postgres`,
+        DATABASE_URL: `postgresql://postgres.abc:${pw}@aws-0.pooler.supabase.com:6543/postgres`,
+      });
+      expect(() => checkEnvironment(), pw).not.toThrow();
+    }
+  });
+
+  it("does not mistake an already-encoded password for a broken one", () => {
+    setEnv({
+      DIRECT_URL: "postgresql://postgres.abc:my%40password@aws-0.pooler.supabase.com:5432/postgres",
+      DATABASE_URL: "postgresql://postgres.abc:my%40password@aws-0.pooler.supabase.com:6543/postgres",
+    });
     expect(() => checkEnvironment()).not.toThrow();
   });
 });

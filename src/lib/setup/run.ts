@@ -114,18 +114,82 @@ export function checkEnvironment(): void {
     );
   }
 
-  // The single most common mistake: pasting the connection string and never
-  // swapping the placeholder for the real database password.
   for (const key of ["DIRECT_URL", "DATABASE_URL"]) {
-    if (/\[?(YOUR-PASSWORD|PASSWORD)\]?/i.test(process.env[key]!)) {
+    const password = passwordFrom(process.env[key]!);
+
+    // The single most common mistake: pasting the connection string and never
+    // swapping the placeholder for the real database password.
+    //
+    // Matched against the extracted password segment only, and anchored. A
+    // loose substring search rejects the perfectly valid password
+    // "hunter2password" for containing the word.
+    if (password !== null && /^\[?your[-_ ]?password\]?$|^\[?password\]?$/i.test(password)) {
       throw new SetupError(
-        `${key} still has the word PASSWORD in it`,
-        `Replace PASSWORD in ${key} with your Supabase database password — the one ` +
+        `${key} still has the placeholder instead of your password`,
+        `Replace ${password} in ${key} with your Supabase database password — the one ` +
           `you chose when you created the project.\n\nForgotten it? Supabase → Project ` +
           `Settings → Database → Reset database password. Then update BOTH connection strings.`,
       );
     }
+
+    const offending = unencodedPasswordCharacters(password);
+    if (offending) {
+      throw new SetupError(
+        `The password in ${key} contains ${offending} and needs escaping`,
+        `A connection string is a web address, so certain characters in the password ` +
+          `have to be written differently or they break it.\n\n` +
+          `By far the easiest fix: Supabase → Project Settings → Database → Reset ` +
+          `database password, and choose one with only letters, numbers and dashes. ` +
+          `Then paste it into BOTH connection strings.\n\n` +
+          `Or escape them by hand:  @ → %40   : → %3A   / → %2F   ` +
+          `? → %3F   # → %23   space → %20`,
+      );
+    }
   }
+}
+
+/**
+ * Pull the password out of a connection string, exactly as a URL parser would.
+ *
+ * The userinfo section ends at the LAST "@", not the first -- which is the
+ * whole reason an unescaped "@" inside a password is so destructive.
+ */
+function passwordFrom(connectionString: string): string | null {
+  const afterScheme = connectionString.split("://")[1];
+  if (!afterScheme) return null;
+
+  const lastAt = afterScheme.lastIndexOf("@");
+  if (lastAt === -1) return null;
+
+  const userinfo = afterScheme.slice(0, lastAt);
+  const firstColon = userinfo.indexOf(":");
+  if (firstColon === -1) return null;
+
+  return userinfo.slice(firstColon + 1);
+}
+
+/**
+ * Detect a password pasted in raw when it needed percent-encoding.
+ *
+ * Supabase warns about this beside the connection string, in text nobody reads,
+ * and the consequence is an authentication failure that blames the password
+ * rather than its punctuation. With an unescaped "@" it is worse still: the
+ * connection is redirected to a hostname that does not exist, so the error
+ * points at the host.
+ *
+ * Returns a human-readable list of the offending characters, or null.
+ */
+function unencodedPasswordCharacters(password: string | null): string | null {
+  if (!password) return null;
+
+  // A "%" followed by two hex digits is already encoded and correct; strip
+  // those before looking for trouble, so %40 is not read as a stray character.
+  const raw = password.replace(/%[0-9a-f]{2}/gi, "");
+  const bad = [...new Set(raw.split("").filter((c) => ":/?#[]@ ".includes(c)))];
+  if (bad.length === 0) return null;
+
+  const named = bad.map((c) => (c === " " ? "a space" : `"${c}"`));
+  return named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
 }
 
 // ---------------------------------------------------------------------------
