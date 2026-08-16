@@ -16,6 +16,7 @@ async function signOut() {
 
 const NAV = [
   { href: "/accounts", label: "Accounts" },
+  { href: "/available", label: "Available" },
   { href: "/review", label: "Review queue" },
 ];
 

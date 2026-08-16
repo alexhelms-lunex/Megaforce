@@ -393,3 +393,49 @@ describe("the credit team", () => {
     expect(res.rows[0].c).toBe("3");
   });
 });
+
+describe("the accounts_with_state view", () => {
+  // A view normally runs with its OWNER's permissions, which would hand every
+  // broker the entire book through a side door and silently defeat every policy
+  // in this file. security_invoker = true is what prevents that, and it is one
+  // keyword -- exactly the kind of thing that gets dropped in a later edit.
+  it("applies the same row level security as the table", async () => {
+    await becomeUser(pg, AUTH.rep1);
+    const res = await pg.query<{ name: string }>(
+      "select name from accounts_with_state order by name",
+    );
+    expect(res.rows.map((r) => r.name)).toEqual(["Account One"]);
+  });
+
+  it("shows the pool to a broker who owns none of it", async () => {
+    await becomeService(pg);
+    await pg.query("update accounts set owner_id = null where id = $1", [ids.acct3]);
+
+    await becomeUser(pg, AUTH.rep1);
+    const res = await pg.query<{ name: string; state: string }>(
+      "select name, state from accounts_with_state order by name",
+    );
+    expect(res.rows.map((r) => r.name)).toEqual(["Account One", "Account Three"]);
+    expect(res.rows.find((r) => r.name === "Account Three")!.state).toBe("available");
+  });
+
+  it("computes the state and the days remaining", async () => {
+    await becomeService(pg);
+    await pg.query(
+      `update accounts set last_activity_at = now() - interval '33 days',
+                           claimed_at = now() - interval '90 days'
+        where id = $1`,
+      [ids.acct1],
+    );
+
+    await becomeUser(pg, AUTH.rep1);
+    const res = await pg.query<{ state: string; days_left: number; urgency: number }>(
+      "select state, days_left, urgency from accounts_with_state where name = 'Account One'",
+    );
+    // 33 days against the 21/30/45 prospect thresholds.
+    expect(res.rows[0].state).toBe("expiring");
+    expect(res.rows[0].days_left).toBe(12);
+    // Urgency orders the list without a CASE repeated in every query.
+    expect(res.rows[0].urgency).toBe(1);
+  });
+});
