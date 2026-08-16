@@ -113,6 +113,12 @@ export default async function AccountsPage({
             ) : null}
           </p>
         </div>
+        <Link
+          href="/accounts/new"
+          className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          New company
+        </Link>
       </div>
 
       <form className="flex flex-wrap items-end gap-3" method="get">

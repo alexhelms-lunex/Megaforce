@@ -5,7 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CustomFields, type FieldDef } from "@/components/custom-fields";
-import { createClient } from "@/lib/supabase/server";
+import { ContactForm } from "@/components/contact-form";
+import { LifecycleFlag, LifecycleExplanation } from "@/components/lifecycle-flag";
+import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
+import type { LifecycleState } from "@/lib/lifecycle";
+import { createClient, currentUser } from "@/lib/supabase/server";
 import { daysSince, formatDateTime, formatDuration, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 
@@ -23,9 +27,11 @@ export default async function AccountDetailPage({
   // user cannot see returns nothing here and renders as a 404, which is the
   // right answer -- "forbidden" would confirm the record exists.
   const [accountRes, contactsRes, activitiesRes, oppsRes, defsRes] = await Promise.all([
+    // The view rather than the table: it carries the lifecycle state computed
+    // in SQL, so the flag here is the same one the list shows.
     supabase
-      .from("accounts")
-      .select("*, owner:users!accounts_owner_id_fkey(full_name, email)")
+      .from("accounts_with_state")
+      .select("*")
       .eq("id", id)
       .maybeSingle(),
     supabase
@@ -57,7 +63,11 @@ export default async function AccountDetailPage({
   const account = accountRes.data;
   if (!account) notFound();
 
-  const owner = Array.isArray(account.owner) ? account.owner[0] : account.owner;
+  const me = await currentUser();
+  const owner = account.owner_name ? { full_name: account.owner_name } : null;
+  const state = (account.state ?? "fresh") as LifecycleState;
+  const isMine = Boolean(me && account.owner_id === me.id);
+  const privileged = me?.role === "admin" || me?.role === "credit";
   const contacts = contactsRes.data ?? [];
   const activities = activitiesRes.data ?? [];
   const opportunities = oppsRes.data ?? [];
@@ -74,15 +84,35 @@ export default async function AccountDetailPage({
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{account.name}</h1>
-          <Badge variant={account.status === "active" ? "secondary" : "outline"}>
-            {account.status}
-          </Badge>
+          <Badge variant="outline">{account.status}</Badge>
+          <LifecycleFlag state={state} daysLeft={account.days_left} />
+
+          <div className="ml-auto flex items-center gap-2">
+            <Link
+              href={`/accounts/${account.id}/edit`}
+              className="inline-flex h-9 items-center rounded-md border px-3 text-sm transition-colors hover:bg-muted"
+            >
+              Edit
+            </Link>
+            {/* Claim when it is unowned; release only what is yours. Taking an
+                account somebody else holds is refused by the database, so the
+                button simply is not offered. */}
+            {account.owner_id === null ? (
+              <ClaimButton accountId={account.id} size="default" />
+            ) : isMine || privileged ? (
+              <ReleaseButton accountId={account.id} />
+            ) : null}
+          </div>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          {account.industry ?? "No industry"} · owned by {owner?.full_name ?? "unassigned"} ·{" "}
+          {account.industry ?? "No industry"} ·{" "}
+          {owner ? `owned by ${owner.full_name}` : "unclaimed"} ·{" "}
           <span className={staleTone(days)}>
             {days === null ? "no qualifying activity ever" : `last qualifying activity ${days}d ago`}
           </span>
+        </p>
+        <p className="mt-2">
+          <LifecycleExplanation state={state} daysLeft={account.days_left} />
         </p>
       </div>
 
@@ -150,11 +180,15 @@ export default async function AccountDetailPage({
               </Card>
             </TabsContent>
 
-            <TabsContent value="contacts" className="mt-4">
+            <TabsContent value="contacts" className="mt-4 space-y-4">
+              <ContactForm accountId={account.id} />
               <Card>
                 <CardContent className="pt-6">
                   {contacts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No contacts yet.</p>
+                    <p className="text-sm text-muted-foreground">
+                      No contacts yet. A company with no contact has no phone number, so
+                      no inbound call can ever be matched to it.
+                    </p>
                   ) : (
                     contacts.map((c, i) => (
                       <div key={c.id}>
