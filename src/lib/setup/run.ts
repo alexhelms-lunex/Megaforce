@@ -753,6 +753,25 @@ export async function runSetup(options: {
       detail: `${count} files applied`,
     });
 
+    /*
+     * Remember any login already attached, BEFORE the seed wipes the users
+     * table.
+     *
+     * Seeding rebuilds every user row, which silently severs the connection
+     * between a Supabase login and its CRM profile -- so someone who reseeds to
+     * pick up new sample data is locked out of the app they just reloaded, with
+     * no hint that the two events are related. Capturing the link here and
+     * restoring it below makes reseeding safe to repeat, which matters because
+     * reseeding is exactly what someone does while still finding their feet.
+     */
+    const existing = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users
+       where auth_id is not null and role in ('admin','credit')
+       order by case role when 'admin' then 0 else 1 end
+       limit 1
+    `;
+    const preserved = existing[0] ?? null;
+
     const db = drizzle(sql, { schema }) as unknown as Db;
     const report = await seed(db, volumes);
     steps.push({
@@ -760,6 +779,30 @@ export async function runSetup(options: {
       status: "ok",
       detail: `${report.accounts} companies, ${report.contacts} contacts, ${report.activities.toLocaleString()} calls and emails`,
     });
+
+    if (preserved) {
+      // Reattach the login that already worked, and keep its address. No new
+      // password is issued: the one they wrote down still signs them in.
+      await linkByAuthId(sql, preserved.auth_id, preserved.email);
+      steps.push({
+        name: "Reconnecting your existing login",
+        status: "ok",
+        detail: preserved.email,
+      });
+
+      return {
+        ok: true,
+        steps,
+        login: { email: preserved.email, password: "(unchanged — the one you already use)" },
+        stats: {
+          accounts: report.accounts,
+          contacts: report.contacts,
+          activities: report.activities,
+          qualifyingRate: `${((report.qualifyingActivities / report.activities) * 100).toFixed(0)}%`,
+        },
+        landmarks: report.landmarks,
+      };
+    }
 
     await ensureLogin(sql, password);
     steps.push({ name: "Creating your login", status: "ok", detail: ADMIN_EMAIL });

@@ -273,3 +273,71 @@ describe("linking by the ID pasted from the dashboard", () => {
     await expect(linkByAuthId(sql, UID)).resolves.toBeUndefined();
   });
 });
+
+describe("reseeding does not lock you out", () => {
+  /**
+   * The failure this guards against, seen on a real deployment: the seed
+   * rebuilds every user row, which severs the connection between a Supabase
+   * login and its CRM profile. Someone who reseeds to pick up new sample data
+   * is then locked out of the app they just reloaded, with nothing to suggest
+   * the two events are related.
+   *
+   * runSetup captures the link before seeding and restores it afterwards. This
+   * covers the restore half directly -- the part that has to survive the users
+   * table being emptied underneath it.
+   */
+  const UID = "52a67572-7bce-405d-93a3-77b8601ffc8d";
+  const EMAIL = "alex.helmsworth@megaforce.test";
+
+  it("reattaches a remembered login to the rebuilt admin profile", async () => {
+    await sql`delete from users`;
+    await sql`
+      insert into users (email, full_name, role, auth_id)
+      values (${EMAIL}, 'Alex Helmsworth', 'admin', ${UID}::uuid)
+    `;
+
+    // What the seed does: wipe every user, then build a fresh set.
+    const remembered = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users where auth_id is not null and role = 'admin' limit 1
+    `;
+    expect(remembered).toHaveLength(1);
+
+    await sql`delete from users`;
+    await sql`
+      insert into users (email, full_name, role)
+      values (${ADMIN_EMAIL}, 'Avery Stone', 'admin')
+    `;
+
+    // The profile now exists again but points at nobody -- the locked-out state.
+    const [orphaned] = await sql<{ auth_id: string | null }[]>`
+      select auth_id from users where role = 'admin'
+    `;
+    expect(orphaned.auth_id).toBeNull();
+
+    await linkByAuthId(sql, remembered[0].auth_id, remembered[0].email);
+
+    const [restored] = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users where role = 'admin'
+    `;
+    expect(restored.auth_id).toBe(UID);
+    // The address survives too, so the app keeps showing the name they chose.
+    expect(restored.email).toBe(EMAIL);
+  });
+
+  it("prefers the admin's link over the credit team's", async () => {
+    await sql`delete from users`;
+    await sql`
+      insert into users (email, full_name, role, auth_id) values
+        ('credit@megaforce.test', 'Credit Desk', 'credit', '11111111-1111-1111-1111-111111111111'::uuid),
+        (${EMAIL}, 'Alex Helmsworth', 'admin', ${UID}::uuid)
+    `;
+
+    const [remembered] = await sql<{ auth_id: string; email: string }[]>`
+      select auth_id, email from users
+       where auth_id is not null and role in ('admin','credit')
+       order by case role when 'admin' then 0 else 1 end
+       limit 1
+    `;
+    expect(remembered.auth_id).toBe(UID);
+  });
+});
