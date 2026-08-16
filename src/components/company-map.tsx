@@ -93,7 +93,7 @@ export function CompanyMap({ name, address }: { name: string; address: Address }
             href={`https://www.google.com/maps/dir/?api=1&destination=${query}`}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
           >
             <Navigation className="size-3.5" aria-hidden />
             Route here
@@ -102,7 +102,7 @@ export function CompanyMap({ name, address }: { name: string; address: Address }
             href={`https://www.google.com/maps/search/?api=1&query=${query}`}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-accent"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors hover:bg-accent"
           >
             Google Maps
             <ExternalLink className="size-3" aria-hidden />
@@ -111,7 +111,7 @@ export function CompanyMap({ name, address }: { name: string; address: Address }
             href={`https://maps.apple.com/?q=${query}`}
             target="_blank"
             rel="noreferrer noopener"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-accent"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors hover:bg-accent"
           >
             Apple Maps
             <ExternalLink className="size-3" aria-hidden />

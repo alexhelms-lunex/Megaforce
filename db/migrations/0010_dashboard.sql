@@ -177,25 +177,46 @@ returns table (
   qualifying    bigint,
   unlogged      bigint
 ) as $$
+  -- CTEs joined once rather than six correlated subqueries per user. An admin's
+  -- subtree is every rep in the company; the correlated shape would scan
+  -- activities once per person and looks fine only on a demo dataset.
+  with team as (
+    select u.id, u.full_name, u.role, u.location, u.prospect_limit
+      from users u
+     where u.id in (select visible_user_ids())
+       and u.id <> (select current_user_id())
+  ),
+  books as (
+    select a.owner_id,
+           count(*)                                                            as owned,
+           count(*) filter (where a.state in ('warning','expiring','overdue'))  as at_risk,
+           count(*) filter (where a.status = 'customer')                       as customers
+      from accounts_with_state a
+     where a.owner_id in (select id from team)
+     group by a.owner_id
+  ),
+  made as (
+    select x.user_id,
+           count(*) filter (
+             where x.occurred_at >= now() - make_interval(days => greatest(p_days, 1))
+           ) as calls,
+           count(*) filter (
+             where x.qualifies
+               and x.occurred_at >= now() - make_interval(days => greatest(p_days, 1))
+           ) as qualifying,
+           count(*) filter (where x.logged_at is null) as unlogged
+      from activities x
+     where x.type = 'call' and x.user_id in (select id from team)
+     group by x.user_id
+  )
   select
-    u.id, u.full_name, u.role, u.location, u.prospect_limit,
-    (select count(*) from accounts_with_state a where a.owner_id = u.id),
-    (select count(*) from accounts_with_state a
-      where a.owner_id = u.id and a.state in ('warning','expiring','overdue')),
-    (select count(*) from accounts_with_state a
-      where a.owner_id = u.id and a.status = 'customer'),
-    (select count(*) from activities x
-      where x.user_id = u.id and x.type = 'call'
-        and x.occurred_at >= now() - make_interval(days => greatest(p_days, 1))),
-    (select count(*) from activities x
-      where x.user_id = u.id and x.type = 'call' and x.qualifies
-        and x.occurred_at >= now() - make_interval(days => greatest(p_days, 1))),
-    (select count(*) from activities x
-      where x.user_id = u.id and x.type = 'call' and x.logged_at is null)
-  from users u
-  where u.id in (select visible_user_ids())
-    and u.id <> (select current_user_id())
-  order by u.full_name
+    t.id, t.full_name, t.role, t.location, t.prospect_limit,
+    coalesce(b.owned, 0), coalesce(b.at_risk, 0), coalesce(b.customers, 0),
+    coalesce(m.calls, 0), coalesce(m.qualifying, 0), coalesce(m.unlogged, 0)
+  from team t
+  left join books b on b.owner_id = t.id
+  left join made  m on m.user_id  = t.id
+  order by t.full_name
 $$ language sql stable;
 
 -- ---------------------------------------------------------------------------

@@ -105,7 +105,7 @@ async function chromeData(
     .limit(50);
   if (!privileged) atRisk = atRisk.eq("owner_id", userId);
 
-  const [risk, unlogged, review] = await Promise.all([
+  const [risk, unlogged, review, requests] = await Promise.all([
     atRisk,
     supabase
       .from("activities")
@@ -116,6 +116,14 @@ async function chromeData(
       .from("unmatched_activities")
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null),
+    // Open requests raised by somebody else. RLS already limits this to the
+    // caller's reporting line, so a broker sees zero and a manager sees their
+    // own queue -- the badge and the screen agree without a role check here.
+    supabase
+      .from("account_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .neq("requested_by", userId),
   ]);
 
   const alerts = ((risk.data ?? []) as { id: string; name: string; state: string; days_left: number | null }[])
@@ -133,9 +141,7 @@ async function chromeData(
       expiring: risk.data?.length ?? 0,
       unlogged: unlogged.count ?? 0,
       review: review.count ?? 0,
-      // The approvals table arrives with the Account Requests screen. Zero
-      // until then, rather than a badge that lies.
-      requests: 0,
+      requests: requests.count ?? 0,
     },
   };
 }

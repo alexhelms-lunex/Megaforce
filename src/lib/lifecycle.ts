@@ -32,6 +32,7 @@ import type { Db } from "@/lib/matcher";
  *
  *   available -- nobody owns it. Anyone can claim it.
  *   fresh     -- worked recently. Nothing to do.
+ *   protected -- an approved account request is holding the clock off.
  *   warning   -- amber. Still yours, but it needs attention.
  *   expiring  -- red. Days away from being taken.
  *   overdue   -- past the deadline, awaiting the nightly release.
@@ -40,7 +41,13 @@ import type { Db } from "@/lib/matcher";
  * account is gone before it disappears from their list; a row that silently
  * vanishes overnight is how a sales floor stops trusting the system.
  */
-export type LifecycleState = "available" | "fresh" | "warning" | "expiring" | "overdue";
+export type LifecycleState =
+  | "available"
+  | "fresh"
+  | "protected"
+  | "warning"
+  | "expiring"
+  | "overdue";
 
 export type ReleaseReason = "expired" | "manual" | "reassigned" | "converted";
 
@@ -83,6 +90,11 @@ export const LIFECYCLE: Record<LifecycleState, LifecyclePresentation> = {
     className: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
     meaning: "Past the deadline. Returns to the pool at the next nightly sweep.",
   },
+  protected: {
+    label: "Protected",
+    className: "bg-navy-100 text-navy-900 dark:bg-navy-900 dark:text-navy-100",
+    meaning: "An approved account request is holding the clock off. It cannot expire yet.",
+  },
 };
 
 /** Ordering for lists: the ones needing action first. */
@@ -91,7 +103,8 @@ export const URGENCY: Record<LifecycleState, number> = {
   expiring: 1,
   warning: 2,
   fresh: 3,
-  available: 4,
+  protected: 4,
+  available: 5,
 };
 
 export function isLifecycleState(value: unknown): value is LifecycleState {
@@ -123,8 +136,8 @@ export interface AccountWithState {
  * rather than from something written down earlier.
  */
 const STATE_COLUMNS = {
-  state: sql<LifecycleState>`account_state(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt})`,
-  daysLeft: sql<number | null>`account_days_left(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt})`,
+  state: sql<LifecycleState>`account_state(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt}, ${schema.accounts.retentionOverrideUntil})`,
+  daysLeft: sql<number | null>`account_days_left(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt}, ${schema.accounts.retentionOverrideUntil})`,
 };
 
 export async function accountsWithState(db: Db, limit = 200): Promise<AccountWithState[]> {
@@ -271,7 +284,7 @@ export async function releaseOverdueAccounts(db: Db): Promise<SweepResult> {
       ...STATE_COLUMNS,
     })
     .from(schema.accounts)
-    .where(sql`account_state(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt}) = 'overdue'`);
+    .where(sql`account_state(${schema.accounts.ownerId}, ${schema.accounts.status}, ${schema.accounts.lastActivityAt}, ${schema.accounts.claimedAt}, ${schema.accounts.retentionOverrideUntil}) = 'overdue'`);
 
   const released: SweepResult["released"] = [];
   for (const account of overdue) {

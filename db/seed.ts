@@ -995,7 +995,7 @@ export async function seed(
   `);
 
   const spread = await db.execute<{ state: string; c: string }>(sql`
-    select account_state(owner_id, status, last_activity_at, claimed_at) state, count(*)::text c
+    select account_state(owner_id, status, last_activity_at, claimed_at, retention_override_until) state, count(*)::text c
       from accounts group by 1 order by 1
   `);
   for (const row of (Array.isArray(spread) ? spread : (spread as { rows: { state: string; c: string }[] }).rows)) {

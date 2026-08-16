@@ -95,6 +95,12 @@ export const accounts = pgTable(
     creditStatus: text("credit_status"),
 
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /**
+     * Granted by an approved account request (amnesty, or a customer
+     * extension). While this is in the future the account cannot expire, and
+     * account_state() reports 'protected'.
+     */
+    retentionOverrideUntil: timestamp("retention_override_until", { withTimezone: true }),
     releasedAt: timestamp("released_at", { withTimezone: true }),
     lastReleaseReason: text("last_release_reason"),
     /** Maintained by the t_bump_last_activity trigger, never written by hand. */
@@ -112,6 +118,49 @@ export const accounts = pgTable(
     index("accounts_ad_owner_idx").on(t.adOwnerId),
   ],
 );
+
+/**
+ * Amnesty, extensions, transfers and promotions — one queue.
+ *
+ * The policy names amnesty on a prospect and an extension on a customer
+ * separately, but operationally they are the same transaction: an employee asks
+ * to hold an account past its window and somebody above them decides. Modelling
+ * them once means the two approval paths cannot drift apart.
+ */
+export const accountRequests = pgTable(
+  "account_requests",
+  {
+    id: uuid("id").primaryKey().default(newUuid),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => users.id),
+    /** 'amnesty' | 'extension' | 'national' | 'release' | 'transfer' */
+    kind: text("kind").notNull(),
+    reason: text("reason").notNull(),
+    /** Days of protection being asked for. Null for kinds that grant no time. */
+    days: integer("days"),
+    transferTo: uuid("transfer_to").references(() => users.id),
+    /** 'pending' | 'approved' | 'denied' | 'withdrawn' */
+    status: text("status").notNull().default("pending"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [
+    index("account_requests_account_idx").on(t.accountId),
+    index("account_requests_requester_idx").on(t.requestedBy),
+  ],
+);
+
+export const accountRequestsRelations = relations(accountRequests, ({ one }) => ({
+  account: one(accounts, { fields: [accountRequests.accountId], references: [accounts.id] }),
+  requester: one(users, { fields: [accountRequests.requestedBy], references: [users.id] }),
+  decider: one(users, { fields: [accountRequests.decidedBy], references: [users.id] }),
+}));
 
 /**
  * The Salesforce Industry picklist, as a table.
@@ -406,6 +455,7 @@ export type SavedView = typeof savedViews.$inferSelect;
 export type AccountRetentionRule = typeof accountRetentionRules.$inferSelect;
 export type AccountClaim = typeof accountClaims.$inferSelect;
 export type Industry = typeof industries.$inferSelect;
+export type AccountRequest = typeof accountRequests.$inferSelect;
 
 export const accountClaimsRelations = relations(accountClaims, ({ one }) => ({
   account: one(accounts, { fields: [accountClaims.accountId], references: [accounts.id] }),

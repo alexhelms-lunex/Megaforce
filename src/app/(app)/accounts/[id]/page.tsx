@@ -20,6 +20,7 @@ import { ContactForm } from "@/components/contact-form";
 import { CompanyMap } from "@/components/company-map";
 import { LifecycleFlag, LifecycleExplanation } from "@/components/lifecycle-flag";
 import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
+import { RequestForm } from "@/components/request-form";
 import { AccountTabs } from "./account-tabs";
 import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
@@ -45,7 +46,17 @@ export default async function AccountDetailPage({
   // Issued together. RLS filters every one of them; an account the user cannot
   // see returns nothing here and renders as a 404, which is the right answer --
   // "forbidden" would confirm the record exists.
-  const [accountRes, contactsRes, activitiesRes, oppsRes, defsRes, childrenRes, claimsRes] =
+  const [
+    accountRes,
+    contactsRes,
+    activitiesRes,
+    oppsRes,
+    defsRes,
+    childrenRes,
+    claimsRes,
+    requestsRes,
+    colleaguesRes,
+  ] =
     await Promise.all([
       supabase.from("accounts_with_state").select("*").eq("id", id).maybeSingle(),
       supabase
@@ -84,6 +95,19 @@ export default async function AccountDetailPage({
         .eq("account_id", id)
         .order("claimed_at", { ascending: false })
         .limit(25),
+      supabase
+        .from("account_requests")
+        .select(
+          "id, kind, reason, days, status, created_at, decided_at, decision_note, " +
+            "requester:users!account_requests_requested_by_fkey(full_name)",
+        )
+        .eq("account_id", id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      // Transfer targets for the request form. Row level security limits this
+      // to the people the caller can see, which is the right set to hand an
+      // account to.
+      supabase.from("users").select("id, full_name").in("role", ["broker", "manager"]).order("full_name").limit(500),
     ]);
 
   const account = accountRes.data;
@@ -101,6 +125,10 @@ export default async function AccountDetailPage({
   const defs = (defsRes.data ?? []) as FieldDef[];
   const children = childrenRes.data ?? [];
   const claims = claimsRes.data ?? [];
+  const requests = (requestsRes.data ?? []) as unknown as AccountRequest[];
+  const colleagues = ((colleaguesRes.data ?? []) as { id: string; full_name: string }[])
+    .filter((u) => u.id !== account.owner_id)
+    .map((u) => ({ id: u.id, name: u.full_name }));
 
   // The rollup is a recursive query, so it is fetched only here rather than
   // being a column on the list view that every row would pay for.
@@ -129,6 +157,7 @@ export default async function AccountDetailPage({
     { key: "credit", label: "Credit" },
     { key: "pipeline", label: "Pipeline", count: opportunities.length },
     { key: "ownership", label: "Ownership", count: claims.length },
+    { key: "requests", label: "Requests", count: requests.length },
     { key: "details", label: "Details" },
   ];
   const tab = tabs.some((t) => t.key === rawTab) ? (rawTab as string) : "overview";
@@ -179,7 +208,7 @@ export default async function AccountDetailPage({
             <div className="ml-auto flex items-center gap-2">
               <Link
                 href={`/accounts/${account.id}/edit`}
-                className="inline-flex h-9 items-center rounded-md bg-white/10 px-3 text-sm font-medium transition-colors hover:bg-white/20"
+                className="inline-flex h-9 items-center rounded-full bg-white/10 px-3 text-sm font-medium transition-colors hover:bg-white/20"
               >
                 Edit
               </Link>
@@ -285,6 +314,16 @@ export default async function AccountDetailPage({
           {tab === "pipeline" ? <PipelineTab opportunities={opportunities} /> : null}
 
           {tab === "ownership" ? <OwnershipTab account={account} claims={claims} /> : null}
+
+          {tab === "requests" ? (
+            <RequestsTab
+              accountId={account.id}
+              accountStatus={account.status}
+              requests={requests}
+              colleagues={colleagues}
+              canAsk={isMine || privileged}
+            />
+          ) : null}
 
           {tab === "details" ? (
             <Card>
@@ -908,6 +947,105 @@ function OwnershipTab({ account, claims }: { account: any; claims: any[] }) {
                         current
                       </Badge>
                     )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+interface AccountRequest {
+  id: string;
+  kind: string;
+  reason: string;
+  days: number | null;
+  status: string;
+  created_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+  requester: { full_name: string } | null;
+}
+
+/**
+ * Asking to keep this account, and every previous ask.
+ *
+ * The history is as important as the form. An account that has been given
+ * amnesty three times is a different conversation from one asking for the
+ * first time, and the approver should not have to go looking for that.
+ */
+function RequestsTab({
+  accountId,
+  accountStatus,
+  requests,
+  colleagues,
+  canAsk,
+}: {
+  accountId: string;
+  accountStatus: string;
+  requests: AccountRequest[];
+  colleagues: { id: string; name: string }[];
+  canAsk: boolean;
+}) {
+  const open = requests.filter((r) => r.status === "pending");
+
+  return (
+    <div className="space-y-4">
+      {canAsk && open.length === 0 ? (
+        <RequestForm
+          accountId={accountId}
+          accountStatus={accountStatus}
+          colleagues={colleagues}
+        />
+      ) : null}
+
+      {open.length > 0 ? (
+        <div className="rounded-lg border border-amber-400/60 bg-amber-50 px-4 py-3 text-sm dark:bg-amber-950/30">
+          <span className="font-semibold">A request is already open on this account.</span>{" "}
+          <span className="text-muted-foreground">
+            Only one at a time, so two approvers cannot grant the same thing twice.
+          </span>{" "}
+          <Link href="/requests" className="font-medium text-primary hover:underline">
+            See it
+          </Link>
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Request history</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {requests.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              Nobody has asked for anything on this account.
+            </p>
+          ) : (
+            <ol className="space-y-0">
+              {requests.map((r, i) => (
+                <li key={r.id}>
+                  {i > 0 ? <Separator /> : null}
+                  <div className="space-y-1 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={r.status === "approved" ? "secondary" : "outline"}>
+                        {r.status}
+                      </Badge>
+                      <span className="text-sm font-medium capitalize">{r.kind}</span>
+                      {r.days ? (
+                        <span className="text-xs text-muted-foreground">{r.days} days</span>
+                      ) : null}
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {r.requester?.full_name ?? "Someone"} · {formatDateTime(r.created_at)}
+                      </span>
+                    </div>
+                    <p className="text-sm">{r.reason}</p>
+                    {r.decision_note ? (
+                      <p className="text-xs text-muted-foreground">
+                        Decision: {r.decision_note}
+                      </p>
+                    ) : null}
                   </div>
                 </li>
               ))}
