@@ -14,11 +14,11 @@ import {
   matchOptions,
   placeCall,
   recentCalls,
-  STAGES,
   type DockCall,
   type LogResult,
   type MatchOptions,
 } from "./actions";
+import { STAGES } from "./stages";
 
 /**
  * The RingCentral dock.

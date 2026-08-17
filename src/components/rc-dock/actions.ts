@@ -7,6 +7,7 @@ import { qualify, toRule } from "@/lib/qualify";
 import { toE164 } from "@/lib/phone";
 import { currentUser } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
+import { STAGES, type Stage } from "./stages";
 
 /**
  * A server action logs with console, not with pino.
@@ -27,8 +28,19 @@ const log = {
   error: (data: unknown, message: string) => console.error(message, data),
 };
 
-export const STAGES = ["Lead", "Contact", "Pitch", "Quote", "Closed"] as const;
-export type Stage = (typeof STAGES)[number];
+/*
+ * Imported, never re-exported.
+ *
+ * A "use server" file may export async functions and NOTHING else -- every
+ * export becomes a callable server reference, and a plain array has no meaning
+ * as one. This file used to declare STAGES itself, and Next refused the whole
+ * module at runtime with "A use server file can only export async functions,
+ * found object". The build succeeded and every screen rendered; only buttons
+ * broke, everywhere, because the dock that needs this list is on every page.
+ *
+ * Re-exporting it from here would fail in exactly the same way. Components
+ * import it from ./stages directly.
+ */
 
 export interface DockCall {
   id: string;

@@ -258,3 +258,67 @@ describe("the instrumentation hook", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * What a "use server" file is allowed to export.
+ *
+ * ---------------------------------------------------------------------------
+ * THIS IS THE ONE THAT COST THE MOST.
+ *
+ * A "use server" module may export async functions and nothing else. Every
+ * export becomes a callable server reference, so a plain array or object has no
+ * meaning as one, and Next refuses the WHOLE MODULE:
+ *
+ *     A "use server" file can only export async functions, found object.
+ *
+ * It refuses it at RUNTIME, when an action is invoked. `next build` succeeds.
+ * The types pass. Lint passes. Every screen renders perfectly. Then every
+ * button in the application fails -- and the failure arrives as Next's redacted
+ * "An error occurred in the Server Components render", the same sentence used
+ * for genuine crashes.
+ *
+ * The offender was one line: `export const STAGES = [...]` in the phone dock's
+ * action file. The dock is on every page, so the invalid module sat in every
+ * page's server-action graph, and Claim, Save on the user form and the role
+ * picker all failed identically while being individually correct. Three rounds
+ * of fixes went into those three files. None of them had a bug.
+ *
+ * Nothing in the toolchain catches this. This does.
+ * ---------------------------------------------------------------------------
+ */
+describe("server action modules", () => {
+  const serverFiles = walk(SRC).filter((file) => {
+    const head = readFileSync(file, "utf8").slice(0, 200);
+    return /^\s*["']use server["']/.test(head);
+  });
+
+  it("finds the action files it is meant to be checking", () => {
+    // A scan that matches nothing passes silently and protects nothing.
+    expect(serverFiles.length).toBeGreaterThan(4);
+  });
+
+  for (const file of serverFiles) {
+    it(`${path.relative(SRC, file)} exports only async functions`, () => {
+      const source = readFileSync(file, "utf8");
+      const offenders: string[] = [];
+
+      for (const [index, line] of source.split("\n").entries()) {
+        // `export type` and `export interface` are erased before this file ever
+        // reaches Next, so they are not exports at runtime and are fine.
+        if (/^export\s+(type|interface)\b/.test(line)) continue;
+        if (/^export\s+async\s+function\b/.test(line)) continue;
+        if (/^export\s*\{[^}]*\btype\b/.test(line)) continue;
+
+        if (/^export\b/.test(line)) {
+          offenders.push(`line ${index + 1}: ${line.trim()}`);
+        }
+      }
+
+      expect(
+        offenders,
+        `A "use server" file may only export async functions. Move these into a ` +
+          `plain module and import them:\n${offenders.join("\n")}`,
+      ).toEqual([]);
+    });
+  }
+});
