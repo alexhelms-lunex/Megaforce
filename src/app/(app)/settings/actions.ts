@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, loadCurrentUser, noUserMessage } from "@/lib/supabase/server";
-import { DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
+import { type Preferences } from "@/lib/preferences";
+import { loadPreferences } from "@/lib/prefs-server";
 
 export interface SaveResult {
   ok?: true;
@@ -12,32 +13,14 @@ export interface SaveResult {
 /**
  * Read the signed-in person's preferences.
  *
- * Falls back to the shipped defaults rather than to nulls, so somebody who has
- * never opened this screen behaves identically to somebody who opened it and
- * changed nothing. Every caller can then treat the result as complete.
+ * A thin pass-through to the memoised reader in lib/prefs-server.ts. The
+ * implementation cannot live here: a "use server" module may export only async
+ * functions, and `export const x = cache(...)` is a const -- which makes Next
+ * reject this entire file at runtime, taking every action in it down. See that
+ * file for why the memoisation matters.
  */
 export async function readPreferences(): Promise<Preferences> {
-  // Called during the layout's render, so it may not throw: a throw here
-  // rejects whatever server action the person just triggered. Settings falling
-  // back to their defaults for one render is invisible; the alternative was a
-  // dead screen and a button reporting a failure it did not have.
-  try {
-    const { user: me } = await loadCurrentUser();
-    if (!me) return DEFAULT_PREFERENCES;
-
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("user_preferences")
-      .select("*")
-      .eq("user_id", me.id)
-      .maybeSingle();
-
-    if (!data) return DEFAULT_PREFERENCES;
-    return { ...DEFAULT_PREFERENCES, ...(data as Partial<Preferences>) };
-  } catch (err) {
-    console.error("[settings] could not read preferences", err);
-    return DEFAULT_PREFERENCES;
-  }
+  return loadPreferences();
 }
 
 /**

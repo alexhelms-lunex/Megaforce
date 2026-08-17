@@ -204,7 +204,7 @@ describe("the application shell", () => {
      * reporting a failure it did not have.
      */
     const guarded = /\.catch\(|try\s*\{/;
-    const fetching = [/chromeData\(/, /readPreferences\(/];
+    const fetching = [/chromeData\(/, /loadPreferences\(/];
 
     for (const pattern of fetching) {
       const line = layout.split("\n").find((l) => pattern.test(l) && !l.trim().startsWith("*"));

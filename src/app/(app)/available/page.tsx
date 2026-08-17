@@ -15,10 +15,11 @@ import { LifecycleFlag } from "@/components/lifecycle-flag";
 import { poolAccounts, poolFacets, explain, type PoolAccount } from "@/lib/pool";
 import { PoolFilterBar } from "./filter-bar";
 import { ClaimButton } from "./claim-button";
+import { PageSizePicker } from "@/app/(app)/prospects/controls";
+import { loadPreferences } from "@/lib/prefs-server";
+import { resolvePageSize } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 50;
 
 /**
  * The available pool, in full.
@@ -52,6 +53,12 @@ export default async function AvailablePage({
   const page = Math.max(1, Number(one("page")) || 1);
   const sortParam = one("sort");
   const sort = sortParam === "oldest" || sortParam === "name" ? sortParam : "recent";
+
+  // Alex asked for the row count to be adjustable on "any capacity of account",
+  // which includes this one. Same resolver everywhere, so the setting means the
+  // same thing on every list rather than each screen keeping its own idea.
+  const prefs = await loadPreferences().catch(() => null);
+  const PAGE_SIZE = resolvePageSize(one("per") || undefined, prefs?.rows_per_page);
 
   let result;
   let facets = { industries: [] as string[], states: [] as string[] };
@@ -95,6 +102,7 @@ export default async function AvailablePage({
                 : `${total.toLocaleString()} unclaimed — first broker to claim one owns it.`}
           </p>
         </div>
+        <PageSizePicker value={PAGE_SIZE} />
       </div>
 
       {error ? (

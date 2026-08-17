@@ -165,7 +165,15 @@ function applySort(q: Filterable, f: AccountFilters): Filterable {
   }
 }
 
-export function pageRange(page: number): [number, number] {
-  const from = (Math.max(page, 1) - 1) * PAGE_SIZE;
-  return [from, from + PAGE_SIZE - 1];
+/**
+ * The half-open row range for a page.
+ *
+ * Takes the size rather than reading the constant, so the row count somebody
+ * chose on screen is the row count the query asks for. When it read the
+ * constant, changing the setting changed the pager and not the query -- which
+ * shows up as a page of fifty rows labelled "1-200 of 812".
+ */
+export function pageRange(page: number, size: number = PAGE_SIZE): [number, number] {
+  const from = (Math.max(page, 1) - 1) * size;
+  return [from, from + size - 1];
 }

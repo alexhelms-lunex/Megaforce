@@ -218,8 +218,13 @@ const SCREENS: Screen[] = [
     props: () => ({ searchParams: Promise.resolve({}) }),
   },
   {
-    name: "company directory",
-    load: () => import("./(app)/directory/page"),
+    name: "prospects",
+    load: () => import("./(app)/prospects/page"),
+    props: () => ({ searchParams: Promise.resolve({}) }),
+  },
+  {
+    name: "your customers",
+    load: () => import("./(app)/customers/page"),
     props: () => ({ searchParams: Promise.resolve({}) }),
   },
   {
@@ -523,10 +528,16 @@ describe("reports, which open differently depending on the job", () => {
   }
 });
 
-describe("the directory, which anybody may open", () => {
+describe("Prospects, which contains every company in the business", () => {
+  /*
+   * One row the caller may open and one they may not, because the interesting
+   * rendering question is whether a locked row survives having every
+   * proprietary column come back null. A page written against the open shape
+   * hits `.toLocaleString()` on an undefined and takes the whole screen down.
+   */
   const fixture = {
     rpc: {
-      account_directory: [
+      prospect_list: [
         {
           id: "a1",
           name: "Tanglewood Milling",
@@ -535,35 +546,103 @@ describe("the directory, which anybody may open", () => {
           billing_state: "CA",
           billing_postal_code: "95202",
           billing_country: "US",
+          industry: "Nuts/Grains",
           owner_id: "u1",
           owner_name: "Dana",
           ad_owner_id: null,
           ad_owner_name: null,
           available: false,
           can_open: false,
-          total_rows: 1,
+          national_account: false,
+          locked_to_credit: false,
+          status: null,
+          stage: null,
+          phone_e164: null,
+          website: null,
+          credit_limit: null,
+          credit_status: null,
+          last_activity_at: null,
+          last_communicated_at: null,
+          contact_count: null,
+          child_count: null,
+          parent_account_name: null,
+          lifecycle_state: null,
+          days_left: null,
+          total_rows: 2,
+        },
+        {
+          id: "a2",
+          name: "Free Co",
+          billing_street: "2 Open St",
+          billing_city: "Raleigh",
+          billing_state: "NC",
+          billing_postal_code: "27601",
+          billing_country: "US",
+          industry: "Retail",
+          owner_id: null,
+          owner_name: null,
+          ad_owner_id: null,
+          ad_owner_name: null,
+          available: true,
+          can_open: true,
+          national_account: false,
+          locked_to_credit: false,
+          status: "prospect",
+          stage: "Lead",
+          phone_e164: "+19195550101",
+          website: "freeco.test",
+          credit_limit: null,
+          credit_status: null,
+          last_activity_at: null,
+          last_communicated_at: null,
+          contact_count: 0,
+          child_count: 0,
+          parent_account_name: null,
+          lifecycle_state: "available",
+          days_left: null,
+          total_rows: 2,
         },
       ],
-      account_directory_counts: [{ mine: 1, locked: 1, available: 1, total: 3 }],
+      prospect_counts: [{ total: 2, available: 1, mine: 0, held: 1, customers: 0 }],
+      prospect_industries: [{ industry: "Retail", uses: 4 }],
     },
   };
 
-  it("renders with rows", async () => {
+  it("renders a locked row beside an open one", async () => {
     await expect(
-      render(SCREENS.find((s) => s.name === "company directory")!, fixture),
+      render(SCREENS.find((s) => s.name === "prospects")!, fixture),
+    ).resolves.toBeUndefined();
+  });
+
+  it("renders your customers from the same rows", async () => {
+    await expect(
+      render(SCREENS.find((s) => s.name === "your customers")!, fixture),
     ).resolves.toBeUndefined();
   });
 
   it("renders with nothing on file", async () => {
     await expect(
-      render(SCREENS.find((s) => s.name === "company directory")!, {}),
+      render(SCREENS.find((s) => s.name === "prospects")!, {}),
     ).resolves.toBeUndefined();
   });
 
   it("renders when the function is not in the database yet", async () => {
+    // The state every user is in between a deploy and somebody pressing Apply
+    // on the setup page. It has to say so rather than showing an empty book.
     await expect(
-      render(SCREENS.find((s) => s.name === "company directory")!, { fail: true }),
+      render(SCREENS.find((s) => s.name === "prospects")!, {
+        failRpc: ["prospect_list", "prospect_counts", "prospect_industries"],
+      }),
     ).resolves.toBeUndefined();
+  });
+
+  it("sends the old directory address to Prospects rather than 404ing", async () => {
+    // There are links to /directory in the accounts empty state, in the
+    // command palette and in bookmarks. A dead one reads as a broken app.
+    const mod = await import("./(app)/directory/page");
+    await expect(
+      mod.default({ searchParams: Promise.resolve({ q: "mill", scope: "locked" }) } as never),
+    ).rejects.toThrow(/NEXT_REDIRECT/);
   });
 });
 

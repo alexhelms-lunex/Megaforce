@@ -366,27 +366,26 @@ create policy user_preferences_own on user_preferences for all
   using (user_id = (select current_user_id()))
   with check (user_id = (select current_user_id()));
 
-/** Read preferences, falling back to the defaults for anyone who has none. */
-create or replace function my_preferences()
-returns user_preferences as $$
-  select coalesce(
-    (select p from user_preferences p where p.user_id = (select current_user_id())),
-    (select row(
-      (select current_user_id()), 'system', 'comfortable', '{}'::jsonb, '/', 'my-book',
-      'America/New_York',
-      jsonb_build_object(
-        'account_expiring',  jsonb_build_object('app', true,  'email', true),
-        'account_released',  jsonb_build_object('app', true,  'email', true),
-        'request_decided',   jsonb_build_object('app', true,  'email', true),
-        'call_unlogged',     jsonb_build_object('app', true,  'email', false),
-        'account_assigned',  jsonb_build_object('app', true,  'email', true),
-        'duplicate_flagged', jsonb_build_object('app', true,  'email', false),
-        'daily_digest',      jsonb_build_object('app', false, 'email', true)
-      ),
-      true, false, true, false, now()
-    )::user_preferences)
-  )
-$$ language sql stable;
+/*
+ * my_preferences() used to be defined here, and is deliberately gone.
+ *
+ * It returned `user_preferences` and built its fallback as a hand-written
+ * row(...) cast to that type. A table's composite type has exactly as many
+ * fields as the table has columns, so the first migration to ADD a column to
+ * user_preferences turned that into a thirteen-field row cast to a
+ * fourteen-field type -- "cannot cast type record to user_preferences".
+ *
+ * Setup re-runs every file every time, so the failure surfaced HERE, in a file
+ * nobody had touched, rather than in 0031 which caused it. The drop has to be
+ * in this file rather than in 0031 for the same reason: on a re-run this file
+ * executes first, and a create that fails stops the whole set before anything
+ * later can clean up after it.
+ *
+ * Nothing ever called it. The application reads the row through PostgREST and
+ * merges it over DEFAULT_PREFERENCES in TypeScript, which does the same job and
+ * does not care how many columns the table has. 0031 has the full reasoning.
+ */
+drop function if exists my_preferences();
 
 do $$
 declare r text;
@@ -394,7 +393,6 @@ begin
   foreach r in array array['authenticated','anon','app_user'] loop
     if exists (select 1 from pg_roles where rolname = r) then
       execute format('grant select, insert, update on user_preferences to %I', r);
-      execute format('grant execute on function my_preferences() to %I', r);
       execute format(
         'grant execute on function find_duplicate_accounts(text, text, text, text, text, uuid) to %I', r);
     end if;

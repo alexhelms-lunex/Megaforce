@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { usePreferences } from "@/components/preferences-provider";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { visibleNav } from "./nav";
+import { NavPending } from "./nav-pending";
 import { Logo } from "./logo";
 
 export interface NavCounts {
@@ -95,6 +96,9 @@ export function Sidebar({
                   ) : null}
                   <Icon className="size-4 shrink-0" aria-hidden />
                   {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                  {/* Sits before the badge so a pending item does not shuffle
+                      the count sideways as it appears. */}
+                  <NavPending className="ml-auto text-sidebar-foreground/70" />
                   {count > 0 ? (
                     <span
                       className={

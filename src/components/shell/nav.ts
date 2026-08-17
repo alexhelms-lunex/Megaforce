@@ -46,27 +46,37 @@ export const NAV: NavSection[] = [
         icon: LayoutDashboard,
         keywords: "home overview today numbers",
       },
+      /*
+       * The two primary tabs, in the order Alex named them.
+       *
+       * Prospects is the whole book -- every company in the business, taken or
+       * not, customer or not -- and it absorbed both the available pool and the
+       * old company directory. Three separate screens that each answered part
+       * of "is this company already somebody's" meant the answer depended on
+       * which one you happened to open, and the one people opened was whichever
+       * came first in this list.
+       */
       {
-        href: "/accounts",
-        label: "Accounts",
+        href: "/prospects",
+        label: "Prospects",
         icon: Building2,
-        badge: "expiring",
-        keywords: "companies book prospects customers search",
+        keywords: "companies search every account available unclaimed taken held owner directory pool",
       },
       {
-        href: "/available",
-        label: "Available pool",
-        icon: Inbox,
-        keywords: "unclaimed open claim free",
-      },
-      {
-        // Above Contacts on purpose. This is the screen somebody uses BEFORE
-        // prospecting, to find out whether a company is already taken -- and a
-        // check nobody can find is a check nobody makes.
-        href: "/directory",
-        label: "Company directory",
+        href: "/customers",
+        label: "Your customers",
         icon: BookOpen,
-        keywords: "search every company who has it taken held owner lookup duplicate",
+        keywords: "customers converted won accounts mine",
+      },
+      {
+        // The working list: the clock, the columns, the presets. Kept because
+        // it answers a different question -- "what do I have to do today" --
+        // and neither of the two tabs above is sorted for that.
+        href: "/accounts",
+        label: "My book",
+        icon: Inbox,
+        badge: "expiring",
+        keywords: "my accounts book clock expiring at risk urgent columns presets",
       },
       {
         href: "/contacts",

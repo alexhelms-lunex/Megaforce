@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { formatPhone, toE164 } from "@/lib/phone";
+import { PageSizePicker } from "@/app/(app)/prospects/controls";
+import { loadPreferences } from "@/lib/prefs-server";
+import { resolvePageSize } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 50;
 
 /** The approved sales-contact types from the prospecting policy. */
 const CONTACT_TYPES = [
@@ -56,6 +57,8 @@ export default async function ContactsPage({
   const type = get("type");
   const reach = get("reach");
   const page = Math.max(1, Number.parseInt(get("page") || "1", 10) || 1);
+  const prefs = await loadPreferences().catch(() => null);
+  const PAGE_SIZE = resolvePageSize(get("per") || undefined, prefs?.rows_per_page);
   const from = (page - 1) * PAGE_SIZE;
 
   let query = supabase
@@ -173,6 +176,8 @@ export default async function ContactsPage({
           <CardTitle className="text-base">
             {total.toLocaleString()} {total === 1 ? "contact" : "contacts"}
           </CardTitle>
+          <div className="flex items-center gap-3">
+          <PageSizePicker value={PAGE_SIZE} />
           {total > PAGE_SIZE ? (
             <div className="flex items-center gap-1 text-xs">
               <PageLink raw={raw} page={page - 1} disabled={page <= 1}>
@@ -186,6 +191,7 @@ export default async function ContactsPage({
               </PageLink>
             </div>
           ) : null}
+          </div>
         </CardHeader>
         <CardContent className="px-0">
           {rows.length === 0 ? (

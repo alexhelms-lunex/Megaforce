@@ -13,6 +13,15 @@ export interface Preferences {
   lifecycle_colors: Record<string, string>;
   default_landing: string;
   default_account_preset: string;
+  /**
+   * Rows in a list before it pages.
+   *
+   * Alex asked for 100 as the default with a toggle from 10 to 200. 100 rather
+   * than 50 because the complaint underneath the request was scrolling and
+   * paging, not screen space -- and a broker scanning their book for one
+   * company would rather read a long page than press Next four times.
+   */
+  rows_per_page: number;
   timezone: string;
   alerts: Record<string, { app: boolean; email: boolean }>;
   show_tips: boolean;
@@ -27,6 +36,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lifecycle_colors: {},
   default_landing: "/",
   default_account_preset: "my-book",
+  rows_per_page: 100,
   timezone: "America/New_York",
   alerts: {
     account_expiring: { app: true, email: true },
@@ -111,3 +121,25 @@ export const TIMEZONES = [
   "America/Anchorage",
   "Pacific/Honolulu",
 ];
+
+/**
+ * The page sizes on offer.
+ *
+ * Five steps rather than a free-text box. A number typed by hand can be 3 or
+ * 5000, and both of those are a slow screen for a different reason.
+ */
+export const PAGE_SIZES = [10, 25, 50, 100, 200] as const;
+
+/**
+ * Whatever arrived, turned into a page size that exists.
+ *
+ * Takes the URL first and the stored preference second, so a link somebody was
+ * sent shows what the sender saw. Anything unrecognised falls back rather than
+ * throwing: a hand-edited URL should show a normal page, not an error.
+ */
+export function resolvePageSize(fromUrl: string | undefined, stored: number | undefined): number {
+  const asked = Number.parseInt(fromUrl ?? "", 10);
+  if ((PAGE_SIZES as readonly number[]).includes(asked)) return asked;
+  if (stored && (PAGE_SIZES as readonly number[]).includes(stored)) return stored;
+  return 100;
+}

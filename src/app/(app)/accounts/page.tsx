@@ -8,7 +8,6 @@ import { FilterBar, type FilterOptions } from "./filter-bar";
 import { createClient, currentUser } from "@/lib/supabase/server";
 import {
   COLUMNS,
-  PAGE_SIZE,
   PRESETS,
   STATUS_LABEL,
   defaultColumns,
@@ -16,6 +15,9 @@ import {
   toQueryString,
 } from "@/lib/account-filters";
 import { LIST_COLUMNS, applyAccountFilters, pageRange, type AccountRow } from "@/lib/account-query";
+import { PageSizePicker } from "@/app/(app)/prospects/controls";
+import { loadPreferences } from "@/lib/prefs-server";
+import { resolvePageSize } from "@/lib/preferences";
 import { daysSince, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 
@@ -29,7 +31,13 @@ export default async function AccountsPage({
   const raw = await searchParams;
   const filters = parseFilters(raw);
   const supabase = await createClient();
-  const me = await currentUser();
+  const [me, prefs] = await Promise.all([currentUser(), loadPreferences().catch(() => null)]);
+  // One resolver for every list in the application, so "200 rows" means the
+  // same thing here as it does on Prospects and on the available pool.
+  const perPage = resolvePageSize(
+    typeof raw.per === "string" ? raw.per : undefined,
+    prefs?.rows_per_page,
+  );
 
   const colsParam = typeof raw.cols === "string" ? raw.cols : "";
   const columns = colsParam
@@ -45,7 +53,7 @@ export default async function AccountsPage({
   // paging through the book costs nothing.
   await supabase.rpc("sweep_if_due", { p_max_age_minutes: 15 });
 
-  const [from, to] = pageRange(filters.page);
+  const [from, to] = pageRange(filters.page, perPage);
 
   /*
    * Reading from accounts_with_state rather than the table.
@@ -87,7 +95,7 @@ export default async function AccountsPage({
   );
 
   const preset = PRESETS.find((p) => p.key === filters.preset);
-  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const lastPage = Math.max(1, Math.ceil(total / perPage));
 
   /*
    * Only asked when the list came back empty AND somebody typed a name.
@@ -122,11 +130,12 @@ export default async function AccountsPage({
           </p>
         </div>
         <div className="flex gap-2">
+          <PageSizePicker value={perPage} />
           <Link
-            href="/available"
+            href="/prospects"
             className="inline-flex h-9 items-center rounded-full border bg-card px-4 text-sm font-medium transition-colors hover:bg-accent"
           >
-            Available pool
+            All prospects
           </Link>
           <Link
             href="/accounts/new"
@@ -226,13 +235,19 @@ export default async function AccountsPage({
           </table>
         </div>
 
-        {total > PAGE_SIZE ? (
+        {total > perPage ? (
           <div className="flex items-center justify-between border-t px-4 py-2.5 text-sm">
             <p className="text-muted-foreground tabular-nums">
-              {from + 1}–{Math.min(from + PAGE_SIZE, total)} of {total.toLocaleString()}
+              {from + 1}–{Math.min(from + perPage, total)} of {total.toLocaleString()}
             </p>
             <div className="flex items-center gap-1">
-              <PageLink filters={filters} cols={colsParam} page={filters.page - 1} disabled={filters.page <= 1}>
+              <PageLink
+                filters={filters}
+                cols={colsParam}
+                per={perPage}
+                page={filters.page - 1}
+                disabled={filters.page <= 1}
+              >
                 Previous
               </PageLink>
               <span className="px-2 text-xs text-muted-foreground tabular-nums">
@@ -241,6 +256,7 @@ export default async function AccountsPage({
               <PageLink
                 filters={filters}
                 cols={colsParam}
+                per={perPage}
                 page={filters.page + 1}
                 disabled={filters.page >= lastPage}
               >
@@ -259,12 +275,14 @@ export default async function AccountsPage({
 function PageLink({
   filters,
   cols,
+  per,
   page,
   disabled,
   children,
 }: {
   filters: ReturnType<typeof parseFilters>;
   cols: string;
+  per: number;
   page: number;
   disabled: boolean;
   children: React.ReactNode;
@@ -278,6 +296,9 @@ function PageLink({
   }
   const params = new URLSearchParams(toQueryString({ ...filters, page }));
   if (cols) params.set("cols", cols);
+  // Carried explicitly. Without it, Next lands on the default page size and the
+  // row somebody was heading for is on a different page than the one they got.
+  params.set("per", String(per));
   return (
     <Link
       href={`/accounts?${params.toString()}`}

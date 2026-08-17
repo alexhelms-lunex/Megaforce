@@ -11,7 +11,7 @@ import { UserMenu } from "@/components/shell/user-menu";
 import { SettingsButton } from "@/components/shell/settings-button";
 import { PreferencesProvider } from "@/components/preferences-provider";
 import { DensityShell } from "@/components/density-shell";
-import { readPreferences } from "./settings/actions";
+import { loadPreferences } from "@/lib/prefs-server";
 import { createClient, isPrivileged, isSupabaseConfigured, loadCurrentUser } from "@/lib/supabase/server";
 import { DEFAULT_PREFERENCES } from "@/lib/preferences";
 import type { LifecycleState } from "@/lib/lifecycle";
@@ -118,7 +118,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // Read once, here. Every component that needs a setting takes it from
     // context rather than fetching its own copy -- which is what turned a
     // screen of working toggles into a screen of toggles that did nothing.
-    readPreferences().catch((err) => {
+    loadPreferences().catch((err) => {
       console.error("[shell] preferences unavailable", err);
       return DEFAULT_PREFERENCES;
     }),
