@@ -146,6 +146,17 @@ const RAW = {
     body:
       "How many accounts your tier allows you to hold. Under a year: 200. One to three years: 100. Three years and up: 100. National Account Directors: 250. The junior figure being the largest is deliberate — a new broker is building a book from nothing.",
   },
+  currentOwner: {
+    title: "Owner",
+    body:
+      "The broker who holds this account right now, and the branch they work from. Blank means nobody holds it and any broker can claim it. Open the account's Ownership tab for everyone who has held it before.",
+  },
+  daysHeld: {
+    title: "Days held",
+    body:
+      "How long the current owner has had this account, counted from the day they claimed it — not from the last activity. It keeps counting while the clock runs down, and starts again at zero for whoever claims it next.",
+    formula: "days since claimed_at",
+  },
   ownershipTimeline: {
     title: "Ownership history",
     body:
@@ -345,7 +356,11 @@ export const DEFINITIONS: Record<DefinitionKey, Definition> = RAW;
  */
 export const COLUMN_HELP: Record<string, DefinitionKey | undefined> = {
   name: undefined,
-  owner: "ownershipTimeline",
+  // The column shows who holds it TODAY. It pointed at the ownership-history
+  // definition, which describes a different thing entirely -- every past holder
+  // and the gaps between them -- and read as an answer to a question nobody on
+  // this screen had asked.
+  owner: "currentOwner",
   location: "filterState",
   industry: "filterIndustry",
   status: undefined,

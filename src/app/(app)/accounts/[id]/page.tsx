@@ -137,6 +137,10 @@ export default async function AccountDetailPage({
   // Newest first on screen; the function returns oldest first because it walks
   // forward through time to find the gaps.
   const timeline = ((claimsRes.data ?? []) as unknown as OwnershipSegment[]).slice().reverse();
+  // An empty history and a history that could not be READ look identical on
+  // screen, and the second one is a database behind the deployment. Saying
+  // which beats "no claim history recorded" on an account with four owners.
+  const timelineError = claimsRes.error?.message ?? null;
   const requests = (requestsRes.data ?? []) as unknown as AccountRequest[];
   const colleagues = ((colleaguesRes.data ?? []) as { id: string; full_name: string }[])
     .filter((u) => u.id !== account.owner_id)
@@ -335,7 +339,9 @@ export default async function AccountDetailPage({
 
           {tab === "pipeline" ? <PipelineTab opportunities={opportunities} /> : null}
 
-          {tab === "ownership" ? <OwnershipTab account={account} timeline={timeline} /> : null}
+          {tab === "ownership" ? (
+            <OwnershipTab account={account} timeline={timeline} error={timelineError} />
+          ) : null}
 
           {tab === "requests" ? (
             <RequestsTab
@@ -526,6 +532,9 @@ function Overview({
 }) {
   const qualifying = activities.filter((a) => a.qualifies).length;
   const unlogged = activities.filter((a) => a.type === "call" && !a.logged_at).length;
+  // Held since the claim for an owned account; sitting in the pool since the
+  // release for an unowned one. Both are "how long has it been like this".
+  const daysHeld = daysSince(account.owner_id ? account.claimed_at : account.released_at);
 
   return (
     <div className="space-y-4">
@@ -543,10 +552,23 @@ function Overview({
 
       <div className="grid gap-3 sm:grid-cols-3">
         <MiniStat label="Activities on file" value={activities.length} />
+        {/* Not "counted toward the clock". That figure counted every approved
+            activity ever logged against the company, across every holder it
+            has had -- so a broker who claimed it last week saw a number earned
+            largely by somebody else, sitting beside a clock measured only from
+            their own tenure. Two different windows, presented as one fact.
+
+            How long the current owner has held it answers a question that is
+            actually about this holder, and cannot be misread as their own
+            effort. */}
         <MiniStat
-          label="Counted toward the clock"
-          value={qualifying}
-          tone={qualifying === 0 ? "warn" : "good"}
+          label={
+            account.owner_name
+              ? `Total days ${account.owner_name} has held the account`
+              : "Days in the available pool"
+          }
+          value={daysHeld ?? "—"}
+          tone={qualifying === 0 && account.owner_name ? "warn" : "default"}
         />
         <MiniStat
           label="Contacts"
@@ -968,9 +990,11 @@ const RELEASE_REASON_LABEL: Record<string, string> = {
 function OwnershipTab({
   account,
   timeline,
+  error,
 }: {
   account: any;
   timeline: OwnershipSegment[];
+  error?: string | null;
 }) {
   const held = timeline.filter((s) => s.segment === "owned");
   const unclaimedDays = timeline
@@ -1017,7 +1041,19 @@ function OwnershipTab({
           </p>
         </CardHeader>
         <CardContent>
-          {timeline.length === 0 ? (
+          {error ? (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <p className="text-sm font-semibold text-destructive">
+                The history could not be read
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                {/does not exist|schema cache|could not find/i.test(error)
+                  ? "The database is behind this version of the app. An administrator should re-run setup from the Admin screen."
+                  : null}{" "}
+                <span className="font-mono text-xs">{error}</span>
+              </p>
+            </div>
+          ) : timeline.length === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
               Nothing recorded yet. Nobody has claimed or released this account since it was
               created.

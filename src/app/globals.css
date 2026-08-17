@@ -86,10 +86,17 @@
   --color-foreground: var(--foreground);
   /* Both downloaded, not merely named. Naming a font the machine does not have
      is what made the last two typeface changes invisible off macOS. */
-  --font-sans: var(--font-sans-fallback), Inter, system-ui, sans-serif;
-  --font-display: var(--font-display), "JetBrains Mono", ui-monospace, monospace;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --font-heading: var(--font-display);
+  /* EVERY var() HERE CARRIES ITS OWN FALLBACK, and that is not belt-and-braces
+     -- it is the bug. `var(--x)` with no fallback, when --x is undefined, does
+     not skip to the next family in the list: the entire declaration is thrown
+     away and the element renders in the browser's default serif. These are
+     used on <html>, in portals, and in the setup page, so "defined everywhere"
+     is not a safe assumption to build on. */
+  --font-sans: var(--font-sans-fallback, Inter), Inter, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-display: var(--font-display-family, "JetBrains Mono"), "JetBrains Mono", ui-monospace,
+    SFMono-Regular, monospace;
+  --font-mono: var(--font-geist-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, monospace;
+  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -218,13 +225,22 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Literal stacks, not `@apply font-sans`.
+   *
+   * Under `@theme inline` Tailwind resolves the value into each utility and
+   * does not necessarily emit `--font-sans` as a custom property, so
+   * `font-family: var(--font-sans)` could resolve to nothing -- and a
+   * font-family that resolves to nothing is a serif, not a fallback. Written
+   * out here, on BOTH elements, there is nothing left to resolve. */
   html {
-    @apply font-sans;
+    font-family: var(--font-sans-fallback, Inter), Inter, "Segoe UI", Roboto, system-ui,
+      sans-serif;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-sans);
+    font-family: var(--font-sans-fallback, Inter), Inter, "Segoe UI", Roboto, system-ui,
+      sans-serif;
   }
 
   /* ------------------------------------------------------------------------
@@ -235,20 +251,32 @@
    * people sit in all day. Tracking is pulled in slightly because a mono face
    * set large reads loose without it.
    * --------------------------------------------------------------------- */
+  /* ------------------------------------------------------------------------
+   * Mono is for PAGE TITLES. Everything else is Inter.
+   *
+   * It used to cover h1 through h3 and every card title, which put a
+   * monospaced face on about forty small headings per screen and read as a
+   * different, older typeface rather than as a house style. iOS gets its
+   * hierarchy from one family at different weights and sizes; the monospace
+   * earns its place at the top of a page and nowhere below it.
+   * --------------------------------------------------------------------- */
   h1,
   h2,
-  h3,
   .font-display {
-    font-family: var(--font-display);
+    font-family: var(--font-display-family, "JetBrains Mono"), "JetBrains Mono", ui-monospace,
+      monospace;
     letter-spacing: -0.02em;
     font-weight: 700;
   }
 
+  h3,
   h4,
   h5,
   h6 {
-    font-family: var(--font-sans);
+    font-family: var(--font-sans-fallback, Inter), Inter, "Segoe UI", Roboto, system-ui,
+      sans-serif;
     font-weight: 600;
+    letter-spacing: -0.011em;
   }
 
   /* Numbers in a table must line up. Every figure column is tabular, so a
