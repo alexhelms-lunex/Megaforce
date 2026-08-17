@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Columns3, Search, SlidersHorizontal, X } from "lucide-react";
+import { InfoTip } from "@/components/info-tip";
+import type { DefinitionKey } from "@/lib/definitions";
 import {
   COLUMNS,
   CREDIT_OPTIONS,
@@ -76,6 +78,9 @@ export function FilterBar({
     <div className="space-y-3">
       {/* ---- presets ---- */}
       <div className="scrollbar-thin flex gap-1.5 overflow-x-auto pb-0.5">
+        <span className="flex shrink-0 items-center pr-1">
+          <InfoTip k="savedPreset" side="bottom" />
+        </span>
         {PRESETS.map((p) => (
           <button
             key={p.key}
@@ -121,6 +126,7 @@ export function FilterBar({
           value={filters.state}
           onChange={(v) => go({ state: v })}
           options={STATE_OPTIONS}
+          info="lifecycleState"
         />
         <Select
           label="Stage"
@@ -133,6 +139,7 @@ export function FilterBar({
           value={filters.industry}
           onChange={(v) => go({ industry: v })}
           options={options.industries.map((i) => ({ value: i, label: i }))}
+          info="filterIndustry"
         />
         <Select
           label="State"
@@ -142,12 +149,14 @@ export function FilterBar({
             value: s.value,
             label: `${s.value} (${s.uses})`,
           }))}
+          info="filterState"
         />
         <Select
           label="Quiet for"
           value={filters.idle}
           onChange={(v) => go({ idle: v })}
           options={IDLE_OPTIONS}
+          info="filterQuiet"
         />
 
         <button
@@ -215,6 +224,7 @@ export function FilterBar({
               { value: "parents", label: "Parents only" },
               { value: "children", label: "Children only" },
             ]}
+            info="filterHierarchy"
           />
           <Select
             label="Contacts"
@@ -224,6 +234,7 @@ export function FilterBar({
               { value: "yes", label: "Has contacts" },
               { value: "no", label: "Nobody on file" },
             ]}
+            info="filterContacts"
           />
           <Toggle checked={filters.mine} onChange={(v) => go({ mine: v, unowned: false })}>
             Only mine
@@ -269,6 +280,47 @@ export function FilterBar({
 // ---------------------------------------------------------------------------
 
 function Select({
+  label,
+  value,
+  onChange,
+  options,
+  allowEmpty = true,
+  info,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  allowEmpty?: boolean;
+  /** What this filter narrows by. */
+  info?: DefinitionKey;
+}) {
+  if (info) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <SelectControl
+          label={label}
+          value={value}
+          onChange={onChange}
+          options={options}
+          allowEmpty={allowEmpty}
+        />
+        <InfoTip k={info} side="bottom" />
+      </span>
+    );
+  }
+  return (
+    <SelectControl
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      allowEmpty={allowEmpty}
+    />
+  );
+}
+
+function SelectControl({
   label,
   value,
   onChange,

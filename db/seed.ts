@@ -966,9 +966,9 @@ export async function seed(
   // Push a slice of the still-owned prospects into each warning band. The
   // thresholds are 21 / 30 / 45 days, so these land in amber, red and overdue.
   for (const [band, lo, hi] of [
-    ["warning", 22, 29],
-    ["expiring", 31, 44],
-    ["overdue", 46, 70],
+    ["warning", 15, 20],
+    ["expiring", 22, 29],
+    ["overdue", 32, 50],
   ] as const) {
     // The day bounds are inlined rather than bound as parameters. Postgres
     // cannot infer a type for `$1 + random() * ($2 - $3)` and refuses with
@@ -993,6 +993,23 @@ export async function seed(
     update accounts set claimed_at = least(coalesce(claimed_at, now()), coalesce(last_activity_at, now()) - interval '5 days')
     where owner_id is not null
   `);
+
+  /*
+   * Now take back everything the bands above pushed past the deadline.
+   *
+   * This is not tidying -- it is the difference between a demo that lies and
+   * one that does not. An owned account showing "26d over" cannot exist in a
+   * running system: the sweep takes it within the hour. Seeding a book full of
+   * them and leaving them owned reproduced, on every fresh setup, exactly the
+   * bug the sweep was written to prevent -- and looked identical to the sweep
+   * being broken.
+   *
+   * The released accounts land in the available pool, which is where a
+   * neglected prospect genuinely ends up, so the demo gains a realistic pool
+   * rather than losing anything.
+   */
+  log("releasing everything already past its deadline");
+  await db.execute(sql`select release_overdue_accounts()`);
 
   const spread = await db.execute<{ state: string; c: string }>(sql`
     select account_state(owner_id, status, last_activity_at, claimed_at, retention_override_until) state, count(*)::text c

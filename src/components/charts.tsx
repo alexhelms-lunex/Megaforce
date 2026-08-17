@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import { InfoTip } from "@/components/info-tip";
+import type { DefinitionKey } from "@/lib/definitions";
 
 /**
  * The dashboard's visual vocabulary.
@@ -24,6 +26,7 @@ export function StatCard({
   icon: Icon,
   href,
   tone = "default",
+  info,
 }: {
   label: string;
   value: string | number;
@@ -33,6 +36,8 @@ export function StatCard({
   icon?: LucideIcon;
   href?: string;
   tone?: "default" | "warning" | "danger" | "good";
+  /** Explains exactly how this figure is arrived at. */
+  info?: DefinitionKey;
 }) {
   const toneRing =
     tone === "danger"
@@ -50,7 +55,10 @@ export function StatCard({
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+          {info ? <InfoTip k={info} side="bottom" /> : null}
+        </p>
         {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/70" aria-hidden /> : null}
       </div>
       <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{value}</p>

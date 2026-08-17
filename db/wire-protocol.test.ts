@@ -158,6 +158,39 @@ describe("seeding over the wire", () => {
     expect(counts[0].activities).toBe("600");
   }, 120_000);
 
+  /**
+   * The bug Alex hit twice: setup reseeds, the seed plants accounts past their
+   * deadline, and the book comes back full of "26d over" rows that nobody owns
+   * up to. Indistinguishable, from the outside, from the release being broken.
+   *
+   * An owned account past its deadline cannot exist in a running system -- the
+   * sweep takes it within the hour -- so it must not exist the moment setup
+   * finishes either.
+   */
+  it("leaves nobody holding an account that is already past its deadline", async () => {
+    const [row] = await sql<{ c: string }[]>`
+      select count(*)::text c from accounts a
+       where a.owner_id is not null
+         and coalesce(a.retention_override_until, '-infinity'::timestamptz) <= now()
+         and account_state(a.owner_id, a.status, a.last_activity_at, a.claimed_at,
+                           a.retention_override_until) = 'overdue'
+    `;
+    expect(Number(row.c), "seeded accounts left owned past their deadline").toBe(0);
+  });
+
+  it("still produces a book spread across the other states, not one flat colour", async () => {
+    // The fix above must not have been a sledgehammer. Releasing everything
+    // would also make the count zero and leave nothing to look at.
+    const states = await sql<{ state: string; c: string }[]>`
+      select account_state(owner_id, status, last_activity_at, claimed_at,
+                           retention_override_until) state, count(*)::text c
+        from accounts group by 1
+    `;
+    const byState = new Map(states.map((s) => [s.state, Number(s.c)]));
+    expect(byState.get("available") ?? 0).toBeGreaterThan(0);
+    expect(byState.get("fresh") ?? 0).toBeGreaterThan(0);
+  });
+
   it("recomputed last_activity_at, so the account list has something to sort by", async () => {
     const [row] = await sql<{ c: string }[]>`
       select count(*)::text c from accounts where last_activity_at is not null

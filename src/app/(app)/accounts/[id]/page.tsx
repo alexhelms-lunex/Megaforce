@@ -152,13 +152,13 @@ export default async function AccountDetailPage({
 
   const tabs = [
     { key: "overview", label: "Overview" },
-    { key: "activity", label: "Activity", count: activities.length },
-    { key: "contacts", label: "Contacts", count: contacts.length },
-    { key: "hierarchy", label: "Hierarchy", count: children.length },
-    { key: "credit", label: "Credit" },
-    { key: "pipeline", label: "Pipeline", count: opportunities.length },
-    { key: "ownership", label: "Ownership", count: claims.length },
-    { key: "requests", label: "Requests", count: requests.length },
+    { key: "activity", label: "Activity", count: activities.length, info: "approvedActivity" as const },
+    { key: "contacts", label: "Contacts", count: contacts.length, info: "filterContacts" as const },
+    { key: "hierarchy", label: "Hierarchy", count: children.length, info: "filterHierarchy" as const },
+    { key: "credit", label: "Credit", info: "creditRollup" as const },
+    { key: "pipeline", label: "Pipeline", count: opportunities.length, info: "stageFunnel" as const },
+    { key: "ownership", label: "Ownership", count: claims.length, info: "ownershipTimeline" as const },
+    { key: "requests", label: "Requests", count: requests.length, info: "accountRequest" as const },
     { key: "research", label: "Research" },
     { key: "details", label: "Details" },
   ];

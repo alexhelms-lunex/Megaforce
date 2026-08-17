@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarList, DailyBars, StageFunnel, StatCard, type DayBar } from "@/components/charts";
 import { LifecycleFlag } from "@/components/lifecycle-flag";
+import { InfoTip } from "@/components/info-tip";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { daysSince } from "@/lib/format";
 import type { LifecycleState } from "@/lib/lifecycle";
@@ -162,8 +163,9 @@ export default async function DashboardPage() {
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/60 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
           <PhoneOff className="size-5 shrink-0 text-amber-600" aria-hidden />
           <p className="min-w-0 flex-1 text-sm">
-            <span className="font-semibold">
+            <span className="inline-flex items-center gap-1 font-semibold">
               {kpis.unlogged} call{kpis.unlogged === 1 ? "" : "s"} not written up.
+              <InfoTip k="unlogged" />
             </span>{" "}
             <span className="text-muted-foreground">
               A call only counts once it has a company, a contact, notes and a stage. Until then
@@ -185,6 +187,7 @@ export default async function DashboardPage() {
           value={kpis.owned}
           icon={Building2}
           href="/accounts?mine=1"
+          info="prospectLimit"
           hint={
             kpis.my_limit
               ? `limit ${kpis.my_limit}`
@@ -197,6 +200,7 @@ export default async function DashboardPage() {
           value={kpis.at_risk}
           icon={AlertTriangle}
           href="/accounts?preset=at-risk"
+          info="atRisk"
           hint={`${kpis.expiring_soon} expiring within days`}
           tone={kpis.at_risk > 0 ? (kpis.expiring_soon > 0 ? "danger" : "warning") : "good"}
         />
@@ -205,6 +209,7 @@ export default async function DashboardPage() {
           value={kpis.calls_7d}
           icon={PhoneCall}
           href="/activity"
+          info="approvedActivity"
           delta={callDelta}
           hint={`${kpis.qualifying_7d} counted`}
         />
@@ -212,6 +217,7 @@ export default async function DashboardPage() {
           label="Calls that counted"
           value={`${conversion}%`}
           icon={Target}
+          info="hitRate"
           hint={
             conversion >= 50
               ? "healthy"
@@ -230,7 +236,7 @@ export default async function DashboardPage() {
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>
-              <CardTitle className="text-base">Work this list today</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-base">Work this list today<InfoTip k="urgencySort" /></CardTitle>
               <p className="text-xs text-muted-foreground">
                 Closest to being released, first.
               </p>
@@ -314,7 +320,7 @@ export default async function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Pipeline by stage</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Pipeline by stage<InfoTip k="stageFunnel" /></CardTitle>
             <p className="text-xs text-muted-foreground">
               Stage advances when a call is logged against it, and never moves backwards.
             </p>
@@ -326,7 +332,7 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Industry mix</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Industry mix<InfoTip k="industryMix" /></CardTitle>
             <p className="text-xs text-muted-foreground">
               Where the book sits, and how much of each vertical has converted.
             </p>

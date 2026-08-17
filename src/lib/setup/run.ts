@@ -774,6 +774,12 @@ export async function runSetup(options: {
 
     const db = drizzle(sql, { schema }) as unknown as Db;
     const report = await seed(db, volumes);
+
+    // Belt and braces on top of the seed's own sweep. Setup is the one moment
+    // the whole book is rewritten, and an account left owned past its deadline
+    // here is the first thing anybody sees -- indistinguishable from the
+    // release being broken.
+    await sql`select release_overdue_accounts()`;
     steps.push({
       name: "Loading sample data",
       status: "ok",

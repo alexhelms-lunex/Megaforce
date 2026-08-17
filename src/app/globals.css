@@ -17,29 +17,60 @@
  * against a brand guide by eye, and "#00417A" can be checked in a second.
  * ------------------------------------------------------------------------ */
 @theme {
-  --color-navy-50: #eff6fc;
-  --color-navy-100: #dbeafa;
-  --color-navy-200: #bfdbf5;
-  --color-navy-300: #93c3ee;
-  --color-navy-400: #5fa3e3;
-  --color-navy-500: #3a83d4;
-  --color-navy-600: #2666bd;
-  --color-navy-700: #00417a;
-  --color-navy-800: #05386a;
-  --color-navy-900: #082f58;
-  --color-navy-950: #041d3a;
+  /* Electric blue, from the supplied scheme. Carries every primary action. */
+  --color-electric-50: #eeeeff;
+  --color-electric-100: #dcdcff;
+  --color-electric-200: #bcbcff;
+  --color-electric-300: #9494ff;
+  --color-electric-400: #6060ff;
+  --color-electric-500: #1b1bff;
+  --color-electric-600: #1414d6;
+  --color-electric-700: #1010ab;
+  --color-electric-800: #101086;
+  --color-electric-900: #12126b;
+  --color-electric-950: #0a0a3d;
 
-  --color-brand-50: #e8fdf1;
-  --color-brand-100: #c8fadd;
-  --color-brand-200: #94f3be;
-  --color-brand-300: #56e79a;
-  --color-brand-400: #00d563;
-  --color-brand-500: #00c058;
-  --color-brand-600: #009a47;
-  --color-brand-700: #007a3b;
-  --color-brand-800: #066032;
-  --color-brand-900: #074f2b;
-  --color-brand-950: #012c17;
+  /* Neon green accent. Used sparingly -- at full strength it is a highlighter,
+     and everything highlighted is nothing highlighted. */
+  --color-brand-50: #e6fff5;
+  --color-brand-100: #b8ffe4;
+  --color-brand-200: #7dffd0;
+  --color-brand-300: #3dffba;
+  --color-brand-400: #00ff9c;
+  --color-brand-500: #00d982;
+  --color-brand-600: #00ad68;
+  --color-brand-700: #008752;
+  --color-brand-800: #006a42;
+  --color-brand-900: #005537;
+  --color-brand-950: #00301f;
+
+  /* Near-black surfaces, from #0A0A0A background and #1A1A1A surface. */
+  --color-ink-50: #f7f7f7;
+  --color-ink-100: #ededed;
+  --color-ink-200: #d6d6d6;
+  --color-ink-300: #b0b0b0;
+  --color-ink-400: #888888;
+  --color-ink-500: #666666;
+  --color-ink-600: #444444;
+  --color-ink-700: #2e2e2e;
+  --color-ink-800: #1f1f1f;
+  --color-ink-850: #1a1a1a;
+  --color-ink-900: #121212;
+  --color-ink-950: #0a0a0a;
+
+  /* Kept so existing navy-* utilities resolve; remapped onto electric blue
+     rather than deleted, which would break a dozen call sites for no gain. */
+  --color-navy-50: #eeeeff;
+  --color-navy-100: #dcdcff;
+  --color-navy-200: #bcbcff;
+  --color-navy-300: #9494ff;
+  --color-navy-400: #6060ff;
+  --color-navy-500: #1b1bff;
+  --color-navy-600: #1414d6;
+  --color-navy-700: #1010ab;
+  --color-navy-800: #101086;
+  --color-navy-900: #12126b;
+  --color-navy-950: #0a0a3d;
 }
 
 /* ---------------------------------------------------------------------------
@@ -53,17 +84,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* Helvetica Neue first, so a Mac uses the real thing. Inter is DOWNLOADED
-     rather than merely named, so a Windows machine shows the intended face
-     instead of silently falling back to Segoe UI -- which is what made this
-     change invisible to everyone not on a Mac. */
-  --font-sans:
-    "Helvetica Neue", var(--font-sans-fallback), Inter, Helvetica, Arial, sans-serif;
-  --font-serif:
-    "adobe-garamond-pro", "Adobe Garamond Pro", "AGaramondPro-Regular",
-    var(--font-serif-fallback), "EB Garamond", Garamond, Georgia, serif;
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
+  /* Both downloaded, not merely named. Naming a font the machine does not have
+     is what made the last two typeface changes invisible off macOS. */
+  --font-sans: var(--font-sans-fallback), Inter, system-ui, sans-serif;
+  --font-display: var(--font-display), "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-heading: var(--font-display);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -103,85 +129,89 @@
 }
 
 :root {
-  /* A faintly cool page behind white cards, so the cards read as surfaces
-     rather than as the background with lines drawn on it. */
-  --background: #f4f7fa;
-  --foreground: #0d1b2a;
+  /* The supplied scheme is a dark one. Light mode is derived from it rather
+     than invented separately, so the two are recognisably the same product:
+     same electric blue, same neon accent, inverted ground. */
+  --background: #f7f7f7;
+  --foreground: #0a0a0a;
   --card: #ffffff;
-  --card-foreground: #0d1b2a;
+  --card-foreground: #0a0a0a;
   --popover: #ffffff;
-  --popover-foreground: #0d1b2a;
+  --popover-foreground: #0a0a0a;
 
-  --primary: #00417a;
+  --primary: #1b1bff;
   --primary-foreground: #ffffff;
-  --secondary: #e8eef5;
-  --secondary-foreground: #05386a;
-  --muted: #eef2f7;
-  --muted-foreground: #5a6b80;
-  --accent: #e8eef5;
-  --accent-foreground: #00417a;
-  --destructive: #c8102e;
+  --secondary: #ededed;
+  --secondary-foreground: #1010ab;
+  --muted: #f0f0f0;
+  --muted-foreground: #5a5a5a;
+  --accent: #eeeeff;
+  --accent-foreground: #1010ab;
+  --destructive: #d81c3f;
 
-  --border: #d9e2ec;
-  --input: #cbd6e2;
-  --ring: #3a83d4;
+  --border: #e2e2e2;
+  --input: #d0d0d0;
+  --ring: #1b1bff;
 
-  /* Charts run navy → green, the two brand colours, rather than the default
-     rainbow. Dashboard series are comparisons, not categories. */
-  --chart-1: #00417a;
-  --chart-2: #2666bd;
-  --chart-3: #5fa3e3;
-  --chart-4: #00c058;
-  --chart-5: #56e79a;
+  --chart-1: #1b1bff;
+  --chart-2: #6060ff;
+  --chart-3: #9494ff;
+  --chart-4: #00d982;
+  --chart-5: #00ff9c;
 
   --radius: 0.5rem;
 
-  --sidebar: #041d3a;
-  --sidebar-foreground: #c7d7e8;
-  --sidebar-primary: #00d563;
-  --sidebar-primary-foreground: #012c17;
-  --sidebar-accent: #0b2f57;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #123458;
-  --sidebar-ring: #00d563;
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #b0b0b0;
+  --sidebar-primary: #00ff9c;
+  --sidebar-primary-foreground: #00301f;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #fafaf8;
+  --sidebar-border: #2e2e2e;
+  --sidebar-ring: #00ff9c;
 }
 
 .dark {
-  --background: #071726;
-  --foreground: #e8eef5;
-  --card: #0c2136;
-  --card-foreground: #e8eef5;
-  --popover: #0c2136;
-  --popover-foreground: #e8eef5;
+  /* The supplied scheme, used as given:
+     background #0A0A0A · surface #1A1A1A · text #FAFAF8
+     primary #1B1BFF · accent #00FF9C */
+  --background: #0a0a0a;
+  --foreground: #fafaf8;
+  --card: #1a1a1a;
+  --card-foreground: #fafaf8;
+  --popover: #1a1a1a;
+  --popover-foreground: #fafaf8;
 
-  --primary: #5fa3e3;
-  --primary-foreground: #041d3a;
-  --secondary: #123458;
-  --secondary-foreground: #e8eef5;
-  --muted: #102a44;
-  --muted-foreground: #90a6bd;
-  --accent: #123458;
-  --accent-foreground: #ffffff;
-  --destructive: #f4576d;
+  --primary: #1b1bff;
+  --primary-foreground: #fafaf8;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #fafaf8;
+  --muted: #1f1f1f;
+  --muted-foreground: #9a9a9a;
+  --accent: #2e2e2e;
+  --accent-foreground: #fafaf8;
+  --destructive: #ff4d6a;
 
-  --border: #1b3d5f;
-  --input: #24506f;
-  --ring: #3a83d4;
+  --border: #2e2e2e;
+  --input: #383838;
+  /* Electric blue is very dark against #0A0A0A; the focus ring uses the accent
+     so it is actually visible, which is the entire job of a focus ring. */
+  --ring: #00ff9c;
 
-  --chart-1: #5fa3e3;
-  --chart-2: #3a83d4;
-  --chart-3: #93c3ee;
-  --chart-4: #00d563;
-  --chart-5: #94f3be;
+  --chart-1: #1b1bff;
+  --chart-2: #6060ff;
+  --chart-3: #9494ff;
+  --chart-4: #00ff9c;
+  --chart-5: #7dffd0;
 
-  --sidebar: #041d3a;
-  --sidebar-foreground: #c7d7e8;
-  --sidebar-primary: #00d563;
-  --sidebar-primary-foreground: #012c17;
-  --sidebar-accent: #0b2f57;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #123458;
-  --sidebar-ring: #00d563;
+  --sidebar: #0a0a0a;
+  --sidebar-foreground: #b0b0b0;
+  --sidebar-primary: #00ff9c;
+  --sidebar-primary-foreground: #00301f;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #fafaf8;
+  --sidebar-border: #2e2e2e;
+  --sidebar-ring: #00ff9c;
 }
 
 @layer base {
@@ -192,90 +222,52 @@
     @apply font-sans;
   }
 
-  /* ------------------------------------------------------------------------
-   * Garamond for body copy, Helvetica Neue for everything operational.
-   *
-   * Body copy means prose: the sentence explaining why a call did not count,
-   * the description under a heading, the reason on a request. Garamond is a
-   * text face and it reads beautifully at that job.
-   *
-   * It is a poor face for a dense grid of figures -- old-style numerals sit at
-   * different heights by design, which is lovely in a paragraph and unreadable
-   * in a column of days-remaining. So tables, controls, labels and anything
-   * numeric are pulled back to the sans below. The split is by what the text
-   * is FOR, not by where it happens to sit.
-   * --------------------------------------------------------------------- */
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-serif);
-    font-size: 1.0125rem;
-    line-height: 1.55;
+    font-family: var(--font-sans);
   }
 
+  /* ------------------------------------------------------------------------
+   * Headlines on JetBrains Mono, body on Inter.
+   *
+   * Monospace headings are the house style. Confined to headings on purpose:
+   * monospaced prose is measurably slower to read, and this is an application
+   * people sit in all day. Tracking is pulled in slightly because a mono face
+   * set large reads loose without it.
+   * --------------------------------------------------------------------- */
   h1,
   h2,
   h3,
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+
   h4,
   h5,
-  h6,
-  th,
-  td,
-  label,
-  button,
-  input,
-  select,
-  textarea,
-  kbd,
-  nav,
-  time,
-  [role="tablist"],
-  [data-slot="badge"],
-  [data-slot="button"],
-  .font-sans,
-  .tabular-nums {
+  h6 {
     font-family: var(--font-sans);
+    font-weight: 600;
   }
 
   /* Numbers in a table must line up. Every figure column is tabular, so a
-     column of days-remaining scans as a column rather than as a ragged edge. */
+     column of days-remaining scans as a column rather than a ragged edge. */
   th,
   td {
     font-variant-numeric: tabular-nums;
-  }
-
-  /* Garamond runs small for its point size -- it was cut for print. Nudged up
-     where it is used for prose so it sits at the same optical size as the
-     sans beside it. */
-  p,
-  address,
-  li,
-  dd,
-  blockquote {
-    font-family: var(--font-serif);
-  }
-
-  /* ...except inside tables and controls, where the sans has already won and a
-     nested paragraph should not switch back. */
-  th p,
-  td p,
-  th li,
-  td li,
-  button p,
-  label p,
-  [data-slot="badge"] p {
-    font-family: var(--font-sans);
   }
 }
 
 @layer utilities {
   /* The navy band behind the top of a page, matching the site header. */
   .brand-gradient {
-    background-image: linear-gradient(135deg, #00417a 0%, #05386a 55%, #041d3a 100%);
+    background-image: linear-gradient(135deg, #1b1bff 0%, #12126b 55%, #0a0a0a 100%);
   }
   /* Used on the sidebar's active item and on stat cards, where a flat brand
      green is too loud across a large area. */
   .brand-accent-bar {
-    background-image: linear-gradient(180deg, #00d563 0%, #009a47 100%);
+    background-image: linear-gradient(180deg, #00ff9c 0%, #00ad68 100%);
   }
   .scrollbar-thin {
     scrollbar-width: thin;

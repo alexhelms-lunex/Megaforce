@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
+import type { DefinitionKey } from "@/lib/definitions";
 
 export interface TabSpec {
   key: string;
   label: string;
   count?: number;
+  /** What this tab shows, and how anything on it is calculated. */
+  info?: DefinitionKey;
 }
 
 /**
@@ -37,6 +41,7 @@ export function AccountTabs({
             className="shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground data-[active=true]:border-navy-700 data-[active=true]:text-foreground"
           >
             {t.label}
+            {t.info ? <InfoTip k={t.info} side="bottom" className="ml-1" /> : null}
             {typeof t.count === "number" ? (
               <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
                 {t.count}
