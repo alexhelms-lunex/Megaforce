@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient, loadCurrentUser } from "@/lib/supabase/server";
 import { SUPABASE_URL } from "@/lib/supabase/keys";
@@ -67,6 +68,20 @@ export async function GET() {
     }),
   );
 
+  /*
+   * The one setting the password reset flow needs, spelled out.
+   *
+   * Supabase refuses to send a recovery email whose link points anywhere not on
+   * its allow-list, and the refusal names nothing useful. This deployment is
+   * reached under several names -- production, per-branch, per-deployment -- so
+   * the right value cannot be guessed from a constant. It is printed here,
+   * ready to paste.
+   */
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const origin = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || (host ? `${proto}://${host}` : "");
+
   const supabaseRegion = hostRegion(SUPABASE_URL);
   const vercelRegion = process.env.VERCEL_REGION ?? null;
 
@@ -77,6 +92,15 @@ export async function GET() {
         "for a single row is network rather than database, and usually means the two halves " +
         "are in different regions.",
       timings,
+      passwordReset: {
+        note:
+          "Password reset emails only work if this exact URL is on Supabase's allow-list: " +
+          "Authentication → URL Configuration → Redirect URLs. Add the wildcard form to cover " +
+          "preview deployments as well.",
+        addThis: origin ? `${origin}/auth/callback` : "(could not determine this deployment's URL)",
+        orWildcard: host ? `${proto}://*.vercel.app/auth/callback` : null,
+        siteUrlOverride: process.env.NEXT_PUBLIC_SITE_URL ?? "(not set — the request host is used)",
+      },
       where: {
         vercelRegion,
         supabaseHost: safeHost(SUPABASE_URL),
