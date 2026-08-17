@@ -42,7 +42,11 @@ export async function claim(formData: FormData): Promise<ClaimResult> {
 
   const { data, error } = await supabase
     .from("accounts")
-    .update({ owner_id: user.id })
+    // The release reason is cleared in the same statement. Left behind, an
+    // account claimed out of the pool still reads "went quiet, timed out" as
+    // its reason for being free -- describing the LAST holder's failure on a
+    // record that now belongs to somebody else.
+    .update({ owner_id: user.id, last_release_reason: null })
     .eq("id", accountId)
     .is("owner_id", null)
     .select("id")

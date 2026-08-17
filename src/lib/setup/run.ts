@@ -340,6 +340,24 @@ async function runMigrations(sql: postgres.Sql): Promise<number> {
       );
     }
   }
+
+  /*
+   * Tell PostgREST the shape of the database changed.
+   *
+   * Everything the application reads goes through PostgREST, which serves from
+   * a CACHED copy of the schema. Several of these migrations DROP and recreate
+   * accounts_with_state; until the cache is refreshed PostgREST keeps answering
+   * against the old definition and rejects any column added by the new one,
+   * with "column ... does not exist" or "could not find in the schema cache".
+   *
+   * It reloads on its own eventually. "Eventually" here meant a screen that had
+   * just been migrated still failing, which reads as the migration not having
+   * run -- so it is worth the one statement to make it immediate. Failure is
+   * ignored deliberately: on a plain Postgres with no PostgREST attached the
+   * NOTIFY simply goes nowhere, and that is not a setup failure.
+   */
+  await sql.unsafe(`notify pgrst, 'reload schema'`).catch(() => {});
+
   return files.length;
 }
 

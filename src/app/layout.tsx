@@ -37,8 +37,6 @@ const mono = JetBrains_Mono({
   display: "swap",
 });
 
-const adobeKit = process.env.NEXT_PUBLIC_ADOBE_FONTS_KIT?.trim();
-
 export const metadata: Metadata = {
   title: "Megaforce CRM",
   description: "Prospect ownership, call capture, and the clock that governs both.",
@@ -47,11 +45,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {adobeKit ? (
-          <link rel="stylesheet" href={`https://use.typekit.net/${adobeKit}.css`} />
-        ) : null}
-      </head>
+      {/* No Typekit link. Adobe Garamond was dropped when the house style moved
+          to JetBrains Mono and Inter, and the loader was still fetching a
+          stylesheet from an external host on every page load for a face nothing
+          referenced. */}
       <body className={`${sans.variable} ${display.variable} ${mono.variable} antialiased`}>
         {/* suppressHydrationWarning on <html> above is required: next-themes
             writes the class before React hydrates, so the server and client

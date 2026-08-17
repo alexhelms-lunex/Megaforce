@@ -187,7 +187,10 @@ export default async function DashboardPage() {
           value={kpis.owned}
           icon={Building2}
           href="/accounts?mine=1"
-          info="prospectLimit"
+          // The card counts accounts. It used to explain the prospect LIMIT,
+          // which is a different number entirely -- and on a manager's screen,
+          // where the card is a team total, the limit is not even their own.
+          info={managerish ? "teamAccounts" : "accountsHeld"}
           hint={
             kpis.my_limit
               ? `limit ${kpis.my_limit}`
@@ -209,7 +212,7 @@ export default async function DashboardPage() {
           value={kpis.calls_7d}
           icon={PhoneCall}
           href="/activity"
-          info="approvedActivity"
+          info="callsSevenDays"
           delta={callDelta}
           hint={`${kpis.qualifying_7d} counted`}
         />

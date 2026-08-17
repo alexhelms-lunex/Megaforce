@@ -263,6 +263,9 @@ function page(title: string, body: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>${escapeHtml(title)} — Megaforce CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@700&display=swap">
 <style>
   :root { color-scheme: light dark; --fg:#111; --dim:#666; --bg:#fff; --line:#e5e5e5;
           --ok:#15803d; --bad:#b91c1c; --warnbg:#fff7ed; --warnline:#fdba74; }
@@ -271,10 +274,16 @@ function page(title: string, body: string): string {
             --ok:#4ade80; --bad:#f87171; --warnbg:#1c1410; --warnline:#7c4a1e; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 ui-sans-serif,
-         system-ui, -apple-system, "Segoe UI", sans-serif; padding:3rem 1.25rem; }
+  /* The house faces, named the same way the application names them. This page
+     is plain HTML served from an API route rather than a React screen, so it
+     misses the app stylesheet entirely -- which is why it was still rendering
+     in Segoe UI after the typeface change and read as "the old font is still
+     visible in some places". */
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 Inter,
+         ui-sans-serif, system-ui, -apple-system, sans-serif; padding:3rem 1.25rem; }
   main { max-width: 40rem; margin: 0 auto; }
-  h1 { font-size:1.6rem; margin:0 0 1.25rem; letter-spacing:-0.02em; }
+  h1 { font-size:1.6rem; margin:0 0 1.25rem; letter-spacing:-0.02em;
+       font-family:"JetBrains Mono", ui-monospace, monospace; font-weight:700; }
   h2 { font-size:1rem; margin:0 0 .5rem; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9em;
          background:color-mix(in srgb, var(--fg) 8%, transparent); padding:.15em .4em;

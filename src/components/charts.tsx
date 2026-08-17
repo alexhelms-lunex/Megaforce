@@ -48,16 +48,43 @@ export function StatCard({
           ? "border-brand-400/50"
           : "";
 
-  const body = (
+  /**
+   * Two things here are deliberate and were both bugs before.
+   *
+   * No `overflow-hidden`. It was there to keep the rounded corners tidy and it
+   * sliced every tooltip opened from inside a card in half. The tooltip is a
+   * portal now, so the clip would no longer bite -- but a card that silently
+   * amputates anything overflowing it is a trap for the next thing added.
+   *
+   * The link is a stretched overlay rather than a wrapper. Wrapping put the
+   * info button inside an anchor, which is invalid HTML and made "what does
+   * this number mean" navigate away instead of answering. The overlay covers
+   * the card for clicking, and the button sits one layer above it.
+   */
+  return (
     <div
-      className={`group relative h-full overflow-hidden rounded-lg border bg-card p-4 transition-shadow ${toneRing} ${
+      className={`group relative h-full rounded-lg border bg-card p-4 transition-shadow ${toneRing} ${
         href ? "hover:shadow-md" : ""
       }`}
     >
+      {href ? (
+        <Link
+          href={href}
+          aria-label={label}
+          className="absolute inset-0 z-10 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        />
+      ) : null}
+
       <div className="flex items-start justify-between gap-2">
-        <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-          {info ? <InfoTip k={info} side="bottom" /> : null}
+        <p className="flex items-center gap-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </span>
+          {info ? (
+            <span className="relative z-20 inline-flex">
+              <InfoTip k={info} side="bottom" />
+            </span>
+          ) : null}
         </p>
         {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground/70" aria-hidden /> : null}
       </div>
@@ -73,14 +100,6 @@ export function StatCard({
         />
       ) : null}
     </div>
-  );
-
-  return href ? (
-    <Link href={href} className="block h-full">
-      {body}
-    </Link>
-  ) : (
-    body
   );
 }
 

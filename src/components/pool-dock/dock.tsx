@@ -8,7 +8,7 @@ import { Inbox, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/info-tip";
 import { claim } from "@/app/(app)/available/actions";
-import { poolAccounts, type PoolAccount } from "./actions";
+import { fetchPool, type PoolAccount } from "./actions";
 
 /**
  * The available pool, as a dock.
@@ -33,15 +33,22 @@ export function PoolDock() {
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
 
   const refresh = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const result = await poolAccounts(q);
+      const result = await fetchPool(q);
+      // A failed read used to look identical to an empty pool. It is not the
+      // same thing, and telling a broker "every account is held by somebody"
+      // when the query actually failed is the worse of the two lies.
+      setFailure(result.error);
       setAccounts(result.accounts);
       setTotal(result.total);
+    } catch (err) {
+      setFailure(err instanceof Error ? err.message : "The pool could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -122,7 +129,12 @@ export function PoolDock() {
       </div>
 
       <div className="scrollbar-thin flex-1 overflow-y-auto">
-        {loading && accounts.length === 0 ? (
+        {failure ? (
+          <div className="m-3 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+            <p className="text-xs font-semibold text-destructive">The pool could not be read</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{failure}</p>
+          </div>
+        ) : loading && accounts.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : accounts.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">

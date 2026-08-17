@@ -25,6 +25,30 @@ export interface Definition {
   formula?: string;
 }
 
+/**
+ * The policy's numbers, written once.
+ *
+ * ---------------------------------------------------------------------------
+ * These were typed into the prose by hand and then the policy changed. The
+ * tooltips went on saying "amber at 21, released at 45" for a week after the
+ * database had moved to 14 and 31, so the one explanation a broker could
+ * actually open was the one thing on the screen lying to them.
+ *
+ * Interpolating them from a constant does not make the file self-updating --
+ * nothing here reads the database -- but it does mean the numbers exist in ONE
+ * place in the application, next to a test that checks them against
+ * ensure_policy_thresholds() in 0018. Drift now fails a test instead of
+ * quietly misinforming the floor.
+ * ---------------------------------------------------------------------------
+ */
+export const POLICY = {
+  prospect: { warning: 14, expiring: 21, release: 31 },
+  customer: { warning: 90, expiring: 150, release: 181 },
+} as const;
+
+const P = POLICY.prospect;
+const C = POLICY.customer;
+
 const RAW = {
   // -------------------------------------------------------------------------
   // The clock
@@ -33,7 +57,7 @@ const RAW = {
     title: "The clock",
     body:
       "How long you keep an account before it returns to the pool. It counts from your last APPROVED activity — not from the last time anything happened. Log a qualifying call and it starts again from today.",
-    formula: "days since last approved activity, vs 21 / 30 / 45 for a prospect",
+    formula: `days since last approved activity · prospect ${P.warning} / ${P.expiring} / ${P.release} · customer ${C.warning} / ${C.expiring} / ${C.release}`,
   },
   approvedActivity: {
     title: "Approved activity",
@@ -44,14 +68,20 @@ const RAW = {
   lifecycleState: {
     title: "Status colour",
     body:
-      "Green is worked recently. Amber means it has gone quiet and needs attention. Red means days from being taken. Dark red means the deadline has passed and the nightly sweep will release it. Blue is unclaimed. Navy means an approved request is holding the clock off.",
-    formula: "prospect: amber at 21 days · red at 30 · released at 45",
+      "Green is worked recently. Amber means it has gone quiet and needs attention. Orange means days from being taken. Solid red means the deadline has passed and the next sweep will release it. Blue is unclaimed. Navy means an approved request is holding the clock off.",
+    formula: `prospect: amber at ${P.warning} days · orange at ${P.expiring} · released at ${P.release}`,
   },
   daysLeft: {
     title: "Days left",
     body:
-      "Days until this account returns to the available pool, if nothing else is logged against it. A negative number means the deadline has already passed and it is waiting for the nightly sweep.",
-    formula: "release_days − days since last approved activity",
+      "Days until this account returns to the available pool, if nothing else is logged against it. A negative number means the deadline has already passed and it is waiting for the next sweep.",
+    formula: "release days − days since last approved activity",
+  },
+  releaseSweep: {
+    title: "The sweep",
+    body:
+      "The job that actually takes overdue accounts back. It runs on a schedule and also whenever somebody opens the dashboard or the account list and it has not run recently — so an account never sits overdue just because nobody triggered anything overnight.",
+    formula: "runs if the last successful sweep is older than 15 minutes",
   },
   tenureActivities: {
     title: "Your activity count",
@@ -86,7 +116,30 @@ const RAW = {
   availablePool: {
     title: "Available pool",
     body:
-      "Accounts nobody currently holds. Any broker can claim one, and the clock starts from the moment they do — a new holder never inherits the previous one's neglect.",
+      "Every account nobody currently holds. Take one and it is yours immediately — first click wins, and the clock starts from that moment rather than carrying over the last holder's neglect. Recently released accounts are listed first, because somebody was working those until days ago.",
+    formula: "accounts with no owner, newest release first",
+  },
+  claimAction: {
+    title: "Claiming",
+    body:
+      "Takes the account into your name on the spot. If two brokers click at the same instant the database picks one winner and tells the other who beat them. Your activity counter starts at zero and the clock starts today.",
+  },
+  releaseAction: {
+    title: "Releasing",
+    body:
+      "Hands the account back to the available pool for anyone to take. You can only release accounts you hold; an admin or Credit can release anyone's. The reason is recorded, so a deliberate hand-back reads differently from one lost to the clock.",
+  },
+  accountsHeld: {
+    title: "Accounts held",
+    body:
+      "Companies currently in your name — prospects and customers together. Each one is running its own clock, and each needs approved activity to stay yours.",
+    formula: "count of accounts where owner = you",
+  },
+  teamAccounts: {
+    title: "Team accounts",
+    body:
+      "Every account held by you and by everyone reporting to you, however far down. It is the same number your brokers see for themselves, added up — nobody's book is counted twice and nobody outside your line is included.",
+    formula: "count of accounts owned by you or anyone beneath you",
   },
   prospectLimit: {
     title: "Prospect limit",
@@ -118,10 +171,16 @@ const RAW = {
   // Metrics
   // -------------------------------------------------------------------------
   hitRate: {
-    title: "Hit rate",
+    title: "Calls that counted",
     body:
-      "The share of calls that actually counted toward an account's clock. A low figure usually means calls under 60 seconds, or calls nobody wrote up — not a lack of effort.",
-    formula: "approved calls ÷ total calls × 100",
+      "The share of your last seven days of calls that actually reset an account's clock. A low figure usually means calls under 60 seconds, or calls nobody wrote up — not a lack of effort.",
+    formula: "approved calls ÷ total calls × 100, last 7 days",
+  },
+  callsSevenDays: {
+    title: "Calls, last 7 days",
+    body:
+      "Every call RingCentral captured against your accounts in the last seven days, whether it counted or not. The smaller figure beneath is how many met the bar and moved a clock.",
+    formula: "count of calls in the last 7 days · counted = ≥ 60s with a stage",
   },
   callsCounted: {
     title: "Counted",
@@ -131,8 +190,13 @@ const RAW = {
   atRisk: {
     title: "Needs attention",
     body:
-      "Accounts past day 21 — amber, red, or already overdue. These are the ones you lose if nothing happens this week.",
+      `Accounts that have gone quiet long enough to be at risk — amber, orange, or already past the deadline. For a prospect that starts at day ${P.warning}. These are the ones you lose if nothing happens this week.`,
     formula: "count where status is warning, expiring or overdue",
+  },
+  expiringSoon: {
+    title: "Expiring",
+    body:
+      `Accounts inside the last stretch before release — past day ${P.expiring} for a prospect. Days, not weeks. An approved activity today resets each one to zero.`,
   },
   creditRollup: {
     title: "Combined exposure",
@@ -209,8 +273,8 @@ export const DEFINITIONS: Record<DefinitionKey, Definition> = RAW;
  */
 export const COLUMN_HELP: Record<string, DefinitionKey | undefined> = {
   name: undefined,
-  owner: undefined,
-  location: undefined,
+  owner: "ownershipTimeline",
+  location: "filterState",
   industry: "filterIndustry",
   status: undefined,
   stage: "stageFunnel",

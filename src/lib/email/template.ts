@@ -80,8 +80,12 @@ export function toHtml(text: string, footer?: string): string {
     .join("");
 
   return [
-    `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0d1b2a;max-width:600px">`,
-    `<div style="border-top:4px solid #00417A;padding-top:16px">${paragraphs}</div>`,
+    // Inter first, then the faces every mail client actually has. Webfonts are
+    // unreliable in email -- Outlook desktop ignores them outright -- so the
+    // fallback chain is doing the real work here; naming Inter first simply
+    // means the digest matches the application anywhere it can.
+    `<div style="font-family:Inter,'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#0d1b2a;max-width:600px">`,
+    `<div style="border-top:4px solid #1b1bff;padding-top:16px">${paragraphs}</div>`,
     footer
       ? `<p style="margin-top:24px;padding-top:12px;border-top:1px solid #d9e2ec;font-size:12px;color:#5a6b80">${footer
           .replace(/&/g, "&amp;")

@@ -76,10 +76,10 @@
 /* ---------------------------------------------------------------------------
  * Typefaces
  *
- * Helvetica Neue carries the interface; Adobe Garamond Pro carries body copy.
- * Both are licensed, so both are named first and fall through to the closest
- * thing that is actually installed or servable. See src/app/layout.tsx for how
- * the real Adobe Garamond is switched on.
+ * JetBrains Mono carries headlines; Inter carries everything else. Both come
+ * from Google Fonts and are DOWNLOADED by next/font rather than merely named --
+ * naming a licensed face and hoping the machine has it is what made two
+ * previous typeface changes invisible on Windows. See src/app/layout.tsx.
  * ------------------------------------------------------------------------ */
 @theme inline {
   --color-background: var(--background);
