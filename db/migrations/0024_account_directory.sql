@@ -89,7 +89,18 @@ $$ language sql stable security definer set search_path = public, auth;
  * somebody has in front of them when they want to know whether a company is
  * already taken.
  */
-create or replace function account_directory(
+/*
+ * Dropped before creating, not replaced.
+ *
+ * `create or replace function` CANNOT change a return type, and 0027 adds
+ * `industry` to this one's. Without the drop, re-running setup fails on this
+ * file with "cannot change return type of existing function" -- and setup
+ * re-runs every migration every time, so the whole thing stops working the
+ * moment a later file widens a signature. This project has hit that twice now.
+ */
+drop function if exists account_directory(text, text, text, int, int);
+
+create function account_directory(
   p_search text default '',
   p_state text default '',
   p_scope text default 'all',
@@ -173,7 +184,10 @@ comment on function account_directory(text, text, text, int, int) is
  * because a list function called with a limit of one is a query nobody reading
  * the page can follow.
  */
-create or replace function account_directory_one(p_id uuid)
+-- Same reasoning as above: 0027 widens this signature too.
+drop function if exists account_directory_one(uuid);
+
+create function account_directory_one(p_id uuid)
 returns table (
   id uuid,
   name text,

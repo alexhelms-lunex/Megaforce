@@ -22,6 +22,7 @@ import { LifecycleFlag, LifecycleExplanation } from "@/components/lifecycle-flag
 import { InfoTip } from "@/components/info-tip";
 import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
 import { RequestForm } from "@/components/request-form";
+import { AssignBroker } from "@/components/assign-broker";
 import { AccountTabs } from "./account-tabs";
 import { ZoomInfoPanel } from "@/components/zoominfo-panel";
 import { LockedAccount, type DirectoryEntry } from "@/components/locked-account";
@@ -147,6 +148,27 @@ export default async function AccountDetailPage({
   const state = (account.state ?? "fresh") as LifecycleState;
   const isMine = Boolean(me && account.owner_id === me.id);
   const privileged = Boolean(me && isPrivileged(me.role));
+  /*
+   * Can this viewer put a broker on this account?
+   *
+   * The one case Alex described: an Account Director opens a national account,
+   * and a manager has to add the broker who runs it day to day. The owner's
+   * ROLE is not on the lifecycle view, so it is read here -- and only when the
+   * viewer could act on the answer, which keeps it off every other page load.
+   *
+   * The database refuses this independently. Hiding a control is presentation;
+   * assign_broker_to_account() in 0027 is the rule.
+   */
+  const runsPeople = Boolean(me && (me.role === "manager" || me.role === "admin"));
+  let canAssignBroker = runsPeople && account.owner_id === null;
+  if (runsPeople && account.owner_id) {
+    const { data: owner } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", account.owner_id)
+      .maybeSingle();
+    canAssignBroker = owner?.role === "ad";
+  }
   const contacts = (contactsRes.data ?? []) as unknown as Contact[];
   // The select list is built by concatenation, which defeats Supabase's column
   // type inference; the shape is asserted here instead.
@@ -258,6 +280,17 @@ export default async function AccountDetailPage({
                   Claim is solid because it is the primary thing to do with an
                   unowned account; Release matches the Edit pill beside it,
                   because giving an account up is not something to invite. */}
+              {/* Only where it applies: an account an Account Director holds,
+                  seen by somebody who can actually do it. On a broker's
+                  account this is absent AND refused by the database -- taking
+                  an account off its holder stays a transfer request. */}
+              {canAssignBroker ? (
+                <AssignBroker
+                  accountId={account.id}
+                  colleagues={colleagues}
+                  holderName={account.owner_name ?? null}
+                />
+              ) : null}
               {account.owner_id === null ? (
                 <ClaimButton
                   accountId={account.id}

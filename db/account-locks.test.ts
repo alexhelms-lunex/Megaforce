@@ -227,6 +227,7 @@ describe("the directory, which everyone can read", () => {
     expect(Object.keys(rows[0]).sort()).toEqual(
       [
         "available",
+        "industry",
         "billing_city",
         "billing_country",
         "billing_postal_code",
@@ -249,8 +250,12 @@ describe("the directory, which everyone can read", () => {
       AUTH.raj,
       `select * from account_directory('', '', 'all', 100, 0)`,
     );
+    // Industry is deliberately NOT on this list -- Alex: "Brokers can see the
+    // industry". It is a fact anybody can read off the company's website
+    // rather than something a broker discovered, and it is what makes the
+    // directory searchable rather than merely lookup-able.
     const forbidden = [
-      "credit_limit", "domain", "industry", "status", "stage", "notes",
+      "credit_limit", "domain", "status", "stage", "notes",
       "last_activity_at", "days_left", "state", "phone", "custom",
     ];
     for (const row of rows) {

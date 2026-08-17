@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { Lock, MapPin, UserRound } from "lucide-react";
+import { Factory, Lock, MapPin, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { CompanyMap } from "@/components/company-map";
 
 export interface DirectoryEntry {
   id: string;
   name: string;
+  /**
+   * Alex: "Brokers can see the industry". Not proprietary in the way the rest
+   * is -- it is a fact anybody can read off the company's website rather than
+   * something a broker discovered.
+   */
+  industry: string | null;
   billing_street: string | null;
   billing_city: string | null;
   billing_state: string | null;
@@ -94,6 +100,9 @@ export function LockedAccount({ entry }: { entry: DirectoryEntry }) {
           </Field>
           <Field icon={<MapPin className="size-3.5" aria-hidden />} label="Location">
             {address || "No address on file"}
+          </Field>
+          <Field icon={<Factory className="size-3.5" aria-hidden />} label="Industry">
+            {entry.industry ?? "Not recorded"}
           </Field>
         </div>
       </div>

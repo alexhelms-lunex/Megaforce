@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Lock, MapPin, Search, UserRound } from "lucide-react";
+import { Factory, Lock, MapPin, Search, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
 import { createClient } from "@/lib/supabase/server";
@@ -97,8 +97,9 @@ export default async function DirectoryPage({
           />
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Every company on file, whoever holds it. Search before you prospect — it takes a second
-          and it stops two of us calling the same buyer in the same week.
+          Every company on file, whoever holds it — name, address, industry and who has it.
+          Search before you prospect; it takes a second and it stops two of us calling the same
+          buyer in the same week.
         </p>
       </div>
 
@@ -114,7 +115,7 @@ export default async function DirectoryPage({
             type="search"
             name="q"
             defaultValue={query}
-            placeholder="Company, city or state…"
+            placeholder="Company, city, state or industry…"
             className="h-10 w-full rounded-full border border-border bg-background pl-9 pr-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
@@ -181,9 +182,14 @@ export default async function DirectoryPage({
                   >
                     <span className="min-w-48 flex-1 font-medium">{row.name}</span>
 
-                    <span className="flex min-w-44 items-center gap-1.5 text-sm text-muted-foreground">
+                    <span className="flex min-w-36 items-center gap-1.5 text-sm text-muted-foreground">
                       <MapPin className="size-3.5 shrink-0" aria-hidden />
                       {[row.billing_city, row.billing_state].filter(Boolean).join(", ") || "—"}
+                    </span>
+
+                    <span className="flex min-w-36 items-center gap-1.5 truncate text-sm text-muted-foreground">
+                      <Factory className="size-3.5 shrink-0" aria-hidden />
+                      {row.industry ?? "—"}
                     </span>
 
                     <span className="flex min-w-44 items-center gap-1.5 text-sm text-muted-foreground">
