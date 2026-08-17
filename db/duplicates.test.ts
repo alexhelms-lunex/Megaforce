@@ -281,8 +281,10 @@ describe("a flagged duplicate belongs to credit", () => {
   it("refuses a broker editing it", async () => {
     const id = await makeFlagged();
     await as(broker, async () => {
-      await expect(
-        db.execute(sql`update accounts set industry = 'Dairy' where id = ${id}`), /Credit/i);
+      await rejectsWith(
+        () => db.execute(sql`update accounts set industry = 'Dairy' where id = ${id}`),
+        /Credit/i,
+      );
     });
   });
 

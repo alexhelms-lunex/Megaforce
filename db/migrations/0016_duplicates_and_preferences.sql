@@ -260,7 +260,14 @@ create policy accounts_read on accounts for select
     owner_id is null
     or owner_id in (select visible_user_ids())
     or (select is_privileged())
-    or (locked_to_credit and (select current_user_role()) in ('manager','credit','admin'))
+    -- Flagged duplicates are visible to everyone, and that is deliberate on two
+    -- counts. An UPDATE's WHERE clause is subject to the SELECT policy, so a
+    -- broker who cannot read the row cannot be refused by the lock trigger
+    -- either -- their edit matches zero rows, Postgres reports success, and they
+    -- close the page believing they saved. And a visible "possible duplicate,
+    -- held by Credit" is what stops a third person typing the same company in
+    -- again next week.
+    or locked_to_credit
   );
 
 drop policy if exists accounts_insert on accounts;
@@ -288,7 +295,10 @@ create policy accounts_update on accounts for update
   using (
     owner_id is null
     or owner_id in (select visible_user_ids())
-    or (locked_to_credit and (select current_user_role()) in ('manager','credit','admin'))
+    -- Anyone may REACH a locked row, so enforce_credit_lock can refuse them by
+    -- name. Nobody but credit and admin gets past that trigger, so this widens
+    -- who receives an explanation, not who may write.
+    or locked_to_credit
   )
   with check (
     owner_id is null

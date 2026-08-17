@@ -25,7 +25,7 @@ export interface Definition {
   formula?: string;
 }
 
-export const DEFINITIONS = {
+const RAW = {
   // -------------------------------------------------------------------------
   // The clock
   // -------------------------------------------------------------------------
@@ -191,4 +191,12 @@ export const DEFINITIONS = {
   },
 } as const satisfies Record<string, Definition>;
 
-export type DefinitionKey = keyof typeof DEFINITIONS;
+export type DefinitionKey = keyof typeof RAW;
+
+/**
+ * Exported widened. `as const` above keeps the key names literal for the
+ * DefinitionKey union, but it also narrows every value to its own exact shape,
+ * so an entry without a `formula` makes the property invisible on the union and
+ * reading it becomes a type error at the one place that renders it.
+ */
+export const DEFINITIONS: Record<DefinitionKey, Definition> = RAW;
