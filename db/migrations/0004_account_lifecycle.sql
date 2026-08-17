@@ -21,12 +21,29 @@
 -- migration -- every conversation about the system otherwise needs a
 -- translation step.
 -- ---------------------------------------------------------------------------
-alter table users drop constraint if exists users_role_check;
-
 update users set role = 'broker' where role = 'rep';
 
-alter table users add constraint users_role_check
-  check (role in ('broker','manager','credit','admin'));
+/*
+ * Created only if absent, rather than dropped and re-added.
+ *
+ * These files are re-run whenever somebody re-runs setup, and a later migration
+ * widens this constraint to include 'ad'. Dropping and re-adding the four-role
+ * version on a second pass makes Postgres validate it against rows that already
+ * hold the fifth -- so setup failed on exactly the databases that were most up
+ * to date, and the error named a migration from months earlier.
+ *
+ * The list of roles lives in whichever migration last changed it. This one just
+ * makes sure a constraint exists at all.
+ */
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'users_role_check'
+  ) then
+    alter table users add constraint users_role_check
+      check (role in ('broker','manager','credit','admin'));
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Ownership becomes optional

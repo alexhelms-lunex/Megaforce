@@ -30,12 +30,22 @@ export function TrendChart({
   labels,
   series,
   height = 260,
-  formatLabel,
+  grain = "day",
 }: {
   labels: string[];
   series: TrendSeries[];
   height?: number;
-  formatLabel?: (label: string) => string;
+  /**
+   * Day or week. Passed as a STRING, not as a formatting function.
+   *
+   * It was a function, and that is what crashed the reports screen. A prop
+   * crossing from a server component into a client one has to survive being
+   * serialised, and a closure cannot -- React refuses it outright. The error
+   * says so clearly and then Next redacts the message in production, so the
+   * screen showed "an error occurred in the Server Components render" and
+   * nothing else.
+   */
+  grain?: "day" | "week";
 }) {
   const [hover, setHover] = useState<number | null>(null);
 
@@ -124,7 +134,7 @@ export function TrendChart({
               className="fill-muted-foreground"
               style={{ fontSize: 11 }}
             >
-              {formatLabel ? formatLabel(label) : label}
+              {formatBucket(label, grain)}
             </text>
           ) : null,
         )}
@@ -184,9 +194,7 @@ export function TrendChart({
         <span className="font-medium tabular-nums text-foreground">
           {hover === null
             ? `${labels.length} ${labels.length === 1 ? "period" : "periods"}`
-            : formatLabel
-              ? formatLabel(labels[hover])
-              : labels[hover]}
+            : formatBucket(labels[hover], grain)}
         </span>
         {series.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -206,4 +214,22 @@ export function TrendChart({
       </div>
     </div>
   );
+}
+
+/**
+ * An ISO date as a short label.
+ *
+ * Lives here rather than on the page for the reason above: the page is a server
+ * component, and a formatter it owned would have to be handed across the
+ * boundary as a function. A week bucket names the week it starts.
+ */
+function formatBucket(iso: string, grain: "day" | "week"): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  const label = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return grain === "week" ? `w/c ${label}` : label;
 }

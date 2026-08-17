@@ -39,13 +39,35 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/** Every `k="…"` and `info="…"` literal used in a component. */
+/**
+ * Every definition key referenced anywhere in a component.
+ *
+ * Two forms, because both are used and only one was being scanned:
+ *
+ *   info="atRisk"                              a plain literal
+ *   info={managerish ? "overseen" : "held"}    a choice made at render time
+ *
+ * The second form is where the mistake hides. It is used precisely when a
+ * metric means different things to different roles, which is exactly when a
+ * wrong key produces a confidently wrong explanation rather than a blank.
+ */
 function referencedKeys(): { key: string; file: string }[] {
   const found: { key: string; file: string }[] = [];
   for (const file of walk(SRC)) {
     const source = readFileSync(file, "utf8");
+    const relative = path.relative(process.cwd(), file);
+
     for (const match of source.matchAll(/\b(?:k|info)="([a-zA-Z]+)"/g)) {
-      found.push({ key: match[1], file: path.relative(process.cwd(), file) });
+      found.push({ key: match[1], file: relative });
+    }
+    // Braced expressions: pull every quoted string out of the expression and
+    // check each one. A false positive would be a quoted string that is not a
+    // key, so the assertion below tolerates strings that are not camelCase
+    // identifiers rather than demanding every literal be a definition.
+    for (const match of source.matchAll(/\b(?:k|info)=\{([^}]*)\}/g)) {
+      for (const literal of match[1].matchAll(/"([a-zA-Z]+)"/g)) {
+        found.push({ key: literal[1], file: relative });
+      }
     }
   }
   return found;

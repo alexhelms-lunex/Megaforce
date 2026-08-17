@@ -341,7 +341,14 @@ end $$ language plpgsql security definer set search_path = public, auth;
  * will notice has gone stale; the same sentence in a document is not.
  * ---------------------------------------------------------------------------
  */
-create or replace function role_capabilities()
+-- Dropped first, always. `create or replace` cannot change a function's return
+-- type, and 0021 adds a column to this matrix -- so without the drop, a re-run
+-- of this file against an up-to-date database fails with "cannot change return
+-- type of existing function". Setup files are re-run whenever somebody is
+-- confused, which is exactly when they must not break.
+drop function if exists role_capabilities();
+
+create function role_capabilities()
 returns table (capability text, area text, broker boolean, manager boolean, credit boolean, admin boolean, detail text) as $$
   select * from (values
     ('See their own accounts', 'Accounts', true, true, true, true,

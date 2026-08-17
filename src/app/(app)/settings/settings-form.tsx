@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useApplyPreferences } from "@/components/preferences-provider";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Bell, Check, Monitor, Moon, RotateCcw, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
 import { LIFECYCLE, type LifecycleState } from "@/lib/lifecycle";
@@ -20,31 +22,76 @@ import { saveAlert, savePreferences } from "./actions";
 /**
  * Personal settings.
  *
- * Everything saves the moment it is changed. No Save button, because a settings
- * screen with one has two states -- what you see and what is stored -- and the
- * gap between them is where people lose work. The toast is the confirmation.
+ * ---------------------------------------------------------------------------
+ * TWO THINGS HAPPEN WHEN A CONTROL MOVES, AND THEY ARE DELIBERATELY SEPARATE.
  *
- * Optimistic: the control moves immediately and rolls back if the write fails.
- * A theme toggle that waits for a round trip feels broken even when it works.
+ * The setting APPLIES immediately -- the sidebar narrows, the info markers
+ * disappear, the rows tighten -- because a switch that changes nothing you can
+ * see is indistinguishable from a broken one, and that is precisely how this
+ * screen was reported twice.
+ *
+ * The setting is SAVED when you press Save. The first version wrote on every
+ * change with no button at all, on the reasoning that a Save button creates a
+ * gap between what you see and what is stored. That reasoning is sound and it
+ * was not what people wanted: with nothing to press, there is no moment that
+ * says the change took, and the only feedback was a toast that had already
+ * gone by the time you looked up.
+ *
+ * So the bar appears the moment anything differs from what is stored, says how
+ * many changes are pending, and offers Discard beside Save. Nothing is lost by
+ * navigating away except changes you had not committed -- which is what the
+ * bar is there to tell you.
+ * ---------------------------------------------------------------------------
  */
 export function SettingsForm({ initial }: { initial: Preferences }) {
   const [prefs, setPrefs] = useState(initial);
-  const [, start] = useTransition();
+  const [saved, setSaved] = useState(initial);
+  const [pending, start] = useTransition();
   const { setTheme } = useTheme();
   const router = useRouter();
+  const applyLive = useApplyPreferences();
+
+  /** Which settings differ from what is stored. */
+  const changed = (Object.keys(prefs) as (keyof Preferences)[]).filter(
+    (k) => JSON.stringify(prefs[k]) !== JSON.stringify(saved[k]),
+  );
 
   function update(patch: Partial<Preferences>) {
-    const previous = prefs;
     setPrefs((p) => ({ ...p, ...patch }));
+    // Straight into the shared context, so the rest of the application changes
+    // under the cursor rather than on the next navigation.
+    applyLive(patch);
+  }
+
+  function save() {
+    if (changed.length === 0) return;
+    const patch = Object.fromEntries(
+      changed.map((k) => [k, prefs[k]]),
+    ) as Partial<Preferences>;
+
     start(async () => {
       const result = await savePreferences(patch);
       if (result.error) {
-        setPrefs(previous);
+        // Put the screen back to what is actually stored. Leaving the controls
+        // showing an unsaved state after a failed write is how somebody walks
+        // away believing a setting took.
+        setPrefs(saved);
+        applyLive(saved);
         toast.error(result.error);
-      } else {
-        router.refresh();
+        return;
       }
+      setSaved(prefs);
+      toast.success(
+        changed.length === 1 ? "Saved." : `Saved ${changed.length} changes.`,
+      );
+      router.refresh();
     });
+  }
+
+  function discard() {
+    setPrefs(saved);
+    applyLive(saved);
+    setTheme(saved.theme);
   }
 
   function toggleAlert(key: string, channel: "app" | "email", value: boolean) {
@@ -63,7 +110,30 @@ export function SettingsForm({ initial }: { initial: Preferences }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-20">
+      {/* The save bar. Fixed to the bottom rather than at the end of the form,
+          because this screen is longer than a viewport and a button below the
+          fold is a button nobody presses. */}
+      {changed.length > 0 ? (
+        <div className="chrome-blur fixed inset-x-0 bottom-0 z-[60] border-t bg-card/90 px-4 py-3">
+          <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-3">
+            <span className="text-sm font-medium">
+              {changed.length} unsaved {changed.length === 1 ? "change" : "changes"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Already applied on screen. Save to keep them next time you sign in.
+            </span>
+            <div className="ml-auto flex gap-2">
+              <Button variant="outline" size="sm" onClick={discard} disabled={pending}>
+                Discard
+              </Button>
+              <Button size="sm" onClick={save} disabled={pending}>
+                {pending ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {/* ---- appearance ---- */}
       <Card>
         <CardHeader>

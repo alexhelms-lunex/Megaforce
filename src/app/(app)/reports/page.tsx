@@ -165,7 +165,7 @@ export default async function ReportsPage({
           <TrendChart
             labels={series.points.map((p) => p.bucket)}
             series={chartSeries}
-            formatLabel={(iso) => formatBucket(iso, grain)}
+            grain={grain}
           />
         </CardContent>
       </Card>
@@ -433,15 +433,4 @@ function formatRange(from: string, to: string): string {
       timeZone: "UTC",
     });
   return `${fmt(from)} – ${fmt(to)}`;
-}
-
-function formatBucket(iso: string, grain: "day" | "week"): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-    ...(grain === "week" ? {} : {}),
-  });
 }

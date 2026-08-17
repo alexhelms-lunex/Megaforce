@@ -29,12 +29,23 @@ export const ROLES: RoleDefinition[] = [
   {
     key: "manager",
     label: "Manager",
-    summary: "Everything a broker can do, plus their whole reporting line.",
-    scope: "Sees every account held by anyone beneath them, however many levels down.",
+    // Managers hold a book of their own. Describing the role only by what it
+    // oversees made it read as a supervisory position with no accounts, which
+    // is not the job.
+    summary: "Holds their own book, and additionally oversees everyone reporting to them.",
+    scope:
+      "Their own accounts, plus the accounts of everyone who reports to them, however many levels down.",
+  },
+  {
+    key: "ad",
+    label: "Account Director",
+    summary: "Opens national accounts and co-owns them with the broker running them.",
+    scope:
+      "Sees their own book, the national accounts they co-own, and anyone reporting to them. Does not decide other people's requests.",
   },
   {
     key: "credit",
-    label: "Credit",
+    label: "Customer Credit",
     summary: "Owns credit limits and the duplicate queue. Holds no book.",
     scope: "Sees every account in the company.",
   },
@@ -53,6 +64,7 @@ export const ROLE_LABEL: Record<string, string> = Object.fromEntries(
 /** Tailwind classes for a role badge. Admin is the only one that shouts. */
 export const ROLE_BADGE: Record<string, string> = {
   broker: "border-border bg-muted text-muted-foreground",
+  ad: "border-electric-400/60 bg-electric-100 text-electric-900 dark:border-electric-700 dark:bg-electric-950/70 dark:text-electric-200",
   manager: "border-electric-300/60 bg-electric-50 text-electric-800 dark:border-electric-800 dark:bg-electric-950/60 dark:text-electric-200",
   credit: "border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
   admin: "border-brand-400/70 bg-brand-50 text-brand-900 dark:border-brand-700 dark:bg-brand-950/60 dark:text-brand-200",
@@ -114,6 +126,7 @@ export interface Capability {
   area: string;
   broker: boolean;
   manager: boolean;
+  ad: boolean;
   credit: boolean;
   admin: boolean;
   detail: string;

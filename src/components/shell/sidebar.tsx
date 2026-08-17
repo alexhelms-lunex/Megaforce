@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { usePreferences } from "@/components/preferences-provider";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { visibleNav } from "./nav";
 import { Logo } from "./logo";
@@ -38,7 +39,14 @@ export function Sidebar({
   startCollapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const { compact_sidebar: preferCompact } = usePreferences();
   const [collapsed, setCollapsed] = useState(startCollapsed);
+
+  // Follow the setting the moment it changes on the settings screen, so the
+  // rail narrows while the person is still looking at the switch. Toggling the
+  // rail by hand afterwards still wins until the setting changes again -- the
+  // preference is a starting state, not a lock.
+  useEffect(() => setCollapsed(preferCompact), [preferCompact]);
   const sections = visibleNav(role);
 
   return (

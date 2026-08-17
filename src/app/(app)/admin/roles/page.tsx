@@ -96,7 +96,7 @@ export default async function RolesPage() {
         </Card>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {roles.map((r) => (
               <Card key={r.key} size="sm">
                 <CardContent className="space-y-2">
@@ -151,9 +151,9 @@ export default async function RolesPage() {
                             {roles.map((r) => (
                               <td key={r.key} className="px-2 py-2.5 text-center">
                                 <Mark
-                                  on={Boolean(c[r.key as "broker" | "manager" | "credit" | "admin"])}
+                                  on={Boolean(c[r.key as "broker" | "manager" | "ad" | "credit" | "admin"])}
                                   label={`${r.label} ${
-                                    c[r.key as "broker" | "manager" | "credit" | "admin"]
+                                    c[r.key as "broker" | "manager" | "ad" | "credit" | "admin"]
                                       ? "can"
                                       : "cannot"
                                   } ${c.capability.toLowerCase()}`}

@@ -117,7 +117,7 @@ export default async function AccountDetailPage({
       // Transfer targets for the request form. Row level security limits this
       // to the people the caller can see, which is the right set to hand an
       // account to.
-      supabase.from("users").select("id, full_name").in("role", ["broker", "manager"]).order("full_name").limit(500),
+      supabase.from("users").select("id, full_name").in("role", ["broker", "manager", "ad"]).order("full_name").limit(500),
     ]);
 
   const account = accountRes.data;

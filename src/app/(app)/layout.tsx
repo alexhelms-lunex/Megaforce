@@ -10,6 +10,7 @@ import { Sidebar, type NavCounts } from "@/components/shell/sidebar";
 import { UserMenu } from "@/components/shell/user-menu";
 import { SettingsButton } from "@/components/shell/settings-button";
 import { PreferencesProvider } from "@/components/preferences-provider";
+import { DensityShell } from "@/components/density-shell";
 import { readPreferences } from "./settings/actions";
 import { createClient, currentUser, isPrivileged, isSupabaseConfigured } from "@/lib/supabase/server";
 import type { LifecycleState } from "@/lib/lifecycle";
@@ -78,7 +79,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <PreferencesProvider value={prefs}>
       {/* Density is an attribute rather than a class so the CSS can key off it
           without every component knowing the setting exists. */}
-      <div className="flex min-h-screen" data-density={prefs.density}>
+      <DensityShell>
         <Sidebar role={user.role} counts={counts} startCollapsed={prefs.compact_sidebar} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -112,7 +113,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           screen to do it costs them whatever they were on. */}
         <RcDock />
         <PoolDock />
-      </div>
+      </DensityShell>
     </PreferencesProvider>
   );
 }

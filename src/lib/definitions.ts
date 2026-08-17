@@ -135,11 +135,16 @@ const RAW = {
       "Companies currently in your name — prospects and customers together. Each one is running its own clock, and each needs approved activity to stay yours.",
     formula: "count of accounts where owner = you",
   },
-  teamAccounts: {
-    title: "Team accounts",
+  overseenAccounts: {
+    title: "Yours and your brokers'",
     body:
-      "Every account held by you and by everyone reporting to you, however far down. It is the same number your brokers see for themselves, added up — nobody's book is counted twice and nobody outside your line is included.",
+      "Your own accounts plus every account held by anyone reporting to you, however far down. A manager holds a book like anybody else — this is that book added to theirs. Nobody's accounts are counted twice, and nobody outside your reporting line is included.",
     formula: "count of accounts owned by you or anyone beneath you",
+  },
+  accountDirector: {
+    title: "Account Director",
+    body:
+      "Opens national accounts and co-owns them: a broker runs the account day to day and the AD takes a share of the commission. The broker's clock is the one that runs. An AD is not a manager — co-owning an account is not authority over the person running it, so they do not decide requests.",
   },
   prospectLimit: {
     title: "Prospect limit",

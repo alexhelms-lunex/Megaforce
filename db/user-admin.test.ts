@@ -311,6 +311,59 @@ describe("the user list", () => {
   });
 });
 
+describe("the Account Director role", () => {
+  it("is accepted by the role constraint and by admin_set_role", async () => {
+    await becomeUser(pg, AUTH.admin);
+    await pg.query(`select admin_set_role($1, 'ad')`, [ids.raj]);
+    const { rows } = await pg.query<{ role: string }>(`select role from users where id = $1`, [
+      ids.raj,
+    ]);
+    expect(rows[0].role).toBe("ad");
+  });
+
+  it("lets an AD see a national account they co-own but do not hold", async () => {
+    await becomeService(pg);
+    await pg.query(`update users set role = 'ad' where id = $1`, [ids.raj]);
+    // Dana runs it day to day; Raj opened it and takes a share. Raj is not in
+    // Dana's reporting line -- they are peers under Morgan -- so without the
+    // co-ownership policy he could not see the account he sold.
+    await pg.query(
+      `insert into accounts (name, status, owner_id, ad_owner_id)
+       values ('National Freight','customer',$1,$2)`,
+      [ids.dana, ids.raj],
+    );
+
+    await becomeUser(pg, AUTH.raj);
+    const { rows } = await pg.query<{ name: string }>(
+      `select name from accounts where name = 'National Freight'`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it("does not give an AD the rest of the company", async () => {
+    await becomeService(pg);
+    await pg.query(`update users set role = 'ad' where id = $1`, [ids.raj]);
+    await pg.query(
+      `insert into accounts (name, status, owner_id) values ('Not Theirs','prospect',$1)`,
+      [ids.dana],
+    );
+
+    await becomeUser(pg, AUTH.raj);
+    const { rows } = await pg.query(`select name from accounts where name = 'Not Theirs'`);
+    // Co-owning an account is not authority over the person running it, and it
+    // is certainly not credit's company-wide view.
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does not let an AD decide account requests", async () => {
+    await becomeUser(pg, AUTH.admin);
+    const { rows } = await pg.query<{ ad: boolean; capability: string }>(
+      `select capability, ad from role_capabilities() where capability ilike 'Decide a request'`,
+    );
+    expect(rows[0].ad).toBe(false);
+  });
+});
+
 describe("the capability matrix", () => {
   it("describes what every role can do, for every area of the application", async () => {
     await becomeUser(pg, AUTH.dana);
@@ -342,6 +395,10 @@ describe("the capability matrix", () => {
   it("lists every role the database will actually accept", async () => {
     await becomeUser(pg, AUTH.admin);
     const { rows } = await pg.query<{ key: string }>(`select key from role_catalogue()`);
-    expect(rows.map((r) => r.key)).toEqual(["broker", "manager", "credit", "admin"]);
+    // Four kinds of person on the floor, plus admin. An Account Director had
+    // no role of its own and was being recorded as a broker or a manager --
+    // and "manager" quietly handed them the power to decide other people's
+    // account requests, which is not their job.
+    expect(rows.map((r) => r.key)).toEqual(["broker", "manager", "ad", "credit", "admin"]);
   });
 });

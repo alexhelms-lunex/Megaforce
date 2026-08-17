@@ -130,7 +130,7 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {managerish
-              ? "Your team's book, and where it needs attention."
+              ? "Your book and your brokers', and where it needs attention."
               : "Your book, and what it needs today."}
           </p>
         </div>
@@ -183,14 +183,18 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label={managerish ? "Team accounts" : "Accounts held"}
+          // Not "team accounts". Nothing here is a team: it is this
+          // person's own book plus the books of everyone reporting to them,
+          // and calling it a team made it read as a pooled figure belonging
+          // to a group rather than a sum of individual books.
+          label={managerish ? "Yours and your brokers'" : "Accounts held"}
           value={kpis.owned}
           icon={Building2}
           href="/accounts?mine=1"
           // The card counts accounts. It used to explain the prospect LIMIT,
           // which is a different number entirely -- and on a manager's screen,
           // where the card is a team total, the limit is not even their own.
-          info={managerish ? "teamAccounts" : "accountsHeld"}
+          info={managerish ? "overseenAccounts" : "accountsHeld"}
           hint={
             kpis.my_limit
               ? `limit ${kpis.my_limit}`
@@ -254,7 +258,7 @@ export default async function DashboardPage() {
                 <TrendingUp className="size-6 text-brand-500" aria-hidden />
                 <p className="text-sm font-medium">Nothing at risk.</p>
                 <p className="text-xs text-muted-foreground">
-                  Every account in {managerish ? "the team's" : "your"} book has been worked
+                  Every account you {managerish ? "hold or oversee" : "hold"} has been worked
                   inside its window.
                 </p>
               </div>
@@ -405,7 +409,7 @@ function TeamTable({ rows }: { rows: TeamRow[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Your team</CardTitle>
+        <CardTitle className="text-base">Your brokers</CardTitle>
         <p className="text-xs text-muted-foreground">
           Sorted by accounts at risk, not by calls made.
         </p>

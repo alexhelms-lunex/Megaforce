@@ -432,6 +432,35 @@ export async function seed(
     repBranch.set(row.id, branch);
   }
 
+  /*
+   * Account Directors.
+   *
+   * A distinct role, not a senior broker. They open national accounts and
+   * co-own them: a broker runs the account day to day and the AD takes a share,
+   * which is why accounts carry ad_owner_id separately from owner_id. Seeded so
+   * the role is visible on the People screen and so the co-ownership policy has
+   * something real to be tested against.
+   */
+  const adIds: string[] = [];
+  for (let i = 0; i < Math.max(2, Math.round(repCount / 12)); i++) {
+    const full = faker.person.fullName();
+    const start = startFor(72);
+    const [row] = await db
+      .insert(schema.users)
+      .values({
+        email: `${slug(full)}${i}ad@megaforce.test`,
+        fullName: full,
+        role: "ad",
+        managerId: adminRow.id,
+        rcExtensionId: String(extension++),
+        location: BRANCHES[i % BRANCHES.length],
+        startDate: iso(start),
+        prospectLimit: 250,
+      })
+      .returning({ id: schema.users.id });
+    adIds.push(row.id);
+  }
+
   // The credit team. They own no accounts -- credit is not a sales function --
   // but they see every one of them, so the demo needs real people to sign in as.
   for (let i = 0; i < creditCount; i++) {
@@ -588,12 +617,15 @@ export async function seed(
   // The database enforces "customers only" with a CHECK, so this update is
   // deliberately scoped to them.
   // -------------------------------------------------------------------------
+  // Pointed at people whose ROLE is 'ad'. It used to point at managers, because
+  // there was no Account Director role to point at -- so the co-ownership
+  // column and the job it represents disagreed in every seeded database.
   await db.execute(sql`
-    update accounts set ad_owner_id = ${directorIds[0]}
+    update accounts set ad_owner_id = ${adIds[0]}
      where status = 'customer' and md5(id::text) < '4'
   `);
   await db.execute(sql`
-    update accounts set ad_owner_id = ${directorIds[1] ?? directorIds[0]}
+    update accounts set ad_owner_id = ${adIds[1] ?? adIds[0]}
      where status = 'customer' and ad_owner_id is null and md5(id::text) < '6'
   `);
 
