@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { createClient, currentUser } from "@/lib/supabase/server";
+import { createClient, loadCurrentUser, noUserMessage } from "@/lib/supabase/server";
 import { SUPABASE_URL, supabaseSecretKey } from "@/lib/supabase/keys";
 import { ROLES, type NewUser, type UserPatch } from "@/lib/roles";
 
@@ -49,10 +49,12 @@ function authAdmin() {
 }
 
 async function requireAdmin(): Promise<{ id: string } | { error: string }> {
-  const me = await currentUser();
-  if (!me) return { error: "Not signed in." };
-  if (me.role !== "admin") return { error: "Only an administrator can manage users." };
-  return { id: me.id };
+  // The refusal distinguishes "you are not signed in" from "we could not ask".
+  // Both produce no user, and only one of them is fixed by signing in again.
+  const lookup = await loadCurrentUser();
+  if (!lookup.user) return { error: noUserMessage(lookup) };
+  if (lookup.user.role !== "admin") return { error: "Only an administrator can manage users." };
+  return { id: lookup.user.id };
 }
 
 const WORDS = ["harbor", "cobalt", "ember", "quartz", "meadow", "lantern", "cedar", "ripple"];
@@ -227,8 +229,33 @@ export async function updateUser(userId: string, patch: UserPatch): Promise<Resu
     }
 
     if (Object.keys(next).length > 0) {
-      const { error } = await supabase.from("users").update(next).eq("id", userId);
+      /*
+       * `.select("id")` is not decoration. It is how this finds out whether the
+       * write actually landed.
+       *
+       * An UPDATE that matches no rows is a SUCCESS as far as PostgREST is
+       * concerned -- no error, nothing returned. Row level security does not
+       * refuse a write, it makes the rows invisible, so a policy that does not
+       * admit the caller produces "0 rows updated" and this action cheerfully
+       * reported "Saved." The name on screen then reverted on the next refresh,
+       * with nothing anywhere saying why. That is the "I tried changing the
+       * name and it did not work" with no error message.
+       */
+      const { data: updated, error } = await supabase
+        .from("users")
+        .update(next)
+        .eq("id", userId)
+        .select("id");
+
       if (error) return { error: friendly(error.message) };
+      if (!updated || updated.length === 0) {
+        return {
+          error:
+            "Nothing was saved. The database refused the change for this account — which " +
+            "usually means the row level security policies are older than this build. " +
+            "Re-run setup from the Admin screen and try again.",
+        };
+      }
     }
 
     // The address lives in two places and both have to move, or somebody signs

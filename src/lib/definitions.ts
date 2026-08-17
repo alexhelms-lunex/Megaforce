@@ -154,7 +154,11 @@ const RAW = {
   currentOwner: {
     title: "Owner",
     body:
-      "The broker who holds this account right now, and the branch they work from. Blank means nobody holds it and any broker can claim it. Open the account's Ownership tab for everyone who has held it before.",
+      // Describes only what the column shows. It used to promise "and the
+      // branch they work from", which this column has never displayed -- a
+      // tooltip that describes something the reader cannot see is worse than
+      // no tooltip, because it sends them looking for it.
+      "The broker who holds this account right now. Blank means nobody holds it and any broker can claim it. Open the account's Ownership tab for everyone who has held it before.",
   },
   daysHeld: {
     title: "Days held",

@@ -108,14 +108,20 @@ export async function withdrawRequest(form: FormData): Promise<RequestResult> {
 
   const id = String(form.get("requestId") ?? "");
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("account_requests")
     .update({ status: "withdrawn" })
     .eq("id", id)
     .eq("requested_by", me.id)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    // Verified rather than assumed: the three filters above are all ways for
+    // this to match nothing, and a match of nothing is a success to PostgREST.
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!data || data.length === 0) {
+    return { error: "That request could not be withdrawn — it may already have been decided." };
+  }
   revalidatePath("/requests");
   return { ok: true };
 }

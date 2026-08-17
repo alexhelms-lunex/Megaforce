@@ -40,9 +40,30 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  /*
+   * Guarded, and it fails OPEN rather than closed.
+   *
+   * getUser() is an HTTP call, and supabase-js re-throws network failures
+   * instead of returning them. Unguarded, a dropped connection between Vercel
+   * and Supabase turned into a 500 for the whole request -- including the POST
+   * that carries a server action, so a button press vanished into an error
+   * with no message.
+   *
+   * Failing open is safe here because this check is a convenience, not the
+   * security boundary. The layout refuses to render without a profile, and
+   * every query underneath it is scoped by row level security inside Postgres,
+   * which does not consult this file. The worst case of letting a request
+   * through is that somebody signed out sees the layout's own sign-in notice
+   * instead of being redirected to it.
+   */
+  let user: { id: string } | null = null;
+  try {
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+  } catch (err) {
+    console.error("[middleware] could not verify the session", err);
+    return response;
+  }
 
   const path = request.nextUrl.pathname;
   const isPublic =

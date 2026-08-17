@@ -41,6 +41,17 @@ interface Fixture {
   from?: Record<string, unknown[]>;
   /** Make every read fail, to exercise the error paths. */
   fail?: boolean;
+  /**
+   * currentUser() comes back null.
+   *
+   * This is no longer hypothetical. The auth lookup used to THROW when
+   * Supabase could not be reached, which took the whole render down; it now
+   * absorbs that and returns null instead. Null is the safer failure by a long
+   * way, but only if every page survives it -- a page that reaches straight
+   * for `user.id` turns one dropped connection into the same dead screen by a
+   * different route.
+   */
+  noUser?: boolean;
 }
 
 let fixture: Fixture = {};
@@ -84,18 +95,24 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (table: string) => chainable(fixture.from?.[table] ?? []),
     auth: { getUser: async () => ({ data: { user: null } }), signOut: async () => {} },
   }),
-  currentUser: async () => ({
-    id: "11111111-1111-1111-1111-111111111111",
-    full_name: "Avery Stone",
-    email: "avery@megaforce.test",
-    role: currentRole,
-    location: "Charlotte",
-    start_date: "2020-01-01",
-    prospect_limit: 200,
-    manager_id: null,
-    active: true,
-  }),
+  currentUser: async () => (fixture.noUser ? null : SIGNED_IN()),
+  loadCurrentUser: async () =>
+    fixture.noUser ? { user: null, unreachable: "fetch failed" } : { user: SIGNED_IN() },
+  noUserMessage: (lookup: { unreachable?: string }) =>
+    lookup.unreachable ? `Could not reach the server: ${lookup.unreachable}` : "Not signed in.",
 }));
+
+const SIGNED_IN = () => ({
+  id: "11111111-1111-1111-1111-111111111111",
+  full_name: "Avery Stone",
+  email: "avery@megaforce.test",
+  role: currentRole,
+  location: "Charlotte",
+  start_date: "2020-01-01",
+  prospect_limit: 200,
+  manager_id: null,
+  active: true,
+});
 
 vi.mock("next/navigation", () => ({
   notFound: () => {
@@ -268,6 +285,32 @@ describe("every screen renders when the database is behind the deployment", () =
         return;
       }
       await expect(render(screen, { fail: true })).resolves.toBeUndefined();
+    });
+  }
+});
+
+describe("every screen survives an unreachable auth server", () => {
+  /*
+   * The failure that produced three weeks of "An error occurred in the Server
+   * Components render". The auth lookup threw, the layout threw, and because a
+   * server action's response re-renders the layout, every button on the screen
+   * reported a failure for a write that had already gone through.
+   *
+   * The lookup no longer throws -- it returns null. This is the test that the
+   * cure is not a second version of the disease.
+   */
+  for (const screen of SCREENS) {
+    it(screen.name, async () => {
+      const result = render(screen, { noUser: true });
+      // Some screens redirect or 404 rather than render for a signed-out
+      // caller. Both are deliberate. Anything else is not.
+      await expect(
+        result.then(
+          () => "rendered",
+          (err: Error) =>
+            /NEXT_REDIRECT|NEXT_NOT_FOUND/.test(err.message) ? "sent away" : Promise.reject(err),
+        ),
+      ).resolves.toMatch(/rendered|sent away/);
     });
   }
 });

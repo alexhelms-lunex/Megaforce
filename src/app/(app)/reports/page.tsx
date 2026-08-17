@@ -90,14 +90,28 @@ export default async function ReportsPage({
     .filter((m): m is SeriesKey => (SERIES_METRICS as readonly string[]).includes(m));
   const selected = chosen.length > 0 ? chosen : (["calls"] as SeriesKey[]);
 
-  const dimensions = await fetchDimensions();
-  const dim = dimensions.some((d) => d.key === one("dim")) ? one("dim") : "broker";
   const search = one("q");
   const page = Math.max(1, Number(one("page")) || 1);
 
+  /*
+   * Four queries, two waves instead of three.
+   *
+   * The dimension list used to be awaited on its own line before anything else
+   * started, because the breakdown needs a validated dimension name. Only the
+   * BREAKDOWN needs it though -- the totals and the series do not -- so those
+   * two were sitting idle through a round trip for no reason. Starting them
+   * first takes a whole trip to Supabase off the critical path of the screen
+   * somebody just clicked on, and reporting was the screen singled out as slow.
+   */
+  const totalsPromise = fetchTotals(from, to, scope);
+  const seriesPromise = fetchSeries(from, to, scope, grain);
+
+  const dimensions = await fetchDimensions();
+  const dim = dimensions.some((d) => d.key === one("dim")) ? one("dim") : "broker";
+
   const [totals, series, breakdown] = await Promise.all([
-    fetchTotals(from, to, scope),
-    fetchSeries(from, to, scope, grain),
+    totalsPromise,
+    seriesPromise,
     fetchBreakdown(from, to, scope, dim, search, PAGE_SIZE, (page - 1) * PAGE_SIZE),
   ]);
 

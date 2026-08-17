@@ -39,16 +39,23 @@ vi.mock("@/lib/supabase/server", async () => {
     isSupabaseConfigured: () => true,
     isPrivileged: (role: string) => role === "admin" || role === "credit",
     createClient: async () => real.fakeSupabase(pg, session),
-    currentUser: async () => {
-      if (!session) return null;
-      const { rows } = await pg.query<Record<string, unknown>>(
-        `select id, full_name, email, role, location, start_date, prospect_limit, manager_id, active
-           from users where auth_id = $1`,
-        [session],
-      );
-      return rows[0] ?? null;
-    },
+    currentUser: async () => (await lookUp()).user,
+    loadCurrentUser: lookUp,
+    noUserMessage: (lookup: { unreachable?: string }) =>
+      lookup.unreachable
+        ? `Could not reach the server to check who you are: ${lookup.unreachable}.`
+        : "Not signed in. Reload the page and sign in again.",
   };
+
+  async function lookUp() {
+    if (!session) return { user: null };
+    const { rows } = await pg.query<Record<string, unknown>>(
+      `select id, full_name, email, role, location, start_date, prospect_limit, manager_id, active
+         from users where auth_id = $1`,
+      [session],
+    );
+    return { user: rows[0] ?? null };
+  }
 });
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));

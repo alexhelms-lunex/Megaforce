@@ -163,3 +163,57 @@ describe("client action handlers", () => {
     expect(handlers).toBeGreaterThan(5);
   });
 });
+
+/**
+ * The shell, which is the one server component that is on every screen.
+ *
+ * ---------------------------------------------------------------------------
+ * A server action's response re-renders the current route, and the route
+ * includes the layout. So a throw in the layout does not break one screen -- it
+ * rejects the promise of whatever action the person just pressed, and the
+ * button reports a failure for a write that already succeeded.
+ *
+ * That is how Claim, Save on the user form and the role picker all came to
+ * report the identical "An error occurred in the Server Components render",
+ * with three complete try/catch blocks between them and nothing wrong in any
+ * of the three files anybody kept re-reading.
+ *
+ * The fix was to make the shell incapable of throwing. This keeps it that way,
+ * because the next person to add a widget to the header will not know any of
+ * the above.
+ * ---------------------------------------------------------------------------
+ */
+describe("the application shell", () => {
+  const layout = readFileSync(path.join(SRC, "app", "(app)", "layout.tsx"), "utf8");
+
+  it("uses the auth lookup that cannot throw", () => {
+    // currentUser() returns null on failure and is fine nearly everywhere. The
+    // layout needs loadCurrentUser(), which reports WHY there is no user --
+    // the difference between showing a login prompt and showing "could not
+    // reach the server", and the difference between an administrator editing
+    // SQL and an administrator waiting ten seconds.
+    expect(layout).toMatch(/loadCurrentUser\(\)/);
+    expect(layout).not.toMatch(/\bawait currentUser\(\)/);
+  });
+
+  it("catches every data call it makes", () => {
+    /*
+     * Each `await` on a line that fetches something must be guarded. Written as
+     * a scan rather than a rule anybody has to remember, because the cost of
+     * forgetting is not a broken layout -- it is every button on every screen
+     * reporting a failure it did not have.
+     */
+    const guarded = /\.catch\(|try\s*\{/;
+    const fetching = [/chromeData\(/, /readPreferences\(/];
+
+    for (const pattern of fetching) {
+      const line = layout.split("\n").find((l) => pattern.test(l) && !l.trim().startsWith("*"));
+      expect(line, `${pattern} should appear in the layout`).toBeTruthy();
+      // The call and its .catch() may sit on different lines, so the window is
+      // the call plus the few lines after it.
+      const index = layout.split("\n").findIndex((l) => l === line);
+      const window = layout.split("\n").slice(index, index + 6).join("\n");
+      expect(guarded.test(window), `${pattern} is unguarded in the layout`).toBe(true);
+    }
+  });
+});

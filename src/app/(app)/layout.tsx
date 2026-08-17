@@ -12,7 +12,8 @@ import { SettingsButton } from "@/components/shell/settings-button";
 import { PreferencesProvider } from "@/components/preferences-provider";
 import { DensityShell } from "@/components/density-shell";
 import { readPreferences } from "./settings/actions";
-import { createClient, currentUser, isPrivileged, isSupabaseConfigured } from "@/lib/supabase/server";
+import { createClient, isPrivileged, isSupabaseConfigured, loadCurrentUser } from "@/lib/supabase/server";
+import { DEFAULT_PREFERENCES } from "@/lib/preferences";
 import type { LifecycleState } from "@/lib/lifecycle";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +25,49 @@ async function signOut() {
   redirect("/login");
 }
 
+/**
+ * The shell.
+ *
+ * ===========================================================================
+ * NOTHING IN HERE MAY THROW.
+ *
+ * A server action's response carries the re-rendered route as well as the
+ * action's return value, and the route includes this layout. So a throw here
+ * does not just break one screen -- it rejects the promise of whatever action
+ * the person just triggered, and the button reports a failure for a write that
+ * already succeeded. That is precisely how Claim, Save on the user form and the
+ * role picker all came to report the same "An error occurred in the Server
+ * Components render", with three complete try/catch blocks between them.
+ *
+ * Every await below therefore degrades instead of throwing: an unreachable
+ * database produces an empty bell, not a dead screen.
+ * ===========================================================================
+ */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   if (!isSupabaseConfigured()) return <SetupNotice />;
 
-  const user = await currentUser();
+  const lookup = await loadCurrentUser();
+
+  // Supabase could not be reached. Deliberately NOT the "no profile" screen
+  // below: that one tells an administrator to go and write SQL, which is the
+  // wrong instruction entirely when the real problem is a dropped connection
+  // that will be gone in ten seconds.
+  if (lookup.unreachable) {
+    return (
+      <div className="mx-auto max-w-2xl p-8">
+        <h1 className="text-lg font-semibold">Could not reach the server</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The application is running, but it could not reach the database to check who you are.
+          This is usually brief. Reload in a moment.
+        </p>
+        <p className="mt-4 rounded-lg border border-border/60 bg-muted/40 p-3 font-mono text-xs text-muted-foreground">
+          {lookup.unreachable}
+        </p>
+      </div>
+    );
+  }
+
+  const user = lookup.user;
   if (!user) {
     // Authenticated with Supabase but absent from our users table. This is the
     // state a brand new signup lands in, and saying so beats an empty screen.
@@ -68,11 +108,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const [{ alerts, counts }, prefs] = await Promise.all([
-    chromeData(user.id, user.role),
+    // Both guarded. A badge that fails to load is a badge; the alternative was
+    // a screen that failed to load, and an action that reported a failure it
+    // did not have.
+    chromeData(user.id, user.role).catch((err) => {
+      console.error("[shell] counts unavailable", err);
+      return { alerts: [] as Alert[], counts: EMPTY_COUNTS };
+    }),
     // Read once, here. Every component that needs a setting takes it from
     // context rather than fetching its own copy -- which is what turned a
     // screen of working toggles into a screen of toggles that did nothing.
-    readPreferences(),
+    readPreferences().catch((err) => {
+      console.error("[shell] preferences unavailable", err);
+      return DEFAULT_PREFERENCES;
+    }),
   ]);
 
   return (
@@ -126,6 +175,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
  * they link to -- a badge promising eleven items that opens a list of three is
  * worse than no badge.
  */
+const EMPTY_COUNTS: NavCounts = { expiring: 0, unlogged: 0, review: 0, requests: 0 };
+
 async function chromeData(
   userId: string,
   role: string,

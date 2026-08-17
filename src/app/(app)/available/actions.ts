@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, currentUser } from "@/lib/supabase/server";
+import { createClient, loadCurrentUser, noUserMessage } from "@/lib/supabase/server";
 
 export interface ClaimResult {
   ok?: true;
@@ -49,8 +49,13 @@ export async function claim(formData: FormData): Promise<ClaimResult> {
     const accountId = String(formData.get("accountId") ?? "");
     if (!accountId) return { error: "No account given." };
 
-    const user = await currentUser();
-    if (!user) return { error: "Not signed in. Reload the page and sign in again." };
+    // noUserMessage rather than a flat "not signed in". A dropped connection
+    // to the auth server also produces no user, and telling somebody to sign in
+    // again sends them to a login screen that works fine -- after which they
+    // conclude the application logs them out at random.
+    const lookup = await loadCurrentUser();
+    const user = lookup.user;
+    if (!user) return { error: noUserMessage(lookup) };
 
     const supabase = await createClient();
 
@@ -120,8 +125,13 @@ export async function release(formData: FormData): Promise<ClaimResult> {
     const accountId = String(formData.get("accountId") ?? "");
     if (!accountId) return { error: "No account given." };
 
-    const user = await currentUser();
-    if (!user) return { error: "Not signed in. Reload the page and sign in again." };
+    // noUserMessage rather than a flat "not signed in". A dropped connection
+    // to the auth server also produces no user, and telling somebody to sign in
+    // again sends them to a login screen that works fine -- after which they
+    // conclude the application logs them out at random.
+    const lookup = await loadCurrentUser();
+    const user = lookup.user;
+    if (!user) return { error: noUserMessage(lookup) };
 
     const supabase = await createClient();
 
@@ -142,10 +152,19 @@ export async function release(formData: FormData): Promise<ClaimResult> {
     // last_release_reason is set in the same statement so the trigger that
     // closes the claim record can read it. Setting it afterwards would file the
     // release under a guessed reason.
-    const { error } = await supabase
+    // `.select("id")` so a refusal is visible. An UPDATE that row level
+    // security filters out is not an error -- it matches nothing and returns
+    // success, and this reported "Released." over an account the person still
+    // holds.
+    const { data: released, error } = await supabase
       .from("accounts")
       .update({ owner_id: null, last_release_reason: "manual" })
-      .eq("id", accountId);
+      .eq("id", accountId)
+      .select("id");
+
+    if (!error && (!released || released.length === 0)) {
+      return { error: "The database refused to release that account. Nothing was changed." };
+    }
 
     if (error) {
       console.error("[release] failed", { accountId, by: user.id, message: error.message });

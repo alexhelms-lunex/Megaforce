@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, currentUser } from "@/lib/supabase/server";
+import { createClient, loadCurrentUser, noUserMessage } from "@/lib/supabase/server";
 import { DEFAULT_PREFERENCES, type Preferences } from "@/lib/preferences";
 
 export interface SaveResult {
@@ -17,18 +17,27 @@ export interface SaveResult {
  * changed nothing. Every caller can then treat the result as complete.
  */
 export async function readPreferences(): Promise<Preferences> {
-  const me = await currentUser();
-  if (!me) return DEFAULT_PREFERENCES;
+  // Called during the layout's render, so it may not throw: a throw here
+  // rejects whatever server action the person just triggered. Settings falling
+  // back to their defaults for one render is invisible; the alternative was a
+  // dead screen and a button reporting a failure it did not have.
+  try {
+    const { user: me } = await loadCurrentUser();
+    if (!me) return DEFAULT_PREFERENCES;
 
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("user_preferences")
-    .select("*")
-    .eq("user_id", me.id)
-    .maybeSingle();
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("user_preferences")
+      .select("*")
+      .eq("user_id", me.id)
+      .maybeSingle();
 
-  if (!data) return DEFAULT_PREFERENCES;
-  return { ...DEFAULT_PREFERENCES, ...(data as Partial<Preferences>) };
+    if (!data) return DEFAULT_PREFERENCES;
+    return { ...DEFAULT_PREFERENCES, ...(data as Partial<Preferences>) };
+  } catch (err) {
+    console.error("[settings] could not read preferences", err);
+    return DEFAULT_PREFERENCES;
+  }
 }
 
 /**
@@ -39,27 +48,48 @@ export async function readPreferences(): Promise<Preferences> {
  * you use it is a settings screen people stop trusting.
  */
 export async function savePreferences(patch: Partial<Preferences>): Promise<SaveResult> {
-  const me = await currentUser();
-  if (!me) return { error: "Not signed in." };
+  try {
+    const lookup = await loadCurrentUser();
+    if (!lookup.user) return { error: noUserMessage(lookup) };
 
-  const supabase = await createClient();
-  const current = await readPreferences();
+    const supabase = await createClient();
+    const current = await readPreferences();
 
-  const { error } = await supabase.from("user_preferences").upsert(
-    {
-      ...current,
-      ...patch,
-      user_id: me.id,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+    const { error } = await supabase.from("user_preferences").upsert(
+      {
+        ...current,
+        ...patch,
+        user_id: lookup.user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
 
-  if (error) return { error: error.message };
+    if (error) {
+      if (/does not exist|schema cache|could not find/i.test(error.message)) {
+        return {
+          error:
+            "Settings cannot be saved because the database is behind this version of the app. " +
+            `An administrator needs to re-run setup. (${error.message})`,
+        };
+      }
+      return { error: error.message };
+    }
 
-  revalidatePath("/settings");
-  revalidatePath("/");
-  return { ok: true };
+    // Guarded for the same reason the claim action guards it: a stale cache
+    // entry is one refresh away from being right, and is not a reason to tell
+    // somebody their settings did not save when the row has already changed.
+    for (const path of ["/settings", "/"]) {
+      try {
+        revalidatePath(path);
+      } catch {
+        /* not worth failing a successful save over */
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    return { error: `Could not save your settings: ${describe(err)}` };
+  }
 }
 
 /** Toggle one channel of one alert type. */
@@ -68,11 +98,26 @@ export async function saveAlert(
   channel: "app" | "email",
   value: boolean,
 ): Promise<SaveResult> {
-  const current = await readPreferences();
-  return savePreferences({
-    alerts: {
-      ...current.alerts,
-      [key]: { ...(current.alerts[key] ?? { app: true, email: true }), [channel]: value },
-    },
-  });
+  try {
+    const current = await readPreferences();
+    return await savePreferences({
+      alerts: {
+        ...current.alerts,
+        [key]: { ...(current.alerts[key] ?? { app: true, email: true }), [channel]: value },
+      },
+    });
+  } catch (err) {
+    return { error: `Could not change that alert: ${describe(err)}` };
+  }
+}
+
+function describe(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const e = current as { message?: string; cause?: unknown };
+    if (e?.message && !parts.includes(e.message)) parts.push(e.message);
+    current = e?.cause;
+  }
+  return parts.join(" — ") || String(err);
 }

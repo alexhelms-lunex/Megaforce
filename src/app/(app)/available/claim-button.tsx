@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { runAction } from "@/lib/run-action";
 import { Button } from "@/components/ui/button";
 import { claim, release } from "./actions";
 
@@ -45,27 +45,20 @@ export function ClaimButton({
 
   function run() {
     start(async () => {
-      try {
-        const form = new FormData();
-        form.set("accountId", accountId);
-        const result = await claim(form);
-        if (result?.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success("Claimed. The clock starts now.");
-        onClaimed?.();
-        router.refresh();
-      } catch (err) {
-        // A server action that throws rejects the promise here. Without this
-        // the click produces no toast, no navigation and no error -- which is
-        // indistinguishable from a button that is not wired up at all.
-        toast.error(
-          err instanceof Error
-            ? `Claim failed: ${err.message}`
-            : "Claim failed. Try again, or check the Admin screen.",
-        );
-      }
+      const form = new FormData();
+      form.set("accountId", accountId);
+      // runAction rather than a local try/catch. The local one caught the
+      // rejection correctly and then showed Next's redacted message verbatim,
+      // which is how "Claim failed: An error occurred in the Server Components
+      // render" ended up in front of a broker. runAction goes and fetches what
+      // actually happened.
+      const result = await runAction(() => claim(form), {
+        label: "Claim failed",
+        success: "Claimed. The clock starts now.",
+      });
+      if (!result) return;
+      onClaimed?.();
+      router.refresh();
     });
   }
 
@@ -82,23 +75,13 @@ export function ReleaseButton({ accountId }: { accountId: string }) {
 
   function run() {
     start(async () => {
-      try {
-        const form = new FormData();
-        form.set("accountId", accountId);
-        const result = await release(form);
-        if (result?.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success("Released. It is back in the available pool.");
-        router.refresh();
-      } catch (err) {
-        toast.error(
-          err instanceof Error
-            ? `Release failed: ${err.message}`
-            : "Release failed. Try again, or check the Admin screen.",
-        );
-      }
+      const form = new FormData();
+      form.set("accountId", accountId);
+      const result = await runAction(() => release(form), {
+        label: "Release failed",
+        success: "Released. It is back in the available pool.",
+      });
+      if (result) router.refresh();
     });
   }
 
