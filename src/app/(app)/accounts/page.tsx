@@ -89,6 +89,27 @@ export default async function AccountsPage({
   const preset = PRESETS.find((p) => p.key === filters.preset);
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  /*
+   * Only asked when the list came back empty AND somebody typed a name.
+   *
+   * "Zero results" is the single most misleading thing this screen can say: it
+   * reads as "the business has never heard of them" when what actually
+   * happened is that a colleague holds the account and row level security is
+   * working correctly. One extra query, on the one path where the answer
+   * changes what somebody does next.
+   */
+  let lockedMatches = 0;
+  if (rows.length === 0 && filters.q.trim().length >= 2) {
+    const { data } = await supabase.rpc("account_directory", {
+      p_search: filters.q.trim(),
+      p_state: "",
+      p_scope: "locked",
+      p_limit: 1,
+      p_offset: 0,
+    });
+    lockedMatches = Number((data as { total_rows?: number }[] | null)?.[0]?.total_rows ?? 0);
+  }
+
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -144,13 +165,42 @@ export default async function AccountsPage({
                   <td colSpan={visible.length} className="px-4 py-16 text-center">
                     <Building2 className="mx-auto size-6 text-muted-foreground/50" aria-hidden />
                     <p className="mt-2 text-sm font-medium">Nothing matches those filters.</p>
-                    <p className="text-xs text-muted-foreground">
-                      Try clearing a filter, or{" "}
-                      <Link href="/available" className="text-primary hover:underline">
-                        claim something from the pool
-                      </Link>
-                      .
-                    </p>
+                    {/*
+                      The most confusing possible result, and the one worth
+                      answering directly: you searched for a company by name,
+                      got nothing, and concluded the business has never heard of
+                      them -- when in fact a colleague is working them and row
+                      level security is doing exactly what it should.
+
+                      This list can only ever show accounts you may OPEN. The
+                      directory shows the rest.
+                    */}
+                    {lockedMatches > 0 ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {lockedMatches === 1
+                          ? "One company matches, but somebody else holds it."
+                          : `${lockedMatches} companies match, but other people hold them.`}{" "}
+                        <Link
+                          href={`/directory?q=${encodeURIComponent(filters.q)}&scope=locked`}
+                          className="text-primary hover:underline"
+                        >
+                          See who
+                        </Link>
+                        .
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Try clearing a filter, or{" "}
+                        <Link href="/available" className="text-primary hover:underline">
+                          claim something from the pool
+                        </Link>
+                        .{" "}
+                        <Link href="/directory" className="text-primary hover:underline">
+                          Search every company
+                        </Link>
+                        .
+                      </p>
+                    )}
                   </td>
                 </tr>
               ) : (

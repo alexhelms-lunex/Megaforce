@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient, currentUser } from "@/lib/supabase/server";
 import { formatDateTime } from "@/lib/format";
 import { REQUEST_KINDS, REQUEST_KIND_LABEL } from "@/lib/request-kinds";
+import { formatMoney } from "@/lib/format";
 import { DecideButtons, WithdrawButton } from "./decide-buttons";
 
 export const dynamic = "force-dynamic";
@@ -30,15 +31,31 @@ const STATUS_STYLE: Record<string, string> = {
  * raised by somebody other than you that you are allowed to read at all — which
  * for a manager is their whole subtree, and for a broker is nothing.
  */
-export default async function RequestsPage() {
+export default async function RequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const supabase = await createClient();
   const me = await currentUser();
   if (!me) return null;
 
-  const { data, error } = await supabase
+  const params = await searchParams;
+  const rawKind = params.kind;
+  const kindFilter = (Array.isArray(rawKind) ? rawKind[0] : rawKind) ?? "";
+  /*
+   * A kind filter, because this queue now has six kinds in it and two of them
+   * belong to different people. Credit decides credit limits and nobody else
+   * does; a manager decides everything else and cannot decide those. Mixing
+   * them in one undifferentiated list means each of them scrolls past the
+   * other's work looking for their own.
+   */
+  const kind = REQUEST_KINDS.some((k) => k.value === kindFilter) ? kindFilter : "";
+
+  let query = supabase
     .from("account_requests")
     .select(
-      "id, kind, reason, days, status, created_at, decided_at, decision_note, requested_by, " +
+      "id, kind, reason, days, amount, status, created_at, decided_at, decision_note, requested_by, " +
         "accounts(id, name, status), " +
         "requester:users!account_requests_requested_by_fkey(full_name, location), " +
         "decider:users!account_requests_decided_by_fkey(full_name), " +
@@ -46,6 +63,10 @@ export default async function RequestsPage() {
     )
     .order("created_at", { ascending: false })
     .limit(200);
+
+  if (kind) query = query.eq("kind", kind);
+
+  const { data, error } = await query;
 
   if (error) {
     return <p className="text-sm text-destructive">Could not load requests: {error.message}</p>;
@@ -56,6 +77,7 @@ export default async function RequestsPage() {
     kind: string;
     reason: string;
     days: number | null;
+    amount: number | null;
     status: string;
     created_at: string;
     decided_at: string | null;
@@ -77,9 +99,24 @@ export default async function RequestsPage() {
       <header>
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Account requests<InfoTip k="accountRequest" side="bottom" /></h1>
         <p className="text-sm text-muted-foreground">
-          Amnesty on a prospect, an extension on a customer, a transfer or a promotion. One queue,
-          one trail.
+          Amnesty on a prospect, an extension on a customer, a transfer, a promotion or a credit
+          limit. One queue, one trail.
         </p>
+
+        {/* Chips rather than a dropdown: with six kinds and two different
+            approvers, the useful action is "show me only mine", and a chip is
+            one click where a select is three. */}
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <KindChip href="/requests" active={!kind} label="Everything" />
+          {REQUEST_KINDS.map((k) => (
+            <KindChip
+              key={k.value}
+              href={`/requests?kind=${k.value}`}
+              active={kind === k.value}
+              label={REQUEST_KIND_LABEL[k.value] ?? k.value}
+            />
+          ))}
+        </div>
       </header>
 
       <Card>
@@ -178,6 +215,7 @@ function RequestHead({
   row: {
     kind: string;
     days: number | null;
+    amount: number | null;
     status: string;
     created_at: string;
     decided_at: string | null;
@@ -201,6 +239,14 @@ function RequestHead({
       {row.days ? (
         <span className="text-xs text-muted-foreground">{row.days} days</span>
       ) : null}
+      {/* The amount IS the decision on a credit request, so it belongs on the
+          row rather than inside it. Approving one without reading the figure
+          is the mistake worth designing against. */}
+      {row.kind === "credit" && row.amount ? (
+        <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs font-semibold tabular-nums">
+          {formatMoney(Number(row.amount))}
+        </span>
+      ) : null}
       {row.accounts ? (
         <Link href={`/accounts/${row.accounts.id}`} className="text-sm font-medium hover:underline">
           {row.accounts.name}
@@ -219,5 +265,18 @@ function RequestHead({
       </span>
       <span className="sr-only">{spec?.help}</span>
     </div>
+  );
+}
+
+function KindChip({ href, active, label }: { href: string; active: boolean; label: string }) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        active ? "border-transparent bg-primary text-primary-foreground" : "border-border hover:bg-accent"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }

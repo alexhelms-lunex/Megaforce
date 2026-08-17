@@ -182,6 +182,14 @@ const SCREENS: Screen[] = [
     props: () => ({ searchParams: Promise.resolve({}) }),
   },
   {
+    // The most misleading result this screen can produce: a name typed in,
+    // nothing back, and the reader concluding the business has never heard of
+    // the company -- when a colleague is working them.
+    name: "accounts list, a search that finds nothing",
+    load: () => import("./(app)/accounts/page"),
+    props: () => ({ searchParams: Promise.resolve({ q: "tanglewood" }) }),
+  },
+  {
     name: "available pool",
     load: () => import("./(app)/available/page"),
     props: () => ({ searchParams: Promise.resolve({}) }),
@@ -227,7 +235,12 @@ const SCREENS: Screen[] = [
   {
     name: "account requests",
     load: () => import("./(app)/requests/page"),
-    props: () => ({}),
+    props: () => ({ searchParams: Promise.resolve({}) }),
+  },
+  {
+    name: "account requests, credit only",
+    load: () => import("./(app)/requests/page"),
+    props: () => ({ searchParams: Promise.resolve({ kind: "credit" }) }),
   },
   {
     name: "my book",
