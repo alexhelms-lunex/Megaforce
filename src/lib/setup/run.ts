@@ -44,6 +44,8 @@ export interface SetupStep {
   detail: string;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface SetupResult {
   ok: boolean;
   steps: SetupStep[];
@@ -58,6 +60,8 @@ export interface SetupResult {
   problem?: { problem: string; fix: string };
   /** Set when only the SQL ran, so the result page does not offer a password. */
   migrationsOnly?: boolean;
+  /** Set when only a password was reset, so the result page does not claim a fresh install. */
+  passwordOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,7 +567,6 @@ export async function fetchAuthLogins(): Promise<{
   }
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Attach a login by its identifier, pasted straight from the Supabase
@@ -754,6 +757,92 @@ export const BROWSER_VOLUMES: SeedVolumes = {
  * Migrations are written to be re-runnable, so this is safe to press twice.
  * ---------------------------------------------------------------------------
  */
+/**
+ * Set a new password on a login that already exists.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS
+ *
+ * The password is shown once, on the page that creates it, and then never
+ * again. That is the right design for a password and a dead end for the person
+ * who closes the tab -- and until now the only way out was the Supabase
+ * dashboard, which means finding a project, a section and a menu in a tool this
+ * application otherwise never asks anybody to open.
+ *
+ * Guarded by the same SETUP_SECRET as everything else on this route. That key
+ * already builds and erases the whole database, so it is not a smaller
+ * privilege being granted here -- it is the same one, doing something far less
+ * destructive.
+ * ---------------------------------------------------------------------------
+ */
+export async function runPasswordReset(authId: string): Promise<SetupResult> {
+  const steps: SetupStep[] = [];
+  const password = generatePassword();
+
+  try {
+    checkEnvironment();
+  } catch (err) {
+    steps.push({ name: "Checking your settings", status: "failed", detail: (err as Error).message });
+    return {
+      ok: false,
+      steps,
+      problem: { problem: (err as SetupError).problem, fix: (err as SetupError).fix },
+    };
+  }
+
+  if (!UUID.test(authId.trim())) {
+    steps.push({ name: "Reading the login", status: "failed", detail: "not a user ID" });
+    return {
+      ok: false,
+      steps,
+      problem: {
+        problem: "That does not look like a user ID",
+        fix:
+          "Expected something shaped like 52a67572-7bce-405d-93a3-77b8601ffc8d. " +
+          "Pick your login from the list instead, or copy the UID column from " +
+          "Supabase under Authentication → Users.",
+      },
+    };
+  }
+
+  const admin = createClient(supabaseUrl(), supabaseSecretKey(), {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data, error } = await admin.auth.admin.updateUserById(authId.trim(), {
+    password,
+    // A login created by hand in the dashboard may never have been confirmed,
+    // and an unconfirmed login refuses a correct password -- which looks
+    // exactly like the reset not having worked.
+    email_confirm: true,
+  });
+
+  if (error || !data?.user) {
+    steps.push({ name: "Setting the new password", status: "failed", detail: error?.message ?? "no such login" });
+    return {
+      ok: false,
+      steps,
+      problem: {
+        problem: "The password could not be changed.",
+        fix: error?.message ?? "Supabase did not recognise that login.",
+      },
+    };
+  }
+
+  steps.push({
+    name: "Setting the new password",
+    status: "ok",
+    detail: data.user.email ?? authId.trim(),
+  });
+
+  return {
+    ok: true,
+    steps,
+    passwordOnly: true,
+    login: { email: data.user.email ?? "(unknown)", password },
+  };
+}
+
 export async function runMigrationsOnly(): Promise<SetupResult> {
   const steps: SetupStep[] = [];
 

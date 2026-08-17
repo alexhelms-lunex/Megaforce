@@ -5,6 +5,7 @@ import {
   fetchAuthLogins,
   runLinkOnly,
   runMigrationsOnly,
+  runPasswordReset,
   runSetup,
   type SetupResult,
 } from "@/lib/setup/run";
@@ -166,6 +167,62 @@ export async function GET(req: Request) {
    * the next round then gets tested against a different database than the one
    * that had the problem.
    */
+  /*
+   * Forgotten password.
+   *
+   * The password is shown once and never again, which is right for a password
+   * and a dead end for anybody who closes the tab. The only way out used to be
+   * the Supabase dashboard -- a tool this application otherwise never asks
+   * anybody to open.
+   */
+  if (url.searchParams.get("password") === "1") {
+    const { logins, error } = await fetchAuthLogins();
+
+    const manual = `
+      <form method="post">
+        <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+        <input type="hidden" name="password" value="1" />
+        <label for="authId">User UID</label>
+        <input id="authId" name="authId" placeholder="52a67572-7bce-405d-93a3-77b8601ffc8d"
+               autocomplete="off" spellcheck="false" />
+        <button type="submit">Give me a new password</button>
+      </form>
+      <p class="dim">Find the UID in Supabase under <b>Authentication → Users</b>, in the
+      <b>UID</b> column beside your login.</p>`;
+
+    if (logins.length > 0) {
+      const options = logins
+        .map((l) => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.email)}</option>`)
+        .join("");
+      return html(
+        page(
+          "New password",
+          `<p>This sets a new password on a login that already exists. It does not touch
+           your data, and it does not change which login is yours.</p>
+           <form method="post">
+             <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+             <input type="hidden" name="password" value="1" />
+             <label for="authId">Which login?</label>
+             <select id="authId" name="authId">${options}</select>
+             <button type="submit">Give me a new password</button>
+           </form>
+           <hr />
+           <h2>Or paste the ID yourself</h2>
+           ${manual}`,
+        ),
+      );
+    }
+
+    const why = error
+      ? `<p class="warn">Could not list the logins on this project. That does <b>not</b>
+         mean you have none — Supabase often withholds that table from the app's
+         database role. Paste the ID below instead.</p>
+         <pre class="dim">${escapeHtml(error)}</pre>`
+      : `<p>No logins turned up on this project.</p>`;
+
+    return html(page("New password", `${why}<h2>Paste the ID</h2>${manual}`));
+  }
+
   return html(
     page(
       "Set up or update your CRM",
@@ -193,7 +250,11 @@ export async function GET(req: Request) {
          <input type="hidden" name="full" value="${full ? "1" : "0"}" />
          <button type="submit">Erase and start over</button>
        </form>
-       <p class="dim">Takes about half a minute. Leave this tab open.</p>`,
+       <p class="dim">Takes about half a minute. Leave this tab open.</p>
+       <hr />
+       <p class="dim">Forgotten the password to a login that already exists?
+       <a href="?key=${encodeURIComponent(key ?? "")}&amp;password=1">Get a new one</a> —
+       it does not touch your data.</p>`,
     ),
   );
 }
@@ -214,6 +275,11 @@ export async function POST(req: Request) {
       email: email || (authId ? undefined : ADMIN_EMAIL),
     });
     return html(renderResult(linked), linked.ok ? 200 : 500);
+  }
+
+  if (form && String(form.get("password") ?? "") === "1") {
+    const reset = await runPasswordReset(String(form.get("authId") ?? ""));
+    return html(renderResult(reset), reset.ok ? 200 : 500);
   }
 
   if (form && String(form.get("migrate") ?? "") === "1") {
@@ -250,6 +316,21 @@ function renderResult(result: SetupResult): string {
        </div>
        <p class="dim">Fix that in Vercel under Settings → Environment Variables, redeploy,
        then load this page again. Nothing here is broken permanently.</p>`,
+    );
+  }
+
+  if (result.passwordOnly) {
+    return page(
+      "New password",
+      `<ul class="steps">${steps}</ul>
+       <div class="login">
+         <h2>Sign in with</h2>
+         <p><span class="dim">email</span> <code>${escapeHtml(result.login!.email)}</code></p>
+         <p><span class="dim">password</span> <code>${escapeHtml(result.login!.password)}</code></p>
+         <p class="warn">Write it down. This page is the only place it is shown.</p>
+       </div>
+       <p>Nothing in your data was changed.</p>
+       <p><a class="cta" href="/login">Sign in →</a></p>`,
     );
   }
 
