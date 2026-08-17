@@ -66,3 +66,34 @@ export const db: Db = new Proxy({} as Db, {
 });
 
 export { schema };
+
+/**
+ * The privileged connection, or null if it is not configured.
+ *
+ * ---------------------------------------------------------------------------
+ * `getDb()` throws when DATABASE_URL is absent, and that is right for a worker:
+ * a webhook with no database should fail loudly and be retried.
+ *
+ * It is wrong for anything a person is looking at. Three user-facing actions
+ * need this connection -- logging a call, resolving a queued one, and reading
+ * the dock's recent calls -- and the dock is on EVERY screen. A throw there did
+ * not produce a message; it took down whatever page the person was on, with the
+ * cause redacted by production.
+ *
+ * So those callers ask for the connection rather than assuming it, and say
+ * something useful when the answer is no.
+ * ---------------------------------------------------------------------------
+ */
+export function tryGetDb(): Db | null {
+  if (!process.env.DATABASE_URL) return null;
+  try {
+    return getDb();
+  } catch {
+    return null;
+  }
+}
+
+/** The sentence to show when it is missing. Written once so it reads the same everywhere. */
+export const DB_UNCONFIGURED =
+  "The server cannot reach the database directly, which this action needs. An administrator " +
+  "should check that DATABASE_URL is set in the deployment settings.";

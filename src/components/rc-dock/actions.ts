@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { db, schema } from "@/lib/db";
+import { DB_UNCONFIGURED, schema, tryGetDb } from "@/lib/db";
 import { qualify, toRule } from "@/lib/qualify";
 import { toE164 } from "@/lib/phone";
 import { currentUser } from "@/lib/supabase/server";
@@ -53,6 +53,10 @@ export interface DockCall {
  * on this list that needs doing. A call that has been written up is history.
  */
 export async function recentCalls(limit = 40): Promise<DockCall[]> {
+  // The dock renders on every screen. An empty list is a dock with nothing in
+  // it; a throw is the screen behind it replaced by an error page.
+  const db = tryGetDb();
+  if (!db) return [];
   const user = await currentUser();
   if (!user) return [];
 
@@ -112,6 +116,8 @@ export interface MatchOptions {
  * call knows which; this code does not.
  */
 export async function matchOptions(rawPhone: string): Promise<MatchOptions> {
+  const db = tryGetDb();
+  if (!db) return { accounts: [], contacts: [] };
   const phone = toE164(rawPhone);
   if (!phone) return { accounts: [], contacts: [] };
 
@@ -170,6 +176,8 @@ export interface LogResult {
  * approved activity and resets the account's clock.
  */
 export async function logCall(_prev: LogResult, form: FormData): Promise<LogResult> {
+  const db = tryGetDb();
+  if (!db) return { error: DB_UNCONFIGURED };
   const user = await currentUser();
   if (!user) return { error: "Not signed in." };
 
@@ -286,6 +294,8 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
 
 /** Calls the caller has not written up yet. Drives the dock's badge. */
 export async function unloggedCount(): Promise<number> {
+  const db = tryGetDb();
+  if (!db) return 0;
   const user = await currentUser();
   if (!user) return 0;
   const rows = await db

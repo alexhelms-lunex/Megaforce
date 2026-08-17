@@ -72,20 +72,30 @@ export async function claim(formData: FormData): Promise<ClaimResult> {
     }
 
     if (!data) {
-      // The update matched nothing: either it is gone, or somebody got there
-      // first. Naming the winner ends the matter; "could not claim" invites a
-      // second click and then a support message.
-      const { data: current } = await supabase
-        .from("accounts_with_state")
-        .select("owner_name")
-        .eq("id", accountId)
-        .maybeSingle();
+      /*
+       * The update matched nothing. Three different things cause that and they
+       * need three different sentences.
+       *
+       * The lookup goes through account_holder_name() rather than reading the
+       * account directly, because THE MOMENT SOMEBODY ELSE CLAIMS IT, ROW LEVEL
+       * SECURITY HIDES IT FROM YOU. Reading it back as yourself returns nothing,
+       * and the previous version took that to mean the account was gone -- so
+       * the broker who lost a race was told "that account no longer exists",
+       * concluded the system was broken, and went to find somebody to ask.
+       */
+      const [{ data: holder }, { data: exists }] = await Promise.all([
+        supabase.rpc("account_holder_name", { p_account_id: accountId }),
+        supabase.rpc("account_exists", { p_account_id: accountId }),
+      ]);
 
-      if (!current) return { error: "That account no longer exists." };
+      if (exists === false) return { error: "That account no longer exists." };
+      if (holder) return { error: `${holder} claimed this one first.` };
+      // It exists and nobody holds it, yet the update matched nothing: the
+      // policies refused the write rather than the row being taken.
       return {
-        error: current.owner_name
-          ? `${current.owner_name} claimed this one first.`
-          : "Somebody claimed this a moment before you did.",
+        error:
+          "That one could not be claimed just now. Refresh and try again — if it keeps " +
+          "happening it is flagged to Credit.",
       };
     }
 

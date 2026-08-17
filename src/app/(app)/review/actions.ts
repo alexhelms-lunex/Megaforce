@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/lib/db";
+import { DB_UNCONFIGURED, tryGetDb } from "@/lib/db";
 import { resolveUnmatched } from "@/lib/matcher";
 import { currentUser } from "@/lib/supabase/server";
 
@@ -29,7 +29,17 @@ export async function resolveQueueItem(formData: FormData) {
   const accountId = String(formData.get("accountId") ?? "");
   if (!unmatchedId || !accountId) return { error: "Pick an account first." };
 
-  const result = await resolveUnmatched(db, unmatchedId, accountId, user.id);
+  const db = tryGetDb();
+  if (!db) return { error: DB_UNCONFIGURED };
+
+  let result: Awaited<ReturnType<typeof resolveUnmatched>>;
+  try {
+    result = await resolveUnmatched(db, unmatchedId, accountId, user.id);
+  } catch (err) {
+    // A rejected action destroys the page rather than showing a message.
+    console.error("resolve threw", err);
+    return { error: `Could not attach that call: ${(err as Error).message}` };
+  }
 
   if ("error" in result) {
     console.warn("resolve failed", { unmatchedId, accountId, error: result.error });

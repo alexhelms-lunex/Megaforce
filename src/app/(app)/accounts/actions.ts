@@ -2,11 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/lib/db";
 import { mergeCustom, parseCustomFields, type FieldDefinition } from "@/lib/custom-values";
 import { toE164 } from "@/lib/phone";
-import { currentUser } from "@/lib/supabase/server";
+import { createClient, currentUser } from "@/lib/supabase/server";
 
 /**
  * A server action logs with console, not with pino.
@@ -34,23 +32,42 @@ export interface FormState {
 
 const STATUSES = new Set(["prospect", "engaged", "customer", "do_not_contact"]);
 
-/** The live definitions. Read every time, because they are data and can change. */
+/**
+ * The live definitions. Read every time, because they are data and can change.
+ *
+ * ---------------------------------------------------------------------------
+ * THROUGH THE USER'S CLIENT, NOT THE SERVICE-ROLE CONNECTION.
+ *
+ * This whole file used the Drizzle connection, which authenticates with
+ * DATABASE_URL and bypasses row level security. Two things were wrong with
+ * that, and the first one bit:
+ *
+ *   1. It is a SECOND way into the database. Every page in this application
+ *      reads through the Supabase client, so a missing or wrong DATABASE_URL
+ *      let every screen render perfectly and made creating an account, editing
+ *      one, and adding a contact fail — with a raw "Missing required
+ *      environment variable" rather than anything a user could act on. That is
+ *      the same fault that once broke claim and release.
+ *
+ *   2. Bypassing row level security here bought nothing. Creating a company is
+ *      an ordinary user action on rows the policies already permit; the checks
+ *      were then re-implemented by hand below, which is strictly worse than
+ *      letting Postgres do them.
+ * ---------------------------------------------------------------------------
+ */
 async function accountFieldDefs(): Promise<FieldDefinition[]> {
-  const rows = await db
-    .select({
-      key: schema.fieldDefs.key,
-      label: schema.fieldDefs.label,
-      type: schema.fieldDefs.type,
-      options: schema.fieldDefs.options,
-      required: schema.fieldDefs.required,
-    })
-    .from(schema.fieldDefs)
-    .where(eq(schema.fieldDefs.object, "account"))
-    .orderBy(schema.fieldDefs.sort);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("field_defs")
+    .select("key, label, type, options, required")
+    .eq("object", "account")
+    .eq("archived", false)
+    .order("sort");
 
-  return rows
-    .filter((r) => !("archived" in r) || true)
-    .map((r) => ({ ...r, type: r.type as FieldDefinition["type"] }));
+  return ((data ?? []) as FieldDefinition[]).map((r) => ({
+    ...r,
+    type: r.type as FieldDefinition["type"],
+  }));
 }
 
 /**
@@ -78,17 +95,21 @@ export async function createAccount(_prev: FormState, form: FormData): Promise<F
 
   const claim = String(form.get("claim") ?? "1") === "1";
 
-  const [created] = await db
-    .insert(schema.accounts)
-    .values({
+  const supabase = await createClient();
+  const { data: created, error } = await supabase
+    .from("accounts")
+    .insert({
       name,
       status,
       industry: String(form.get("industry") ?? "").trim() || null,
       domain: String(form.get("domain") ?? "").trim() || null,
-      ownerId: claim ? user.id : null,
+      owner_id: claim ? user.id : null,
       custom: values,
     })
-    .returning({ id: schema.accounts.id });
+    .select("id")
+    .single();
+
+  if (error || !created) return { error: friendly(error?.message ?? "Could not create the company.") };
 
   log.info({ accountId: created.id, by: user.id, claimed: claim }, "account created");
 
@@ -118,19 +139,20 @@ export async function updateAccount(_prev: FormState, form: FormData): Promise<F
   const status = String(form.get("status") ?? "prospect");
   if (!STATUSES.has(status)) return { error: "Unknown status." };
 
-  const [existing] = await db
-    .select({ ownerId: schema.accounts.ownerId, custom: schema.accounts.custom })
-    .from(schema.accounts)
-    .where(eq(schema.accounts.id, accountId))
-    .limit(1);
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("accounts")
+    .select("owner_id, custom")
+    .eq("id", accountId)
+    .maybeSingle();
 
-  if (!existing) return { error: "That account no longer exists." };
+  if (!existing) return { error: "That account no longer exists, or you cannot see it." };
 
   // Unowned accounts are editable by anyone -- they are in the pool, and
   // tidying one up before claiming it is reasonable. An owned account belongs
   // to its broker, their management chain, and the privileged roles.
   const privileged = user.role === "admin" || user.role === "credit" || user.role === "manager";
-  if (existing.ownerId && existing.ownerId !== user.id && !privileged) {
+  if (existing.owner_id && existing.owner_id !== user.id && !privileged) {
     return { error: "That account belongs to another broker." };
   }
 
@@ -140,9 +162,9 @@ export async function updateAccount(_prev: FormState, form: FormData): Promise<F
     return { fieldErrors: Object.fromEntries(errors.map((e) => [e.key, e.message])) };
   }
 
-  await db
-    .update(schema.accounts)
-    .set({
+  const { error: updateError } = await supabase
+    .from("accounts")
+    .update({
       name,
       status,
       industry: String(form.get("industry") ?? "").trim() || null,
@@ -151,7 +173,9 @@ export async function updateAccount(_prev: FormState, form: FormData): Promise<F
       // otherwise be destroyed by an unrelated edit.
       custom: mergeCustom(existing.custom as Record<string, unknown>, values),
     })
-    .where(eq(schema.accounts.id, accountId));
+    .eq("id", accountId);
+
+  if (updateError) return { error: friendly(updateError.message) };
 
   log.info({ accountId, by: user.id }, "account updated");
 
@@ -197,20 +221,52 @@ export async function createContact(_prev: FormState, form: FormData): Promise<F
 
   const email = String(form.get("email") ?? "").trim().toLowerCase() || null;
 
-  const [created] = await db
-    .insert(schema.contacts)
-    .values({
-      accountId,
-      firstName,
-      lastName,
+  const supabase = await createClient();
+  const { data: created, error: contactError } = await supabase
+    .from("contacts")
+    .insert({
+      account_id: accountId,
+      first_name: firstName,
+      last_name: lastName,
       email,
-      phoneE164,
+      phone_e164: phoneE164,
       title: String(form.get("title") ?? "").trim() || null,
     })
-    .returning({ id: schema.contacts.id });
+    .select("id")
+    .single();
+
+  if (contactError || !created) {
+    return { error: friendly(contactError?.message ?? "Could not add the contact.") };
+  }
 
   log.info({ contactId: created.id, accountId, by: user.id }, "contact created");
 
   revalidatePath(`/accounts/${accountId}`);
   return {};
+}
+
+/**
+ * Postgres speaks to developers. These screens speak to brokers.
+ *
+ * The duplicate guard is the message people will actually meet, and it is not a
+ * failure — the account was created, it is simply Credit's now until they
+ * decide which record is real.
+ */
+function friendly(message: string): string {
+  if (/duplicate|already exists/i.test(message) && /account|company/i.test(message)) {
+    return (
+      "That company matches one already on file, so it has been flagged to Credit. " +
+      "They decide which record is the real one."
+    );
+  }
+  if (/row-level security|permission denied/i.test(message)) {
+    return "You do not have permission to do that.";
+  }
+  if (/does not exist|schema cache|could not find/i.test(message)) {
+    return (
+      "The database is behind this version of the app. An administrator needs to re-run " +
+      `setup to apply the latest migrations. (${message})`
+    );
+  }
+  return message.replace(/^.*?ERROR:\s*/i, "");
 }
