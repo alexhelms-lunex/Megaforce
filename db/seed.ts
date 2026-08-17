@@ -1051,6 +1051,93 @@ export async function seed(
     landmarks[`state_${row.state}`] = `${row.c} accounts`;
   }
 
+  /*
+   * Requests, so the queues are not empty on a fresh database.
+   *
+   * An empty queue and a queue that does not work look identical, and the
+   * screens that read them -- the credit dashboard, the credit report, the
+   * requests filter -- render as blank panels with no way to tell which. Every
+   * other part of this seed exists for the same reason.
+   *
+   * The credit ones are deliberately a mix: some waiting, one waiting a long
+   * time, one approved and one denied. Turnaround is the number that screen is
+   * for, and a queue where everything arrived this morning cannot show it.
+   */
+  log("raising a handful of requests so the queues have something in them");
+  {
+    // Only accounts that somebody actually holds: a request on an unowned
+    // account is a request nobody can act on, and the queue is meant to look
+    // like a working one.
+    const held = await db.execute<{ id: string }>(sql`
+      select id from accounts where owner_id is not null order by created_at limit 40
+    `);
+    const ownedAccounts = (Array.isArray(held) ? held : (held as { rows: { id: string }[] }).rows);
+    const brokers = [...repIds, ...managerIds];
+    const creditRow = await db.execute<{ id: string }>(sql`
+      select id from users where role = 'credit' limit 1
+    `);
+    const creditPeople = (Array.isArray(creditRow) ? creditRow : (creditRow as { rows: { id: string }[] }).rows);
+    const creditUser = { id: creditPeople[0]?.id ?? adminRow.id };
+
+    if (brokers.length > 0 && ownedAccounts.length >= 8) {
+      const pick = (i: number) => ownedAccounts[i % ownedAccounts.length];
+      const asker = (i: number) => ({ id: brokers[i % brokers.length] });
+      const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+      const requests: (typeof schema.accountRequests.$inferInsert)[] = [
+        // Waiting on Credit, one of them uncomfortably long.
+        {
+          accountId: pick(0).id, requestedBy: asker(0).id, kind: "credit",
+          reason: "They want to double their lanes this quarter and are at the ceiling.",
+          amount: "150000", status: "pending", createdAt: daysAgo(9),
+        },
+        {
+          accountId: pick(1).id, requestedBy: asker(1).id, kind: "credit",
+          reason: "Seasonal peak. Needs headroom through October.",
+          amount: "75000", status: "pending", createdAt: daysAgo(2),
+        },
+        {
+          accountId: pick(2).id, requestedBy: asker(2).id, kind: "credit",
+          reason: "New customer, first limit. Two loads a week to start.",
+          amount: "40000", status: "pending", createdAt: daysAgo(1),
+        },
+        // Decided, so turnaround has something to average.
+        {
+          accountId: pick(3).id, requestedBy: asker(3).id, kind: "credit",
+          reason: "Consistent payer for eighteen months.",
+          amount: "200000", status: "approved",
+          createdAt: daysAgo(20), decidedBy: creditUser.id, decidedAt: daysAgo(19),
+          decisionNote: "Approved on payment history.",
+        },
+        {
+          accountId: pick(4).id, requestedBy: asker(4).id, kind: "credit",
+          reason: "Asked for a large increase ahead of a tender.",
+          amount: "500000", status: "denied",
+          createdAt: daysAgo(14), decidedBy: creditUser.id, decidedAt: daysAgo(11),
+          decisionNote: "Too large a step. Revisit at 250k after two quarters.",
+        },
+        // And the sales-side kinds, so the manager queue is not empty either.
+        {
+          accountId: pick(5).id, requestedBy: asker(5).id, kind: "amnesty",
+          reason: "Buyer has been on leave. Back next week and expecting a call.",
+          days: 14, status: "pending", createdAt: daysAgo(3),
+        },
+        {
+          accountId: pick(6).id, requestedBy: asker(6).id, kind: "extension",
+          reason: "Contract renewal is in legal. Nothing to log until it lands.",
+          days: 30, status: "pending", createdAt: daysAgo(5),
+        },
+      ];
+
+      for (const request of requests) {
+        // One open request per account is enforced by a unique index, and the
+        // seed picking the same account twice would abort the whole run.
+        await db.insert(schema.accountRequests).values(request).onConflictDoNothing();
+      }
+      landmarks.creditQueue = `${requests.filter((r) => r.kind === "credit" && r.status === "pending").length} credit requests waiting`;
+    }
+  }
+
   // A saved view worth opening on stage.
   await db.insert(schema.savedViews).values({
     object: "account",

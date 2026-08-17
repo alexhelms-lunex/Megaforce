@@ -137,11 +137,13 @@ export const accountRequests = pgTable(
     requestedBy: uuid("requested_by")
       .notNull()
       .references(() => users.id),
-    /** 'amnesty' | 'extension' | 'national' | 'release' | 'transfer' */
+    /** 'amnesty' | 'extension' | 'national' | 'release' | 'transfer' | 'credit' */
     kind: text("kind").notNull(),
     reason: text("reason").notNull(),
     /** Days of protection being asked for. Null for kinds that grant no time. */
     days: integer("days"),
+    /** The credit limit being asked for. Only meaningful for kind = 'credit'. */
+    amount: numeric("amount", { precision: 14, scale: 2 }),
     transferTo: uuid("transfer_to").references(() => users.id),
     /** 'pending' | 'approved' | 'denied' | 'withdrawn' */
     status: text("status").notNull().default("pending"),

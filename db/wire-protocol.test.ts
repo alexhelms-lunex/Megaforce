@@ -159,6 +159,56 @@ describe("seeding over the wire", () => {
   }, 120_000);
 
   /**
+   * The queues have to arrive with something in them.
+   *
+   * An empty queue and a queue that does not work look identical on screen, and
+   * the screens that read these -- the credit dashboard, the credit report, the
+   * requests filter -- are all new. Somebody opening them on a fresh database
+   * and finding three blank panels cannot tell which of the two they are
+   * looking at.
+   *
+   * The seed also has to produce DECIDED requests, not just pending ones:
+   * turnaround is the number the credit report exists for, and a queue where
+   * everything arrived this morning cannot show it.
+   */
+  it("leaves the request queues with work in them", async () => {
+    const [row] = await sql<{
+      credit_pending: string;
+      credit_decided: string;
+      sales_pending: string;
+      with_amount: string;
+    }[]>`
+      select
+        count(*) filter (where kind = 'credit' and status = 'pending')::text  as credit_pending,
+        count(*) filter (where kind = 'credit' and status <> 'pending')::text as credit_decided,
+        count(*) filter (where kind <> 'credit' and status = 'pending')::text as sales_pending,
+        count(*) filter (where kind = 'credit' and amount is not null)::text  as with_amount
+        from account_requests
+    `;
+
+    expect(Number(row.credit_pending)).toBeGreaterThan(0);
+    expect(Number(row.credit_decided)).toBeGreaterThan(0);
+    expect(Number(row.sales_pending)).toBeGreaterThan(0);
+    // An approved credit request with no amount would set a limit of null,
+    // which every screen reads as "no limit agreed".
+    expect(Number(row.with_amount)).toBe(
+      Number(row.credit_pending) + Number(row.credit_decided),
+    );
+  }, 120_000);
+
+  it("raises every request against an account somebody actually holds", async () => {
+    // A request on an unowned account is one nobody can act on, and it makes
+    // the queue look broken rather than busy.
+    const [row] = await sql<{ c: string }[]>`
+      select count(*)::text c
+        from account_requests r
+        join accounts a on a.id = r.account_id
+       where a.owner_id is null
+    `;
+    expect(row.c).toBe("0");
+  }, 120_000);
+
+  /**
    * The bug Alex hit twice: setup reseeds, the seed plants accounts past their
    * deadline, and the book comes back full of "26d over" rows that nobody owns
    * up to. Indistinguishable, from the outside, from the release being broken.
