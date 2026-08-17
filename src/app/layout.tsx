@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { EB_Garamond, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 /**
@@ -52,15 +53,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {adobeKit ? (
           <link rel="stylesheet" href={`https://use.typekit.net/${adobeKit}.css`} />
         ) : null}
       </head>
       <body className={`${garamond.variable} ${mono.variable} antialiased`}>
-        {children}
-        <Toaster />
+        {/* suppressHydrationWarning on <html> above is required: next-themes
+            writes the class before React hydrates, so the server and client
+            markup differ by design on exactly that attribute. */}
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );

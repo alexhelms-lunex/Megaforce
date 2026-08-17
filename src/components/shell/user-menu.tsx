@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, Settings, User as UserIcon } from "lucide-react";
+import { ChevronDown, LogOut, Settings, Settings2, User as UserIcon } from "lucide-react";
 
 const ROLE_LABEL: Record<string, string> = {
   broker: "Broker",
@@ -72,6 +72,14 @@ export function UserMenu({
             >
               <UserIcon className="size-4 text-muted-foreground" aria-hidden />
               My book and limits
+            </Link>
+            <Link
+              href="/settings"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent"
+            >
+              <Settings2 className="size-4 text-muted-foreground" aria-hidden />
+              Settings
             </Link>
             {role === "admin" ? (
               <Link

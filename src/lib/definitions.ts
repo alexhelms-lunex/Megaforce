@@ -200,3 +200,25 @@ export type DefinitionKey = keyof typeof RAW;
  * reading it becomes a type error at the one place that renders it.
  */
 export const DEFINITIONS: Record<DefinitionKey, Definition> = RAW;
+
+/**
+ * Which definition sits behind each account-list column header.
+ *
+ * Kept beside the registry rather than in the table component, so adding a
+ * column and forgetting to explain it is visible in one file.
+ */
+export const COLUMN_HELP: Record<string, DefinitionKey | undefined> = {
+  name: undefined,
+  owner: undefined,
+  location: undefined,
+  industry: "filterIndustry",
+  status: undefined,
+  stage: "stageFunnel",
+  phone: undefined,
+  website: undefined,
+  parent: "filterHierarchy",
+  credit: "creditRollup",
+  contacted: "lastContact",
+  activity: "lastCounted",
+  clock: "clock",
+};

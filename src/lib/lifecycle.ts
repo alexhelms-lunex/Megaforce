@@ -55,6 +55,12 @@ export interface LifecyclePresentation {
   label: string;
   /** Tailwind classes for the flag pill. */
   className: string;
+  /** The dot inside the pill, saturated where the pill background is not. */
+  dotClassName: string;
+  /** The fill of the time-remaining meter. */
+  meterClassName: string;
+  /** The coloured left edge of a table row carrying this state. */
+  rowClassName: string;
   /** Plain-language explanation, for a tooltip or the detail page. */
   meaning: string;
 }
@@ -67,33 +73,59 @@ export interface LifecyclePresentation {
 export const LIFECYCLE: Record<LifecycleState, LifecyclePresentation> = {
   available: {
     label: "Available",
-    className: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-200",
+    className:
+      "border-sky-300/70 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-950/60 dark:text-sky-200",
+    dotClassName: "bg-sky-500",
+    meterClassName: "bg-sky-400",
+    rowClassName: "border-l-sky-400",
     meaning: "Unclaimed. Any broker can take this one.",
   },
   fresh: {
     label: "Active",
-    className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+    className:
+      "border-brand-300/70 bg-brand-50 text-brand-900 dark:border-brand-800 dark:bg-brand-950/60 dark:text-brand-200",
+    dotClassName: "bg-brand-500",
+    meterClassName: "bg-brand-400",
+    rowClassName: "border-l-brand-400",
     meaning: "Worked recently. Nothing needed.",
+  },
+  protected: {
+    label: "Protected",
+    className:
+      "border-navy-300/70 bg-navy-50 text-navy-900 dark:border-navy-700 dark:bg-navy-900/70 dark:text-navy-100",
+    dotClassName: "bg-navy-600",
+    meterClassName: "bg-navy-500",
+    rowClassName: "border-l-navy-500",
+    meaning: "An approved account request is holding the clock off. It cannot expire yet.",
   },
   warning: {
     label: "Needs attention",
-    className: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+    className:
+      "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-200",
+    dotClassName: "bg-amber-500",
+    meterClassName: "bg-amber-400",
+    rowClassName: "border-l-amber-400",
     meaning: "Going quiet. Log a qualifying call to reset the clock.",
   },
   expiring: {
     label: "Expiring",
-    className: "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200",
+    className:
+      "border-orange-400 bg-orange-100 text-orange-950 dark:border-orange-700 dark:bg-orange-950/70 dark:text-orange-200",
+    dotClassName: "bg-orange-600",
+    meterClassName: "bg-orange-500",
+    rowClassName: "border-l-orange-500",
     meaning: "Days away from returning to the available pool.",
   },
   overdue: {
+    // The only state that inverts. Everything else is a tinted background with
+    // dark text; this one is solid, because at this point the account is
+    // already gone and a quiet pill in a long list would not say so.
     label: "Releasing",
-    className: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
+    className: "border-red-700 bg-red-600 text-white dark:border-red-500 dark:bg-red-700",
+    dotClassName: "bg-white",
+    meterClassName: "bg-red-600",
+    rowClassName: "border-l-red-600",
     meaning: "Past the deadline. Returns to the pool at the next nightly sweep.",
-  },
-  protected: {
-    label: "Protected",
-    className: "bg-navy-100 text-navy-900 dark:bg-navy-900 dark:text-navy-100",
-    meaning: "An approved account request is holding the clock off. It cannot expire yet.",
   },
 };
 

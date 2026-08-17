@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Building2, ExternalLink, Network, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { LifecycleFlag } from "@/components/lifecycle-flag";
+import { LifecycleFlag, lifecycleRowAccent } from "@/components/lifecycle-flag";
+import { InfoTip } from "@/components/info-tip";
+import { COLUMN_HELP } from "@/lib/definitions";
 import { FilterBar, type FilterOptions } from "./filter-bar";
 import { createClient, currentUser } from "@/lib/supabase/server";
 import {
@@ -120,7 +122,10 @@ export default async function AccountsPage({
                       c.numeric || c.key === "clock" ? "text-right" : ""
                     }`}
                   >
-                    {c.label}
+                    <span className="inline-flex items-center gap-1">
+                      {c.label}
+                      <InfoTip k={COLUMN_HELP[c.key]} side="bottom" />
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -142,7 +147,10 @@ export default async function AccountsPage({
                 </tr>
               ) : (
                 rows.map((row) => (
-                  <tr key={row.id} className="border-b last:border-b-0 hover:bg-accent/40">
+                  <tr
+                    key={row.id}
+                    className={`border-b border-l-[3px] last:border-b-0 hover:bg-accent/40 ${lifecycleRowAccent(row.state)}`}
+                  >
                     {visible.map((c) => (
                       <td
                         key={c.key}
@@ -344,7 +352,7 @@ function Cell({ column, row }: { column: string; row: AccountRow }) {
     }
 
     case "clock":
-      return <LifecycleFlag state={row.state} daysLeft={row.days_left} />;
+      return <LifecycleFlag state={row.state} daysLeft={row.days_left} showMeter />;
 
     default:
       return null;

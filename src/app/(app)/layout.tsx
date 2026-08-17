@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SetupNotice } from "@/components/setup-notice";
 import { RcDock } from "@/components/rc-dock/dock";
+import { PoolDock } from "@/components/pool-dock/dock";
 import { AlertBell, type Alert } from "@/components/shell/alert-bell";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { MobileNav } from "@/components/shell/mobile-nav";
@@ -72,8 +73,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       {/* Bottom-left on every screen, matching where it sits in Salesforce
           today. A broker is on a call while looking at an account; a phone
-          that lives on its own page is a phone nobody uses. */}
+          that lives on its own page is a phone nobody uses.
+
+          The pool sits beside it for the same reason: claiming happens in the
+          middle of doing something else, and sending somebody to another
+          screen to do it costs them whatever they were on. */}
       <RcDock />
+      <PoolDock />
     </div>
   );
 }

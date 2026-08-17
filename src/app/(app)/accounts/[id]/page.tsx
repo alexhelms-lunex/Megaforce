@@ -22,6 +22,7 @@ import { LifecycleFlag, LifecycleExplanation } from "@/components/lifecycle-flag
 import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
 import { RequestForm } from "@/components/request-form";
 import { AccountTabs } from "./account-tabs";
+import { ZoomInfoPanel } from "@/components/zoominfo-panel";
 import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { daysSince, formatDateTime, formatDuration, formatMoney, staleTone } from "@/lib/format";
@@ -158,6 +159,7 @@ export default async function AccountDetailPage({
     { key: "pipeline", label: "Pipeline", count: opportunities.length },
     { key: "ownership", label: "Ownership", count: claims.length },
     { key: "requests", label: "Requests", count: requests.length },
+    { key: "research", label: "Research" },
     { key: "details", label: "Details" },
   ];
   const tab = tabs.some((t) => t.key === rawTab) ? (rawTab as string) : "overview";
@@ -322,6 +324,15 @@ export default async function AccountDetailPage({
               requests={requests}
               colleagues={colleagues}
               canAsk={isMine || privileged}
+            />
+          ) : null}
+
+          {tab === "research" ? (
+            <ZoomInfoPanel
+              name={account.name}
+              city={account.billing_city}
+              state={account.billing_state}
+              website={account.website}
             />
           ) : null}
 
