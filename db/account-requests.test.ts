@@ -42,9 +42,9 @@ beforeEach(async () => {
 
     delete from account_retention_rules;
     insert into account_retention_rules (applies_to, warning_days, expiring_days, release_days) values
-      ('prospect', 21, 30, 45),
-      ('engaged',  30, 45, 60),
-      ('customer', 60, 90, 120);
+      ('prospect', 14, 21, 31),
+      ('engaged',  14, 21, 31),
+      ('customer', 90, 150, 181);
   `);
 
   [{ id: manager }] = await db

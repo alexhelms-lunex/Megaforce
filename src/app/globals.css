@@ -53,9 +53,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  /* Helvetica Neue first, so a Mac uses the real thing. Inter is DOWNLOADED
+     rather than merely named, so a Windows machine shows the intended face
+     instead of silently falling back to Segoe UI -- which is what made this
+     change invisible to everyone not on a Mac. */
   --font-sans:
-    "Helvetica Neue", Helvetica, "Segoe UI Variable Text", "Segoe UI", Arial, system-ui,
-    sans-serif;
+    "Helvetica Neue", var(--font-sans-fallback), Inter, Helvetica, Arial, sans-serif;
   --font-serif:
     "adobe-garamond-pro", "Adobe Garamond Pro", "AGaramondPro-Regular",
     var(--font-serif-fallback), "EB Garamond", Garamond, Georgia, serif;

@@ -49,9 +49,9 @@ beforeEach(async () => {
     -- every test that runs afterwards and they fail somewhere unrelated.
     delete from account_retention_rules;
     insert into account_retention_rules (applies_to, warning_days, expiring_days, release_days) values
-      ('prospect', 21, 30, 45),
-      ('engaged',  30, 45, 60),
-      ('customer', 60, 90, 120);
+      ('prospect', 14, 21, 31),
+      ('engaged',  14, 21, 31),
+      ('customer', 90, 150, 181);
   `);
 
   [{ id: dana }] = await db
@@ -106,16 +106,17 @@ describe("what state an account is in", () => {
     expect(await stateOf(id)).toBe("available");
   });
 
-  // The thresholds for a prospect are 21 / 30 / 45 days, seeded in 0004.
+  // The thresholds for a prospect are 14 / 21 / 31 days. The last of those is
+  // the one the business states directly: past thirty days, it is gone.
   it("walks through amber, red and overdue at the configured days", async () => {
     const cases: [number, string][] = [
       [1, "fresh"],
-      [20, "fresh"],
-      [21, "warning"],
-      [29, "warning"],
+      [13, "fresh"],
+      [14, "warning"],
+      [20, "warning"],
+      [21, "expiring"],
       [30, "expiring"],
-      [44, "expiring"],
-      [45, "overdue"],
+      [31, "overdue"],
       [90, "overdue"],
     ];
     for (const [days, expected] of cases) {
@@ -141,17 +142,17 @@ describe("what state an account is in", () => {
   });
 
   it("obeys a threshold change made in the database, with no code change", async () => {
-    const id = await makeAccount({ owner: dana, daysSinceActivity: 25 });
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 16 });
     expect(await stateOf(id)).toBe("warning");
 
     await db.execute(
-      sql`update account_retention_rules set warning_days = 10, expiring_days = 20, release_days = 24 where applies_to = 'prospect'`,
+      sql`update account_retention_rules set warning_days = 5, expiring_days = 10, release_days = 14 where applies_to = 'prospect'`,
     );
     expect(await stateOf(id)).toBe("overdue");
   });
 
   it("reports days remaining, going negative once past the deadline", async () => {
-    const soon = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+    const soon = await makeAccount({ owner: dana, daysSinceActivity: 26 });
     const gone = await makeAccount({ owner: dana, daysSinceActivity: 50 });
     expect((await accountState(db, soon))!.daysLeft).toBe(5);
     expect((await accountState(db, gone))!.daysLeft).toBeLessThan(0);
@@ -257,8 +258,8 @@ describe("losing an account", () => {
 describe("the nightly sweep", () => {
   it("takes back only the accounts that are actually overdue", async () => {
     const safe = await makeAccount({ owner: dana, daysSinceActivity: 10, name: "Safe Co" });
-    const amber = await makeAccount({ owner: dana, daysSinceActivity: 25, name: "Amber Co" });
-    const red = await makeAccount({ owner: dana, daysSinceActivity: 35, name: "Red Co" });
+    const amber = await makeAccount({ owner: dana, daysSinceActivity: 16, name: "Amber Co" });
+    const red = await makeAccount({ owner: dana, daysSinceActivity: 25, name: "Red Co" });
     const gone = await makeAccount({ owner: dana, daysSinceActivity: 60, name: "Gone Co" });
 
     const { released } = await releaseOverdueAccounts(db);
@@ -308,7 +309,7 @@ describe("a qualifying call resets the clock", () => {
     // The entire point of the mechanic: work the account and you keep it. This
     // ties the call pipeline to ownership -- the trigger on activities updates
     // last_activity_at, which is what account_state reads.
-    const id = await makeAccount({ owner: dana, daysSinceActivity: 35 });
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 25 });
     expect(await stateOf(id)).toBe("expiring");
 
     await db.insert(schema.activities).values({
@@ -326,7 +327,7 @@ describe("a qualifying call resets the clock", () => {
 
   it("does not reset for a call that did not qualify", async () => {
     // A 40 second wrong number must not buy another 45 days.
-    const id = await makeAccount({ owner: dana, daysSinceActivity: 35 });
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 25 });
 
     await db.insert(schema.activities).values({
       accountId: id,
@@ -371,7 +372,7 @@ describe("the clock resets when the account changes hands", () => {
   });
 
   it("gives the next broker a clean clock rather than the last one's neglect", async () => {
-    const id = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 25 });
     expect(await stateOf(id)).toBe("expiring");
 
     await releaseAccount(db, id, "manual");

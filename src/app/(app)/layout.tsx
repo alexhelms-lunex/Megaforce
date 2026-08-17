@@ -8,6 +8,7 @@ import { CommandPalette } from "@/components/shell/command-palette";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { Sidebar, type NavCounts } from "@/components/shell/sidebar";
 import { UserMenu } from "@/components/shell/user-menu";
+import { SettingsButton } from "@/components/shell/settings-button";
 import { createClient, currentUser, isPrivileged, isSupabaseConfigured } from "@/lib/supabase/server";
 import type { LifecycleState } from "@/lib/lifecycle";
 
@@ -57,6 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <CommandPalette role={user.role} />
           </div>
           <AlertBell alerts={alerts} />
+          <SettingsButton />
           <UserMenu
             name={user.full_name}
             email={user.email}

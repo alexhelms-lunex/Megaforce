@@ -422,7 +422,7 @@ describe("the accounts_with_state view", () => {
   it("computes the state and the days remaining", async () => {
     await becomeService(pg);
     await pg.query(
-      `update accounts set last_activity_at = now() - interval '33 days',
+      `update accounts set last_activity_at = now() - interval '25 days',
                            claimed_at = now() - interval '90 days'
         where id = $1`,
       [ids.acct1],
@@ -432,9 +432,9 @@ describe("the accounts_with_state view", () => {
     const res = await pg.query<{ state: string; days_left: number; urgency: number }>(
       "select state, days_left, urgency from accounts_with_state where name = 'Account One'",
     );
-    // 33 days against the 21/30/45 prospect thresholds.
+    // 25 days against the 14 / 21 / 31 prospect thresholds: red, six days left.
     expect(res.rows[0].state).toBe("expiring");
-    expect(res.rows[0].days_left).toBe(12);
+    expect(res.rows[0].days_left).toBe(6);
     // Urgency orders the list without a CASE repeated in every query.
     expect(res.rows[0].urgency).toBe(1);
   });

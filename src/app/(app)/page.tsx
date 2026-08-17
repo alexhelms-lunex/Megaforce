@@ -65,6 +65,22 @@ export default async function DashboardPage() {
   const managerish = me.role === "manager" || isPrivileged(me.role);
   const scope = managerish ? "team" : "mine";
 
+  /*
+   * Release overdue accounts before reading the numbers.
+   *
+   * The hourly cron is the primary route, but it depends on a Vercel plan, an
+   * environment variable and a deployment all being right -- and every one of
+   * those is a way for accounts to sit visibly overdue for weeks. This is the
+   * backstop: the rule the whole system exists to apply should not be able to
+   * stop working because somebody forgot to set a secret.
+   *
+   * sweep_if_due() rate-limits itself to once every fifteen minutes in SQL, so
+   * a floor full of people refreshing dashboards runs it four times an hour,
+   * not four hundred. Awaited rather than fired and forgotten, so the figures
+   * below are computed after the release rather than one page load behind it.
+   */
+  await supabase.rpc("sweep_if_due", { p_max_age_minutes: 15 });
+
   const [kpiRes, dailyRes, funnelRes, industryRes, teamRes, worklistRes] = await Promise.all([
     supabase.rpc("dashboard_kpis", { p_scope: scope }),
     supabase.rpc("dashboard_calls_daily", { p_days: 14, p_scope: scope }),

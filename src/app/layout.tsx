@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { EB_Garamond, JetBrains_Mono } from "next/font/google";
+import { EB_Garamond, Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
@@ -8,11 +8,18 @@ import "./globals.css";
  * Typography.
  *
  * ---------------------------------------------------------------------------
- * HELVETICA NEUE is a licensed font and is not available to serve from a CDN.
- * It is present on macOS and iOS, so it is named first and the stack falls
- * through to Helvetica, then Arial, on everything else. Those three share
- * metrics closely enough that a table does not reflow between platforms, which
- * is the part that actually matters for a screen full of numbers.
+ * HELVETICA NEUE is a licensed font and cannot be served from a CDN. It is on
+ * every Mac, so it is named first and Macs get the real thing.
+ *
+ * On Windows it is absent, and naming Arial or Segoe UI after it produces the
+ * platform's own default -- which is exactly what the browser was already
+ * using. The change is real, correct, and completely invisible to anyone not
+ * on a Mac, which is worse than not making it: it looks like nothing shipped.
+ *
+ * So Inter is served as the substitute. It is a neo-grotesque cut from the same
+ * lineage, close enough in skeleton and x-height that a table does not reflow
+ * between the two, and it is a genuine download -- so every machine shows the
+ * intended typeface rather than falling back to whatever it happened to have.
  *
  * ADOBE GARAMOND PRO is also licensed -- through Adobe Fonts, which serves it
  * from use.typekit.net against a paid plan. It is named first in the serif
@@ -38,6 +45,13 @@ const garamond = EB_Garamond({
   weight: ["400", "600"],
 });
 
+const sans = Inter({
+  variable: "--font-sans-fallback",
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
+
 const mono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
@@ -59,7 +73,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <link rel="stylesheet" href={`https://use.typekit.net/${adobeKit}.css`} />
         ) : null}
       </head>
-      <body className={`${garamond.variable} ${mono.variable} antialiased`}>
+      <body className={`${sans.variable} ${garamond.variable} ${mono.variable} antialiased`}>
         {/* suppressHydrationWarning on <html> above is required: next-themes
             writes the class before React hydrates, so the server and client
             markup differ by design on exactly that attribute. */}
