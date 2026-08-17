@@ -221,6 +221,78 @@ const RAW = {
   },
 
   // -------------------------------------------------------------------------
+  // Screens
+  //
+  // One per screen, answering the question somebody has on arriving at it for
+  // the first time: what am I looking at, and whose data is it? The second half
+  // matters more than it sounds -- almost every list here is scoped by who you
+  // are, and "why can my manager see more rows than me" is the single most
+  // common misreading of the whole application.
+  // -------------------------------------------------------------------------
+  activityFeed: {
+    title: "Activity",
+    body:
+      "Every call, email, SMS and quote captured against the accounts you can see, newest first. The green mark means it counted toward an account's clock; the rest happened but moved nothing.",
+    formula: "all activities on accounts visible to you",
+  },
+  contactsScreen: {
+    title: "Contacts",
+    body:
+      "The people on file at your accounts. This list is what the call matcher works from — an inbound number that matches nobody here cannot be attributed, so it lands in the review queue instead of resetting a clock.",
+  },
+  reviewQueue: {
+    title: "Review queue",
+    body:
+      "Calls the system could not attribute on its own: an unknown number, or a number that appears at two different companies. Nothing is guessed — attaching a call to the wrong company is more expensive than asking. Resolving one here turns it into a real activity.",
+  },
+  myBook: {
+    title: "Your book",
+    body:
+      "Everything currently in your name, with your own calling figures beside it. Nobody else's accounts appear here, including your manager's — this is the one screen that is strictly yours.",
+  },
+  reportsScreen: {
+    title: "Reports",
+    body:
+      "The same figures the dashboard shows, over a period you choose and broken down by person, branch, stage, industry and state. Every number is scoped by what you are allowed to see, so a manager's totals are their line of the org chart and nobody else's.",
+  },
+  leaderboard: {
+    title: "By rep",
+    body:
+      "Each broker's calls, how many counted, and how many accounts they hold. Ordered by counted calls rather than raw volume, because volume rewards short calls and this rewards the ones that actually moved a clock.",
+    formula: "per broker: calls · approved calls · accounts held",
+  },
+  byBranch: {
+    title: "By branch",
+    body:
+      "The same figures grouped by office rather than person, taken from each broker's location. A branch with no location set on its people will not appear.",
+  },
+  clockDistribution: {
+    title: "Where the clock stands",
+    body:
+      "How the book splits across the lifecycle states right now. A healthy book is mostly green with a thin amber edge; a large orange or red share means accounts are being held rather than worked.",
+  },
+  statusMix: {
+    title: "By status",
+    body:
+      "Prospects against customers. The ratio is the useful part — a book that is almost all prospects has not converted anything yet, and one that is almost all customers has stopped hunting.",
+  },
+  callingTrend: {
+    title: "Calling over time",
+    body:
+      "Calls per day across the period, with the counted share shaded inside each bar. The gap between the bar and the shading is the work being done that the clock is not seeing.",
+  },
+  approvedActivityRules: {
+    title: "What counts",
+    body:
+      "The editable rules behind every clock in the system. Change a threshold here and every screen, every report and the nightly digest change with it — the state is computed on read, never stored, so nothing can be left disagreeing.",
+  },
+  knownGaps: {
+    title: "Known gaps",
+    body:
+      "Things this build does not do yet, listed rather than hidden. Written down because a gap somebody knows about is a decision, and a gap they discover in front of a customer is a fault.",
+  },
+
+  // -------------------------------------------------------------------------
   // Filters
   // -------------------------------------------------------------------------
   filterIndustry: {

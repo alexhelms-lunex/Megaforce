@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarList, DailyBars, StageFunnel, StatCard, type DayBar } from "@/components/charts";
 import { LIFECYCLE, type LifecycleState } from "@/lib/lifecycle";
@@ -71,7 +72,7 @@ export default async function ReportsPage({
     <div className="mx-auto max-w-[1500px] space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Reports<InfoTip k="reportsScreen" side="bottom" /></h1>
           <p className="text-sm text-muted-foreground">
             {managerish ? "Your whole reporting line." : "Your own numbers."} Live from the same
             tables the screens read.
@@ -126,7 +127,7 @@ export default async function ReportsPage({
          --------------------------------------------------------------------- */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">By rep</CardTitle>
+          <CardTitle className="flex items-center gap-1.5 text-base">By rep<InfoTip k="leaderboard" side="bottom" /></CardTitle>
           <p className="text-xs text-muted-foreground">
             Ranked by calls that counted, not calls dialled.
           </p>
@@ -216,7 +217,7 @@ export default async function ReportsPage({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">By branch</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">By branch<InfoTip k="byBranch" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent className="px-0">
             <table className="w-full text-sm">
@@ -266,7 +267,7 @@ export default async function ReportsPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Pipeline by stage</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Pipeline by stage<InfoTip k="stageFunnel" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <StageFunnel rows={funnel} hrefBase="/accounts?stage=" />
@@ -277,7 +278,7 @@ export default async function ReportsPage({
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Where the clock stands</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Where the clock stands<InfoTip k="clockDistribution" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <BarList
@@ -293,7 +294,7 @@ export default async function ReportsPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">By status</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">By status<InfoTip k="statusMix" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <BarList
@@ -309,7 +310,7 @@ export default async function ReportsPage({
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Industry</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Industry<InfoTip k="industryMix" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <BarList

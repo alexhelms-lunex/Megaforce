@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { AlertTriangle, Building2, PhoneCall, Target } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarList, DailyBars, StatCard, type DayBar } from "@/components/charts";
@@ -168,7 +169,7 @@ export default async function MyBookPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Your calling, last 30 days</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Your calling, last 30 days<InfoTip k="callingTrend" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <DailyBars data={daily} />
@@ -177,7 +178,7 @@ export default async function MyBookPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your book by clock</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Your book by clock<InfoTip k="clockDistribution" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <BarList
@@ -197,7 +198,7 @@ export default async function MyBookPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-base">Closest to being taken</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Closest to being taken<InfoTip k="urgencySort" side="bottom" /></CardTitle>
             <Link href="/accounts?preset=at-risk" className="text-xs font-medium text-primary hover:underline">
               See all
             </Link>
@@ -246,7 +247,7 @@ export default async function MyBookPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Your industries</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Your industries<InfoTip k="industryMix" side="bottom" /></CardTitle>
           </CardHeader>
           <CardContent>
             <BarList

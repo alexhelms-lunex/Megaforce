@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/info-tip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/server";
@@ -70,7 +71,7 @@ export default async function ReviewPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Review queue</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Review queue<InfoTip k="reviewQueue" side="bottom" /></h1>
         <p className="text-sm text-muted-foreground">
           Calls and emails the system refused to guess about. {queue.length} waiting.
         </p>

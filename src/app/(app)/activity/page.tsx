@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { CheckCircle2, CircleSlash, Mail, PhoneCall, StickyNote, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,7 +155,7 @@ export default async function ActivityPage({
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Activity<InfoTip k="activityFeed" side="bottom" /></h1>
         <p className="text-sm text-muted-foreground">
           Every call, email and meeting you can see — and whether it reset an account&apos;s clock.
         </p>

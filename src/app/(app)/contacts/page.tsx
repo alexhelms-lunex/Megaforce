@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { Mail, Phone, Search, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,7 +114,7 @@ export default async function ContactsPage({
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Contacts<InfoTip k="contactsScreen" side="bottom" /></h1>
         <p className="text-sm text-muted-foreground">
           An email only counts as activity if it went to somebody on this list.
         </p>

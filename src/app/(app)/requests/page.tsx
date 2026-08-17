@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,7 +75,7 @@ export default async function RequestsPage() {
   return (
     <div className="mx-auto max-w-[1100px] space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Account requests</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Account requests<InfoTip k="accountRequest" side="bottom" /></h1>
         <p className="text-sm text-muted-foreground">
           Amnesty on a prospect, an extension on a customer, a transfer or a promotion. One queue,
           one trail.
@@ -147,7 +148,7 @@ export default async function RequestsPage() {
       {decided.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Already decided</CardTitle>
+            <CardTitle className="flex items-center gap-1.5 text-base">Already decided<InfoTip k="accountRequest" side="bottom" /></CardTitle>
             <p className="text-xs text-muted-foreground">
               Kept in full. This is the record a territory argument turns on.
             </p>

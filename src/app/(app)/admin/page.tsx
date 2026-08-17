@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { InfoTip } from "@/components/info-tip";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +92,7 @@ export default async function AdminPage({
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">What counts as approved activity</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-base">What counts as approved activity<InfoTip k="approvedActivityRules" side="bottom" /></CardTitle>
               <p className="text-xs text-muted-foreground">
                 The rules the qualifier runs on every inbound call and email. Changing these
                 changes who keeps which account, so they live in migrations rather than in a form.
@@ -141,7 +142,7 @@ export default async function AdminPage({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">The clock</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-base">The clock<InfoTip k="clock" side="bottom" /></CardTitle>
               <p className="text-xs text-muted-foreground">
                 Days from the last approved activity. Amber at the first, red at the second,
                 released at the third.
@@ -181,7 +182,7 @@ export default async function AdminPage({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Known gaps</CardTitle>
+              <CardTitle className="flex items-center gap-1.5 text-base">Known gaps<InfoTip k="knownGaps" side="bottom" /></CardTitle>
               <p className="text-xs text-muted-foreground">
                 Written down here rather than left to be discovered.
               </p>
