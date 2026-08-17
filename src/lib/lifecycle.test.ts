@@ -341,3 +341,104 @@ describe("a qualifying call resets the clock", () => {
     expect(await stateOf(id)).toBe("expiring");
   });
 });
+
+/**
+ * The clock resets when an account falls out of somebody's name.
+ *
+ * Stated by the business, and it governs more than the flag: everything derived
+ * from last_activity_at -- the "Last counted" column, the quiet-for-N-days
+ * filters, the never-worked preset, the dashboard counts -- has to agree with
+ * it, or one screen contradicts another.
+ */
+describe("the clock resets when the account changes hands", () => {
+  const lastActivityOf = async (id: string) => {
+    const rows = await db.execute<{ last_activity_at: string | null }>(
+      sql`select last_activity_at from accounts where id = ${id}`,
+    );
+    const list = Array.isArray(rows)
+      ? rows
+      : (rows as { rows: { last_activity_at: string | null }[] }).rows;
+    return list[0].last_activity_at;
+  };
+
+  it("clears the clock when an account is released to the pool", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 10 });
+    expect(await lastActivityOf(id)).not.toBeNull();
+
+    await releaseAccount(db, id, "manual");
+
+    expect(await lastActivityOf(id)).toBeNull();
+  });
+
+  it("gives the next broker a clean clock rather than the last one's neglect", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+    expect(await stateOf(id)).toBe("expiring");
+
+    await releaseAccount(db, id, "manual");
+    await claimAccount(db, id, kai);
+
+    expect(await stateOf(id)).toBe("fresh");
+    // The flag was already right, because account_state judges from the claim
+    // date. This is the part that was wrong: the column the list prints, the
+    // quiet-for-N-days filters and the never-worked preset all read this
+    // directly, so a stale value here showed "62d ago" in red beside a green
+    // flag on an account nobody had had a chance to work.
+    expect(await lastActivityOf(id)).toBeNull();
+  });
+
+  it("keeps the activity history, which is evidence rather than a clock", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 10 });
+    await db.insert(schema.activities).values({
+      accountId: id,
+      type: "call",
+      occurredAt: new Date(),
+      durationSeconds: 300,
+      result: "Call connected",
+      qualifies: true,
+      qualificationReason: "qualified",
+    });
+
+    await releaseAccount(db, id, "manual");
+
+    const rows = await db.execute<{ c: string }>(
+      sql`select count(*)::text c from activities where account_id = ${id}`,
+    );
+    const list = Array.isArray(rows) ? rows : (rows as { rows: { c: string }[] }).rows;
+    // Whoever picks this company up next needs to read what was already said to
+    // them. Only the pointer the clock reads is reset.
+    expect(Number(list[0].c)).toBe(1);
+  });
+
+  it("clears the clock on a straight reassignment too, not only a release", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+
+    // An admin moving it directly, without it passing through the pool. It has
+    // still fallen out of Dana's name.
+    await db.execute(sql`update accounts set owner_id = ${kai} where id = ${id}`);
+
+    expect(await lastActivityOf(id)).toBeNull();
+    expect(await stateOf(id)).toBe("fresh");
+  });
+
+  it("does not carry an amnesty across to the next holder", async () => {
+    const id = await makeAccount({ owner: dana, daysSinceActivity: 40 });
+    await db.execute(sql`
+      update accounts set retention_override_until = now() + interval '60 days' where id = ${id}
+    `);
+    expect(await stateOf(id)).toBe("protected");
+
+    await releaseAccount(db, id, "manual");
+    await claimAccount(db, id, kai);
+
+    // The extension was granted to Dana for Dana's reasons. Kai gets the
+    // ordinary clock, not sixty free days somebody else argued for.
+    expect(await stateOf(id)).toBe("fresh");
+    const rows = await db.execute<{ retention_override_until: string | null }>(
+      sql`select retention_override_until from accounts where id = ${id}`,
+    );
+    const list = Array.isArray(rows)
+      ? rows
+      : (rows as { rows: { retention_override_until: string | null }[] }).rows;
+    expect(list[0].retention_override_until).toBeNull();
+  });
+});
