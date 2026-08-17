@@ -60,7 +60,7 @@ export async function currentUser() {
 
   const { data } = await supabase
     .from("users")
-    .select("id, full_name, email, role, location, start_date, prospect_limit, manager_id")
+    .select("id, full_name, email, role, location, start_date, prospect_limit, manager_id, active")
     .eq("auth_id", user.id)
     .maybeSingle();
 
@@ -69,6 +69,13 @@ export async function currentUser() {
 
 export interface CurrentUser {
   id: string;
+  /**
+   * False once an administrator has deactivated them. The layout refuses the
+   * application rather than trusting the login ban alone -- a session issued
+   * before the deactivation is still a valid session, and it would otherwise
+   * keep working until it expired.
+   */
+  active?: boolean;
   full_name: string;
   email: string;
   /** 'broker' | 'manager' | 'credit' | 'admin' */

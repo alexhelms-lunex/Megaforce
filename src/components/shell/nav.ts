@@ -7,8 +7,8 @@ import {
   LayoutDashboard,
   PhoneCall,
   Settings,
-  ShieldCheck,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 
 /**
@@ -97,11 +97,18 @@ export const NAV: NavSection[] = [
         keywords: "analytics leaderboard pipeline industry",
       },
       {
+        href: "/admin/users",
+        label: "People",
+        icon: Users,
+        roles: ["admin"],
+        keywords: "users staff roles permissions accounts logins add new starter leaver",
+      },
+      {
         href: "/admin",
         label: "Admin",
         icon: Settings,
         roles: ["admin"],
-        keywords: "settings users rules fields thresholds",
+        keywords: "settings rules fields thresholds integrations email",
       },
     ],
   },

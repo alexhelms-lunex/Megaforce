@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { createPortal } from "react-dom";
 import { Info } from "lucide-react";
 import { DEFINITIONS, type DefinitionKey } from "@/lib/definitions";
+import { usePreferences } from "@/components/preferences-provider";
 
 /**
  * The little "i" beside everything.
@@ -55,6 +56,7 @@ export function InfoTip({
   /** Preferred placement. Flips automatically when there is no room. */
   side?: "top" | "bottom" | "right";
 }) {
+  const { show_tips: showTips } = usePreferences();
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [box, setBox] = useState<{ top: number; left: number } | null>(null);
@@ -146,7 +148,10 @@ export function InfoTip({
     };
   }, [open, place]);
 
-  if (!body) return null;
+  // "Show the info markers" off means the icon is not rendered at all. Hooks
+  // above run unconditionally so the order is stable either way; React does not
+  // forgive an early return that skips them.
+  if (!showTips || !body) return null;
 
   const panel =
     open && box !== null && typeof document !== "undefined"

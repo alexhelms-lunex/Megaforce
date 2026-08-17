@@ -354,6 +354,19 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent);
   }
 
+  /* Compact density. Another setting that saved a row and changed nothing.
+     It tightens the two things that actually decide how many rows fit on a
+     screen -- table padding and card spacing -- rather than shrinking the type,
+     which just makes a dense screen a dense screen you cannot read. */
+  [data-density="compact"] :is(th, td) {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+
+  [data-density="compact"] [data-slot="card"] {
+    --card-spacing: 0.75rem;
+  }
+
   /* Anything that can be pressed says so. */
   a,
   button,

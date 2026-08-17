@@ -22,9 +22,23 @@ export interface NavCounts {
  * badge nobody trusts, and these particular numbers -- accounts about to be
  * lost, calls not yet written up -- are the reason a broker opens the CRM.
  */
-export function Sidebar({ role, counts }: { role: string; counts: NavCounts }) {
+export function Sidebar({
+  role,
+  counts,
+  startCollapsed = false,
+}: {
+  role: string;
+  counts: NavCounts;
+  /**
+   * From the person's own settings. "Collapse the sidebar by default" is a
+   * STARTING state, not a lock -- the button below still works, and toggling
+   * it here does not write back to the database. Somebody who narrows the rail
+   * for one afternoon has not changed their preference.
+   */
+  startCollapsed?: boolean;
+}) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(startCollapsed);
   const sections = visibleNav(role);
 
   return (

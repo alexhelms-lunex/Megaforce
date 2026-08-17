@@ -9,6 +9,8 @@ import { MobileNav } from "@/components/shell/mobile-nav";
 import { Sidebar, type NavCounts } from "@/components/shell/sidebar";
 import { UserMenu } from "@/components/shell/user-menu";
 import { SettingsButton } from "@/components/shell/settings-button";
+import { PreferencesProvider } from "@/components/preferences-provider";
+import { readPreferences } from "./settings/actions";
 import { createClient, currentUser, isPrivileged, isSupabaseConfigured } from "@/lib/supabase/server";
 import type { LifecycleState } from "@/lib/lifecycle";
 
@@ -45,11 +47,39 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const { alerts, counts } = await chromeData(user.id, user.role);
+  // Deactivated, but still holding a session issued before it happened. The
+  // login ban stops the NEXT sign-in; this stops the current one.
+  if (user.active === false) {
+    return (
+      <div className="mx-auto max-w-2xl p-8">
+        <h1 className="text-lg font-semibold">This account has been deactivated</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          An administrator has switched off access for {user.full_name}. If that is not what you
+          expected, ask them to reactivate you from the People screen.
+        </p>
+        <form action={signOut} className="mt-4">
+          <Button variant="outline" size="sm">
+            Sign out
+          </Button>
+        </form>
+      </div>
+    );
+  }
+
+  const [{ alerts, counts }, prefs] = await Promise.all([
+    chromeData(user.id, user.role),
+    // Read once, here. Every component that needs a setting takes it from
+    // context rather than fetching its own copy -- which is what turned a
+    // screen of working toggles into a screen of toggles that did nothing.
+    readPreferences(),
+  ]);
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar role={user.role} counts={counts} />
+    <PreferencesProvider value={prefs}>
+      {/* Density is an attribute rather than a class so the CSS can key off it
+          without every component knowing the setting exists. */}
+      <div className="flex min-h-screen" data-density={prefs.density}>
+        <Sidebar role={user.role} counts={counts} startCollapsed={prefs.compact_sidebar} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="chrome-blur sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border/60 bg-card/70 px-4">
@@ -80,9 +110,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           The pool sits beside it for the same reason: claiming happens in the
           middle of doing something else, and sending somebody to another
           screen to do it costs them whatever they were on. */}
-      <RcDock />
-      <PoolDock />
-    </div>
+        <RcDock />
+        <PoolDock />
+      </div>
+    </PreferencesProvider>
   );
 }
 

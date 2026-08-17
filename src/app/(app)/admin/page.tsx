@@ -214,7 +214,19 @@ export default async function AdminPage({
       {tab === "users" ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">People</CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">People</CardTitle>
+              {/* This tab is a read-only roster. Everything that CHANGES
+                  somebody -- role, manager, login, deactivation -- lives on its
+                  own screen, because those operations need a confirmation step
+                  and a place to say what happens to the accounts. */}
+              <Link
+                href="/admin/users"
+                className="inline-flex h-8 items-center rounded-full bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/85"
+              >
+                Manage people &amp; roles →
+              </Link>
+            </div>
             <p className="text-xs text-muted-foreground">
               {unlinked > 0 ? (
                 <span className="text-amber-600">
