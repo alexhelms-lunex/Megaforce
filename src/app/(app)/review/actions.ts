@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { matcherLog } from "@/lib/logger";
 import { resolveUnmatched } from "@/lib/matcher";
 import { currentUser } from "@/lib/supabase/server";
 
@@ -33,14 +32,16 @@ export async function resolveQueueItem(formData: FormData) {
   const result = await resolveUnmatched(db, unmatchedId, accountId, user.id);
 
   if ("error" in result) {
-    matcherLog.warn({ unmatchedId, accountId, error: result.error }, "resolve failed");
+    console.warn("resolve failed", { unmatchedId, accountId, error: result.error });
     return { error: result.error };
   }
 
-  matcherLog.info(
-    { unmatchedId, accountId, activityId: result.activityId, by: user.id },
-    "queued call resolved",
-  );
+  console.log("queued call resolved", {
+    unmatchedId,
+    accountId,
+    activityId: result.activityId,
+    by: user.id,
+  });
 
   revalidatePath("/review");
   revalidatePath(`/accounts/${accountId}`);

@@ -5,11 +5,27 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { mergeCustom, parseCustomFields, type FieldDefinition } from "@/lib/custom-values";
-import { logger } from "@/lib/logger";
 import { toE164 } from "@/lib/phone";
 import { currentUser } from "@/lib/supabase/server";
 
-const log = logger.child({ component: "accounts" });
+/**
+ * A server action logs with console, not with pino.
+ *
+ * A logging framework in a serverless action is a dependency initialised on
+ * every cold start to write one line that Vercel captures from stdout either
+ * way. It earns nothing here, and an action that throws for ANY reason reports
+ * itself to the user as "the specific message is omitted in production builds"
+ * -- so the cheapest thing to do with a dependency that buys nothing is to
+ * remove it rather than rule it out.
+ *
+ * The worker and the webhook keep pino. They run outside a request, their
+ * output is searched by field, and nobody is staring at a button waiting for
+ * them.
+ */
+const log = {
+  info: (data: unknown, message: string) => console.log(message, data),
+  error: (data: unknown, message: string) => console.error(message, data),
+};
 
 export interface FormState {
   error?: string;
