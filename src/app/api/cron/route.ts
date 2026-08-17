@@ -20,9 +20,26 @@ const log = logger.child({ component: "cron" });
  * remember to keep alive -- and the reason this endpoint exists at all is that
  * the last scheduled job was never actually wired up to anything.
  *
- * Runs hourly and lets each job decide whether it is its turn. That is what
- * makes "send the morning email at 5" a field on a settings screen instead of a
- * line in a deployment config: changing the hour changes a row, not a schedule.
+ * ---------------------------------------------------------------------------
+ * THE SCHEDULE IS DAILY, NOT HOURLY, AND THAT IS NOT A PREFERENCE.
+ *
+ * Vercel's Hobby plan permits a cron to fire once per day. An hourly
+ * expression is rejected at deployment-config validation -- which runs BEFORE
+ * the build, so the deployment is never created at all. No error appears in the
+ * deployments list, because there is no deployment.
+ *
+ * That is precisely what happened here: an hourly schedule was committed and
+ * silently blocked seven consecutive pushes from ever reaching production. The
+ * application looked frozen for a day while every fix sat in the repository
+ * unbuilt, and the symptom -- old behaviour persisting after a "redeploy" --
+ * pointed at everything except the deployment config.
+ *
+ * 09:00 UTC is 5am Eastern in summer, 4am in winter. The exact hour matters
+ * less than it looks: each job re-checks whether it is its turn against the
+ * hour and timezone in settings, so the send time stays editable in the
+ * application. On a plan that allows more frequent crons, raising the frequency
+ * here makes that check tighter -- it does not change what any job does.
+ * ---------------------------------------------------------------------------
  */
 export async function GET(req: Request) {
   if (!authorised(req)) {
