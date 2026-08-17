@@ -32,9 +32,9 @@ export const ROLES: RoleDefinition[] = [
     // Managers hold a book of their own. Describing the role only by what it
     // oversees made it read as a supervisory position with no accounts, which
     // is not the job.
-    summary: "Holds their own book, and additionally oversees everyone reporting to them.",
+    summary: "Holds their own book, oversees everyone reporting to them, and can open any account in the company.",
     scope:
-      "Their own accounts, plus the accounts of everyone who reports to them, however many levels down.",
+      "Every account in the company. The ownership lock applies to brokers and account directors, not to managers. They can EDIT the accounts of their own reporting line.",
   },
   {
     key: "ad",

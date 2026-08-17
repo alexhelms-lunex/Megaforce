@@ -343,7 +343,8 @@ describe("who may open what", () => {
     { who: "dana", account: "danas", open: true, why: "her own account" },
     { who: "raj", account: "danas", open: false, why: "a colleague's account" },
     { who: "otherBroker", account: "danas", open: false, why: "a stranger's account" },
-    { who: "manager", account: "danas", open: true, why: "someone reporting to them" },
+    { who: "manager", account: "danas", open: true, why: "managers are not locked out" },
+    { who: "manager", account: "national", open: true, why: "managers see the whole book" },
     { who: "credit", account: "danas", open: true, why: "credit sees the whole book" },
     { who: "admin", account: "danas", open: true, why: "admins see everything" },
     { who: "director", account: "danas", open: false, why: "an AD is not privileged generally" },
@@ -512,35 +513,113 @@ describe("the account director", () => {
 });
 
 // ===========================================================================
-describe("the manager, who has to be able to track their brokers", () => {
-  it("opens both of their reports' accounts", async () => {
+/*
+ * Managers are not subject to the ownership lock at all.
+ *
+ * Alex, asked directly whether a manager sees their own reports' accounts or
+ * every account in the company: "The answer is B for you question."
+ *
+ * So the lock is a broker-and-AD rule. What a manager may EDIT is still their
+ * own reporting line -- see 0028 for why reading and writing were widened
+ * separately -- and that asymmetry is worth a test of its own, because a
+ * silently-refused UPDATE looks exactly like a successful one.
+ */
+describe("the manager, who is not restricted by the lock", () => {
+  it("opens every account in the company, not just their reports'", async () => {
+    await becomeService(pg);
+    await pg.query(
+      `insert into accounts (name, status, owner_id) values ('Outsider Co','prospect',$1)`,
+      [ids.other],
+    );
+
     const rows = await asUser<{ name: string }>(
       AUTH.manager,
       `select name from accounts order by name`,
     );
-    expect(rows.map((r) => r.name)).toEqual(["Danas Mill", "Free Co", "National Foods"]);
+    expect(rows.map((r) => r.name)).toEqual([
+      "Danas Mill",
+      "Free Co",
+      "National Foods",
+      "Outsider Co",
+    ]);
   });
 
-  it("cannot open an account outside their reporting line", async () => {
+  it("opens the inside of an account outside their reporting line", async () => {
+    // The contacts are the part with the value in them, so this is the test
+    // that the widening actually reached them rather than stopping at the
+    // account row.
     await becomeService(pg);
-    const { rows } = await pg.query<{ id: string }>(
+    const { rows: outside } = await pg.query<{ id: string }>(
+      `insert into accounts (name, status, owner_id) values ('Outsider Co','prospect',$1)
+       returning id`,
+      [ids.other],
+    );
+    await pg.query(
+      `insert into contacts (account_id, first_name, last_name)
+       values ($1,'Wes','Okafor')`,
+      [outside[0].id],
+    );
+
+    const contacts = await asUser<{ first_name: string }>(
+      AUTH.manager,
+      `select first_name from contacts where account_id = $1`,
+      [outside[0].id],
+    );
+    expect(contacts.map((c) => c.first_name)).toContain("Wes");
+  });
+
+  it("shows nothing in the directory as locked to them", async () => {
+    const rows = await asUser<{ can_open: boolean }>(
+      AUTH.manager,
+      `select can_open from account_directory('', '', 'all', 200, 0)`,
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.can_open)).toBe(true);
+  });
+
+  /*
+   * Reading is company-wide. Writing is not, and that was deliberate: a manager
+   * quietly renaming an account in another branch is not visibility, it is a
+   * second person editing somebody else's record.
+   */
+  it("still cannot edit an account outside their reporting line", async () => {
+    await becomeService(pg);
+    const { rows: outside } = await pg.query<{ id: string }>(
       `insert into accounts (name, status, owner_id) values ('Outsider Co','prospect',$1)
        returning id`,
       [ids.other],
     );
 
-    const seen = await asUser<{ id: string }>(AUTH.manager, `select id from accounts where id = $1`, [
-      rows[0].id,
-    ]);
-    expect(seen).toHaveLength(0);
-
-    // And still finds it in the directory, with Quinn's name on it.
-    const entry = await asUser<Record<string, unknown>>(
-      AUTH.manager,
-      `select owner_name, can_open from account_directory_one($1)`,
-      [rows[0].id],
+    await becomeUser(pg, AUTH.manager);
+    const { rows: changed } = await pg.query(
+      `update accounts set name = 'Renamed By A Manager' where id = $1 returning id`,
+      [outside[0].id],
     );
-    expect(entry[0].owner_name).toBe("Quinn");
-    expect(entry[0].can_open).toBe(false);
+    expect(changed).toHaveLength(0);
+
+    await becomeService(pg);
+    const { rows: after } = await pg.query<{ name: string }>(
+      `select name from accounts where id = $1`,
+      [outside[0].id],
+    );
+    expect(after[0].name).toBe("Outsider Co");
+  });
+
+  it("still cannot reassign an owner outside their reporting line", async () => {
+    await becomeService(pg);
+    const { rows: outside } = await pg.query<{ id: string }>(
+      `insert into accounts (name, status, owner_id) values ('Outsider Co','prospect',$1)
+       returning id`,
+      [ids.other],
+    );
+
+    await becomeUser(pg, AUTH.manager);
+    // Refused by the UPDATE policy before the trigger is even reached, which is
+    // why this is zero rows rather than an exception.
+    const { rows } = await pg.query(
+      `update accounts set owner_id = $1 where id = $2 returning id`,
+      [ids.dana, outside[0].id],
+    );
+    expect(rows).toHaveLength(0);
   });
 });

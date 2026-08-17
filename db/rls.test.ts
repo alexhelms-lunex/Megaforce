@@ -108,9 +108,23 @@ describe("who can see which accounts", () => {
     expect(await visibleAccountNames(AUTH.rep3)).toEqual(["Account Three"]);
   });
 
-  it("a manager sees their whole team, and nobody else's", async () => {
-    expect(await visibleAccountNames(AUTH.manager)).toEqual(["Account One", "Account Two"]);
-    expect(await visibleAccountNames(AUTH.manager)).not.toContain("Account Three");
+  /*
+   * Changed in 0028, on Alex's answer.
+   *
+   * Asked whether a manager sees (A) their own reports' accounts or (B) every
+   * account in the company: "The answer is B for you question." So the
+   * ownership lock is a broker-and-AD rule; managers are outside it, like
+   * credit and admins.
+   *
+   * What a manager may EDIT is still their own reporting line -- that half was
+   * deliberately not widened, and account-locks.test.ts holds it.
+   */
+  it("a manager sees every account in the company", async () => {
+    expect(await visibleAccountNames(AUTH.manager)).toEqual([
+      "Account One",
+      "Account Three",
+      "Account Two",
+    ]);
   });
 
   it("an admin sees everything", async () => {
@@ -143,12 +157,16 @@ describe("child records inherit their account's visibility", () => {
     expect(res.rows.map((r) => r.first_name)).toEqual(["Ana"]);
   });
 
-  it("gives a manager their team's contacts", async () => {
+  it("gives a manager every contact, since they can open every account", async () => {
+    // Contacts are gated by an EXISTS against the account row, so widening the
+    // account policy in 0028 reached them without a policy of their own. That
+    // cascade is the property worth asserting -- the alternative is a manager
+    // who can open an account and finds it empty.
     await becomeUser(pg, AUTH.manager);
     const res = await pg.query<{ first_name: string }>(
       "select first_name from contacts order by first_name",
     );
-    expect(res.rows.map((r) => r.first_name)).toEqual(["Ana", "Ben"]);
+    expect(res.rows.map((r) => r.first_name)).toEqual(["Ana", "Ben", "Cleo"]);
   });
 
   it("hides activities on accounts you cannot see", async () => {
