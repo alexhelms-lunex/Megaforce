@@ -19,6 +19,7 @@ import { CustomFields, type FieldDef } from "@/components/custom-fields";
 import { ContactForm } from "@/components/contact-form";
 import { CompanyMap } from "@/components/company-map";
 import { LifecycleFlag, LifecycleExplanation } from "@/components/lifecycle-flag";
+import { InfoTip } from "@/components/info-tip";
 import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
 import { RequestForm } from "@/components/request-form";
 import { AccountTabs } from "./account-tabs";
@@ -90,12 +91,20 @@ export default async function AccountDetailPage({
         .select("id, name, status, state, days_left, credit_limit, billing_city, billing_state")
         .eq("parent_account_id", id)
         .order("name"),
-      supabase
-        .from("account_claims")
-        .select("id, user_id, claimed_at, released_at, release_reason")
-        .eq("account_id", id)
-        .order("claimed_at", { ascending: false })
-        .limit(25),
+      /*
+       * The whole history, as segments rather than as claim rows.
+       *
+       * account_claims answers "who claimed it and when". It cannot answer
+       * "and who had it in March", because the stretches where NOBODY held it
+       * are not rows -- they are the gaps between rows, and a gap is invisible
+       * in a list. Those stretches are the ones that matter in a territory
+       * argument: an account sitting unclaimed for four months is four months a
+       * competitor had a clear run at it.
+       *
+       * The function stitches both into one ordered timeline, with each
+       * holder's approved activity counted inside their own window.
+       */
+      supabase.rpc("account_ownership_timeline", { p_account_id: id }),
       supabase
         .from("account_requests")
         .select(
@@ -125,7 +134,9 @@ export default async function AccountDetailPage({
   const opportunities = oppsRes.data ?? [];
   const defs = (defsRes.data ?? []) as FieldDef[];
   const children = childrenRes.data ?? [];
-  const claims = claimsRes.data ?? [];
+  // Newest first on screen; the function returns oldest first because it walks
+  // forward through time to find the gaps.
+  const timeline = ((claimsRes.data ?? []) as unknown as OwnershipSegment[]).slice().reverse();
   const requests = (requestsRes.data ?? []) as unknown as AccountRequest[];
   const colleagues = ((colleaguesRes.data ?? []) as { id: string; full_name: string }[])
     .filter((u) => u.id !== account.owner_id)
@@ -157,7 +168,7 @@ export default async function AccountDetailPage({
     { key: "hierarchy", label: "Hierarchy", count: children.length, info: "filterHierarchy" as const },
     { key: "credit", label: "Credit", info: "creditRollup" as const },
     { key: "pipeline", label: "Pipeline", count: opportunities.length, info: "stageFunnel" as const },
-    { key: "ownership", label: "Ownership", count: claims.length, info: "ownershipTimeline" as const },
+    { key: "ownership", label: "Ownership", count: timeline.length, info: "ownershipTimeline" as const },
     { key: "requests", label: "Requests", count: requests.length, info: "accountRequest" as const },
     { key: "research", label: "Research" },
     { key: "details", label: "Details" },
@@ -275,6 +286,15 @@ export default async function AccountDetailPage({
               sub: account.owner_location,
             },
             {
+              // The counter that resets when the account changes hands. It has
+              // existed in the view since 0014 and appeared on no screen, which
+              // made a rule everybody has to live by completely unverifiable.
+              icon: Star,
+              label: "Activity this holding",
+              value: account.owner_id ? `${Number(account.tenure_activities ?? 0)}` : null,
+              sub: account.owner_id ? "approved, since it was claimed" : undefined,
+            },
+            {
               icon: CreditCard,
               label: "Credit",
               value: account.credit_limit ? formatMoney(account.credit_limit) : null,
@@ -315,7 +335,7 @@ export default async function AccountDetailPage({
 
           {tab === "pipeline" ? <PipelineTab opportunities={opportunities} /> : null}
 
-          {tab === "ownership" ? <OwnershipTab account={account} claims={claims} /> : null}
+          {tab === "ownership" ? <OwnershipTab account={account} timeline={timeline} /> : null}
 
           {tab === "requests" ? (
             <RequestsTab
@@ -909,58 +929,157 @@ function PipelineTab({ opportunities }: { opportunities: any[] }) {
   );
 }
 
-function OwnershipTab({ account, claims }: { account: any; claims: any[] }) {
+/** One stretch of this account's life, from account_ownership_timeline(). */
+interface OwnershipSegment {
+  segment: "owned" | "available";
+  user_id: string | null;
+  user_name: string | null;
+  started_at: string;
+  ended_at: string | null;
+  days_held: number | string;
+  release_reason: string | null;
+  qualifying_activities: number | string;
+}
+
+const RELEASE_REASON_LABEL: Record<string, string> = {
+  expired: "Timed out",
+  manual: "Given up",
+  reassigned: "Reassigned",
+  converted: "Converted",
+};
+
+/**
+ * Who has held this, and who has not.
+ *
+ * ---------------------------------------------------------------------------
+ * This used to be a list of claim rows: two dates and a reason, no name, no
+ * duration, and no sign of the stretches where the account sat in the pool.
+ * Those gaps are the important part. An account nobody held for four months is
+ * four months a competitor had a clear run at it, and that is exactly the fact
+ * a territory argument turns on -- but a gap between two rows is invisible in a
+ * list of rows.
+ *
+ * So Available is a segment like any other, with its own duration, drawn in the
+ * same rail. The activity count beside each holder is counted inside THEIR
+ * window only, which turns "I worked that account hard" from an assertion into
+ * a number.
+ * ---------------------------------------------------------------------------
+ */
+function OwnershipTab({
+  account,
+  timeline,
+}: {
+  account: any;
+  timeline: OwnershipSegment[];
+}) {
+  const held = timeline.filter((s) => s.segment === "owned");
+  const unclaimedDays = timeline
+    .filter((s) => s.segment === "available")
+    .reduce((sum, s) => sum + Number(s.days_held ?? 0), 0);
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Current holding</CardTitle>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            Current holding
+            <InfoTip k="ownershipTimeline" />
+          </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-6 sm:grid-cols-2">
           <dl className="space-y-2 text-sm">
             <Row label="Owner" value={account.owner_name ?? "Unclaimed"} />
             <Row label="Branch" value={account.owner_location ?? "—"} />
             <Row label="Account Director" value={account.ad_owner_name ?? "None"} />
             <Row label="Claimed" value={relative(account.claimed_at)} />
-            <Row label="Last released" value={relative(account.released_at)} />
-            <Row label="Release reason" value={account.last_release_reason ?? "—"} />
+          </dl>
+          <dl className="space-y-2 text-sm">
+            <Row
+              label="Activity this holding"
+              value={`${Number(account.tenure_activities ?? 0)} approved`}
+            />
+            <Row label="Times held" value={`${held.length}`} />
+            <Row
+              label="Total time unclaimed"
+              value={unclaimedDays > 0 ? `${Math.round(unclaimedDays)} days` : "never unclaimed"}
+            />
+            <Row label="Last release reason" value={account.last_release_reason ?? "—"} />
           </dl>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Who has held this</CardTitle>
+          <CardTitle className="text-base">The whole history</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Release is a recorded event, not a column going quiet. This is the trail a territory
-            argument turns on.
+            Every holder with the dates, how long they had it, and how much approved activity they
+            logged inside their own window. Unclaimed stretches are segments too.
           </p>
         </CardHeader>
         <CardContent>
-          {claims.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">No claim history recorded.</p>
+          {timeline.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              Nothing recorded yet. Nobody has claimed or released this account since it was
+              created.
+            </p>
           ) : (
             <ol className="space-y-0">
-              {claims.map((c, i) => (
-                <li key={c.id}>
-                  {i > 0 ? <Separator /> : null}
-                  <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
-                    <span className="text-muted-foreground">
-                      {formatDateTime(c.claimed_at)}
-                      {c.released_at ? ` → ${formatDateTime(c.released_at)}` : " → still held"}
-                    </span>
-                    {c.release_reason ? (
-                      <Badge variant="outline" className="text-[10px]">
-                        {c.release_reason}
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-[10px]">
-                        current
-                      </Badge>
-                    )}
-                  </div>
-                </li>
-              ))}
+              {timeline.map((s, i) => {
+                const open = s.ended_at === null;
+                const days = Math.round(Number(s.days_held ?? 0));
+                const unclaimed = s.segment === "available";
+                return (
+                  <li key={`${s.started_at}-${i}`}>
+                    {i > 0 ? <Separator /> : null}
+                    <div className="flex flex-wrap items-start gap-3 py-3">
+                      {/* The rail. Colour matches the pool's blue for unclaimed
+                          and the brand for held, so the shape of the account's
+                          life reads before any of the text does. */}
+                      <span
+                        aria-hidden
+                        className={`mt-1 h-9 w-1 shrink-0 rounded-full ${
+                          unclaimed ? "bg-sky-400" : "bg-brand-500"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          {unclaimed ? (
+                            <span className="text-sky-600 dark:text-sky-400">
+                              Available — nobody held it
+                            </span>
+                          ) : (
+                            <span>{s.user_name ?? "Removed user"}</span>
+                          )}
+                          {open ? (
+                            <Badge variant="secondary" className="text-[10px]">
+                              current
+                            </Badge>
+                          ) : s.release_reason ? (
+                            <Badge variant="outline" className="text-[10px]">
+                              {RELEASE_REASON_LABEL[s.release_reason] ?? s.release_reason}
+                            </Badge>
+                          ) : null}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {formatDateTime(s.started_at)}
+                          {" → "}
+                          {s.ended_at ? formatDateTime(s.ended_at) : "now"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold tabular-nums">
+                          {days === 0 ? "<1" : days} day{days === 1 ? "" : "s"}
+                        </p>
+                        {!unclaimed ? (
+                          <p className="text-xs tabular-nums text-muted-foreground">
+                            {Number(s.qualifying_activities ?? 0)} approved
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </CardContent>
