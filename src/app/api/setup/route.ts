@@ -4,6 +4,7 @@ import {
   BROWSER_VOLUMES,
   fetchAuthLogins,
   runLinkOnly,
+  runMigrationsOnly,
   runSetup,
   type SetupResult,
 } from "@/lib/setup/run";
@@ -156,20 +157,41 @@ export async function GET(req: Request) {
     return html(page("Connect your login", `${why}<h2>Paste the ID</h2>${manual}`));
   }
 
+  /*
+   * Two buttons, and the safe one is first.
+   *
+   * There used to be only the destructive one, which meant picking up a schema
+   * change cost somebody every account, person and setting they had made. That
+   * is a bad trade at any time and a circular one during a round of fixes --
+   * the next round then gets tested against a different database than the one
+   * that had the problem.
+   */
   return html(
     page(
-      "Ready to set up your CRM",
-      `<p>This will create the tables, load
+      "Set up or update your CRM",
+      `<div class="login">
+         <h2>Just apply the database changes</h2>
+         <p>Use this when a new version needs a database change. It adds whatever is
+         missing and <b>leaves every company, person and setting exactly as it is</b>.
+         Safe to press twice.</p>
+         <form method="post">
+           <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
+           <input type="hidden" name="migrate" value="1" />
+           <button type="submit">Apply database changes</button>
+         </form>
+       </div>
+       <hr />
+       <h2>Or start over from scratch</h2>
+       <p>This will create the tables, load
        <b>${volumes.accounts} companies</b> and
        <b>${volumes.activities.toLocaleString()} calls and emails</b>,
        and make you a login.</p>
-       <p class="warn"><b>It erases anything already in this database first.</b>
-       That is what you want the first time. It is not what you want if you have
-       since put real data in here.</p>
+       <p class="warn"><b>It erases everything already in this database first.</b>
+       That is what you want the first time, and only the first time.</p>
        <form method="post">
          <input type="hidden" name="key" value="${escapeHtml(key ?? "")}" />
          <input type="hidden" name="full" value="${full ? "1" : "0"}" />
-         <button type="submit">Set up my CRM</button>
+         <button type="submit">Erase and start over</button>
        </form>
        <p class="dim">Takes about half a minute. Leave this tab open.</p>`,
     ),
@@ -192,6 +214,11 @@ export async function POST(req: Request) {
       email: email || (authId ? undefined : ADMIN_EMAIL),
     });
     return html(renderResult(linked), linked.ok ? 200 : 500);
+  }
+
+  if (form && String(form.get("migrate") ?? "") === "1") {
+    const migrated = await runMigrationsOnly();
+    return html(renderResult(migrated), migrated.ok ? 200 : 500);
   }
 
   const full = form ? String(form.get("full") ?? "0") === "1" : false;
@@ -223,6 +250,18 @@ function renderResult(result: SetupResult): string {
        </div>
        <p class="dim">Fix that in Vercel under Settings → Environment Variables, redeploy,
        then load this page again. Nothing here is broken permanently.</p>`,
+    );
+  }
+
+  if (result.migrationsOnly) {
+    return page(
+      "Database is up to date",
+      `<ul class="steps">${steps}</ul>
+       <p>Nothing in your data was changed. Every company, person and setting is as
+       you left it.</p>
+       <p class="warn">Close any CRM tab you already had open and open a fresh one —
+       an old tab is still wired to the previous version.</p>
+       <p><a class="cta" href="/">Open the CRM →</a></p>`,
     );
   }
 

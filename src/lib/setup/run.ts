@@ -56,6 +56,8 @@ export interface SetupResult {
   };
   landmarks?: Record<string, string>;
   problem?: { problem: string; fix: string };
+  /** Set when only the SQL ran, so the result page does not offer a password. */
+  migrationsOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -731,6 +733,69 @@ export const BROWSER_VOLUMES: SeedVolumes = {
   activities: 6000,
   days: 180,
 };
+
+/**
+ * Apply the SQL and touch nothing else.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS
+ *
+ * Setup had exactly one button, and it wiped the database. That is right the
+ * first time and wrong every time after it: a migration adding a table has
+ * nothing to do with the data already in there, and making somebody destroy
+ * their work to pick up a schema change means they stop picking up schema
+ * changes.
+ *
+ * It also made testing circular. Every round of fixes that touched SQL cost the
+ * accounts, people and settings created while testing the previous round -- so
+ * the next round was tested against a different database than the one that had
+ * the problem.
+ *
+ * Migrations are written to be re-runnable, so this is safe to press twice.
+ * ---------------------------------------------------------------------------
+ */
+export async function runMigrationsOnly(): Promise<SetupResult> {
+  const steps: SetupStep[] = [];
+
+  try {
+    checkEnvironment();
+    steps.push({ name: "Checking your settings", status: "ok", detail: "all five present" });
+  } catch (err) {
+    steps.push({ name: "Checking your settings", status: "failed", detail: (err as Error).message });
+    return { ok: false, steps, problem: { problem: (err as SetupError).problem, fix: (err as SetupError).fix } };
+  }
+
+  let sql: postgres.Sql;
+  try {
+    sql = await connect();
+    steps.push({ name: "Connecting to Supabase", status: "ok", detail: "connected" });
+  } catch (err) {
+    steps.push({ name: "Connecting to Supabase", status: "failed", detail: (err as Error).message });
+    return { ok: false, steps, problem: { problem: (err as SetupError).problem, fix: (err as SetupError).fix } };
+  }
+
+  try {
+    const count = await runMigrations(sql);
+    steps.push({
+      name: "Applying database changes",
+      status: "ok",
+      detail: `${count} files applied — no data touched`,
+    });
+    return { ok: true, steps, migrationsOnly: true };
+  } catch (err) {
+    steps.push({ name: "Applying database changes", status: "failed", detail: (err as Error).message });
+    return {
+      ok: false,
+      steps,
+      problem: {
+        problem: "A database change could not be applied.",
+        fix: (err as Error).message,
+      },
+    };
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
 
 export async function runSetup(options: {
   volumes?: SeedVolumes;
