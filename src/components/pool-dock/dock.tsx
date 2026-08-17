@@ -86,7 +86,7 @@ export function PoolDock() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-0 left-44 z-50 flex items-center gap-2 rounded-t-lg border border-b-0 bg-card px-4 py-2 text-sm font-medium shadow-lg transition-colors hover:bg-accent"
+        className="chrome-blur fixed bottom-0 left-44 z-50 flex items-center gap-2 rounded-t-2xl border border-b-0 border-border/60 bg-card/85 px-4 py-2.5 text-sm font-medium shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.25)] transition-colors hover:bg-accent"
         aria-label="Open the available pool"
       >
         <Inbox className="size-3.5" aria-hidden />
@@ -96,7 +96,7 @@ export function PoolDock() {
   }
 
   return (
-    <div className="fixed bottom-0 left-44 z-50 flex h-[32rem] w-[24rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-lg border border-b-0 bg-card shadow-2xl">
+    <div className="chrome-blur fixed bottom-0 left-44 z-50 flex h-[32rem] w-[24rem] max-w-[calc(100vw-2rem)] flex-col rounded-t-2xl border border-b-0 border-border/60 bg-card/95 shadow-[0_-8px_40px_-12px_rgba(0,0,0,0.35)]">
       <header className="flex items-center gap-2 border-b px-3 py-2">
         <Inbox className="size-3.5" aria-hidden />
         <span className="text-sm font-semibold">Available pool</span>

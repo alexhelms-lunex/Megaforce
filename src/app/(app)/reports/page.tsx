@@ -1,356 +1,447 @@
 import Link from "next/link";
-import { InfoTip } from "@/components/info-tip";
+import { AlertOctagon, ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarList, DailyBars, StageFunnel, StatCard, type DayBar } from "@/components/charts";
-import { LIFECYCLE, type LifecycleState } from "@/lib/lifecycle";
-import { STATUS_LABEL } from "@/lib/account-filters";
-import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
+import { InfoTip } from "@/components/info-tip";
+import { TrendChart, type TrendSeries } from "@/components/trend-chart";
+import { currentUser } from "@/lib/supabase/server";
+import {
+  METRICS,
+  SERIES_METRICS,
+  daysAgo,
+  fetchBreakdown,
+  fetchDimensions,
+  fetchSeries,
+  fetchTotals,
+  grainFor,
+  isoToday,
+  spanDays,
+  type MetricValue,
+  type ReportError,
+  type Scope,
+  type SeriesKey,
+} from "@/lib/reports";
+import {
+  BreakdownSearch,
+  DimensionTabs,
+  MetricToggle,
+  RangeControls,
+  SelectedMark,
+} from "./controls";
 
 export const dynamic = "force-dynamic";
 
-const WINDOWS = [7, 30, 90];
+const PAGE_SIZE = 25;
+
+/**
+ * The colours the chart draws with.
+ *
+ * Deliberately not the chart-1..5 tokens in sequence. These are chosen so that
+ * the two metrics almost always shown together -- calls and counted -- are
+ * clearly separable, and so "lost to the clock" is the only red on the screen.
+ */
+const SERIES_COLOUR: Record<SeriesKey, string> = {
+  calls: "#6060ff",
+  approved: "#00ad68",
+  emails: "#9494ff",
+  claimed: "#00d982",
+  lost: "#d81c3f",
+};
 
 /**
  * Reports.
  *
- * Everything here is a rollup of the same three facts the rest of the system
- * runs on: who holds what, how close it is to being lost, and whether anybody
- * called. There is no separate reporting store and no nightly job — the numbers
- * come from the live tables through the same row level security as the screens
- * that produced them, so a report can never show a rep a book they cannot open.
+ * ---------------------------------------------------------------------------
+ * Built to the shape of an analytics tool rather than as a page of charts: a
+ * window with a comparison period, scorecards that are also the chart's legend,
+ * one trend chart, and a dimension explorer underneath.
+ *
+ * The scorecards being buttons is the important part. Pressing one adds that
+ * metric to the chart. The cards and the chart are the same numbers at two
+ * resolutions -- a total and its shape over time -- rather than two displays
+ * that happen to sit near each other, and treating them as one thing is what
+ * makes a screen like this answer follow-up questions instead of just the first
+ * one.
+ *
+ * Everything is in the URL, so a report can be sent to somebody.
+ * ---------------------------------------------------------------------------
  */
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ days?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { days: rawDays } = await searchParams;
-  const days = WINDOWS.includes(Number(rawDays)) ? Number(rawDays) : 30;
+  const params = await searchParams;
+  const one = (key: string) => {
+    const v = params[key];
+    return (Array.isArray(v) ? v[0] : v) ?? "";
+  };
 
-  const supabase = await createClient();
   const me = await currentUser();
-  if (!me) return null;
+  const managerish = me ? me.role !== "broker" : false;
 
-  const managerish = me.role === "manager" || isPrivileged(me.role);
-  const scope = managerish ? "team" : "mine";
+  const days = ["7", "28", "90", "365"].includes(one("days")) ? one("days") : "28";
+  const scope: Scope = one("scope") === "mine" ? "mine" : managerish ? "team" : "mine";
+  const from = daysAgo(Number(days) - 1);
+  const to = isoToday();
+  const grain = grainFor(from, to);
 
-  const [boardRes, branchRes, mixRes, industryRes, funnelRes, dailyRes] = await Promise.all([
-    supabase.rpc("dashboard_leaderboard", { p_days: days }),
-    supabase.rpc("dashboard_by_branch", { p_days: days }),
-    supabase.rpc("dashboard_state_mix", { p_scope: scope }),
-    supabase.rpc("dashboard_industry_mix", { p_scope: scope, p_limit: 12 }),
-    supabase.rpc("dashboard_stage_funnel", { p_scope: scope }),
-    supabase.rpc("dashboard_calls_daily", { p_days: days, p_scope: scope }),
+  const chosen = (one("metrics") || "calls,approved")
+    .split(",")
+    .filter((m): m is SeriesKey => (SERIES_METRICS as readonly string[]).includes(m));
+  const selected = chosen.length > 0 ? chosen : (["calls"] as SeriesKey[]);
+
+  const dimensions = await fetchDimensions();
+  const dim = dimensions.some((d) => d.key === one("dim")) ? one("dim") : "broker";
+  const search = one("q");
+  const page = Math.max(1, Number(one("page")) || 1);
+
+  const [totals, series, breakdown] = await Promise.all([
+    fetchTotals(from, to, scope),
+    fetchSeries(from, to, scope, grain),
+    fetchBreakdown(from, to, scope, dim, search, PAGE_SIZE, (page - 1) * PAGE_SIZE),
   ]);
 
-  const board = (boardRes.data ?? []) as LeaderRow[];
-  const branches = (branchRes.data ?? []) as BranchRow[];
-  const mix = (mixRes.data ?? []) as { bucket: string; kind: string; accounts: number }[];
-  const industries = (industryRes.data ?? []) as {
-    industry: string;
-    accounts: number;
-    customers: number;
-    at_risk: number;
-  }[];
-  const funnel = ((funnelRes.data ?? []) as { stage: string; accounts: number }[]).map((r) => ({
-    stage: r.stage,
-    accounts: Number(r.accounts),
+  const failure = totals.error ?? series.error ?? breakdown.error;
+  const activeDimension = dimensions.find((d) => d.key === dim);
+  const pages = Math.max(1, Math.ceil(breakdown.total / PAGE_SIZE));
+
+  const chartSeries: TrendSeries[] = selected.map((key) => ({
+    key,
+    label: METRICS.find((m) => m.key === key)?.label ?? key,
+    color: SERIES_COLOUR[key],
+    values: series.points.map((p) => p[key]),
   }));
-  const daily = ((dailyRes.data ?? []) as { day: string; calls: number; qualifying: number }[]).map(
-    (d): DayBar => ({ day: d.day, calls: Number(d.calls), qualifying: Number(d.qualifying) }),
-  );
-
-  const totalCalls = board.reduce((s, r) => s + Number(r.calls), 0);
-  const totalQualifying = board.reduce((s, r) => s + Number(r.qualifying), 0);
-  const totalOwned = board.reduce((s, r) => s + Number(r.owned), 0);
-  const totalAtRisk = board.reduce((s, r) => s + Number(r.at_risk), 0);
-
-  const clock = mix.filter((m) => m.kind === "clock");
-  const status = mix.filter((m) => m.kind === "status");
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">Reports<InfoTip k="reportsScreen" side="bottom" /></h1>
-          <p className="text-sm text-muted-foreground">
-            {managerish ? "Your whole reporting line." : "Your own numbers."} Live from the same
-            tables the screens read.
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+            Reports
+            <InfoTip k="reportsScreen" side="bottom" />
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatRange(from, to)} · compared against the {spanDays(from, to)} days before ·{" "}
+            {grain === "week" ? "weekly" : "daily"}
           </p>
         </div>
-        <div className="flex gap-1 rounded-md border bg-card p-0.5">
-          {WINDOWS.map((w) => (
-            <Link
-              key={w}
-              href={`/reports?days=${w}`}
-              data-active={w === days}
-              className="rounded px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent data-[active=true]:bg-navy-700 data-[active=true]:text-white"
-            >
-              {w} days
-            </Link>
-          ))}
-        </div>
-      </header>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Accounts held" value={totalOwned.toLocaleString()} />
-        <StatCard
-          label="At risk"
-          value={totalAtRisk.toLocaleString()}
-          tone={totalAtRisk > 0 ? "warning" : "good"}
-          hint={totalOwned > 0 ? `${Math.round((totalAtRisk / totalOwned) * 100)}% of the book` : undefined}
-        />
-        <StatCard label={`Calls, ${days} days`} value={totalCalls.toLocaleString()} />
-        <StatCard
-          label="Counted"
-          value={totalCalls === 0 ? "—" : `${Math.round((totalQualifying / totalCalls) * 100)}%`}
-          hint={`${totalQualifying.toLocaleString()} of ${totalCalls.toLocaleString()}`}
-          tone={totalCalls > 0 && totalQualifying / totalCalls < 0.4 ? "warning" : "default"}
-        />
+        <RangeControls scope={scope} days={days} />
       </div>
 
+      {failure ? <Failure error={failure} /> : null}
+
+      {/* ---- scorecards, which are also the chart's legend ---- */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {totals.metrics.map((m) => (
+          <MetricToggle
+            key={m.key}
+            metricKey={m.key}
+            active={(selected as string[]).includes(m.key)}
+          >
+            <ScoreCard
+              metric={m}
+              selected={(selected as string[]).includes(m.key)}
+              colour={SERIES_COLOUR[m.key as SeriesKey]}
+            />
+          </MetricToggle>
+        ))}
+      </div>
+
+      {/* ---- the trend ---- */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Calling, last {days} days</CardTitle>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            Over time
+            <InfoTip
+              side="bottom"
+              text="The metrics selected above, bucketed by day up to three months and by week beyond it. Every bucket in the range is drawn, including the empty ones — a chart that skips quiet days makes a dead week look busy."
+            />
+          </CardTitle>
           <p className="text-xs text-muted-foreground">
-            Green is the part that counted. The gap between the two is the prospecting policy in
-            one picture.
+            Press a card above to add or remove it here.
           </p>
         </CardHeader>
         <CardContent>
-          <DailyBars data={daily} />
+          <TrendChart
+            labels={series.points.map((p) => p.bucket)}
+            series={chartSeries}
+            formatLabel={(iso) => formatBucket(iso, grain)}
+          />
         </CardContent>
       </Card>
 
-      {/* ---------------------------------------------------------------------
-          Leaderboard, ranked by qualifying calls rather than calls made.
-         --------------------------------------------------------------------- */}
+      {/* ---- the dimension explorer ---- */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-1.5 text-base">By rep<InfoTip k="leaderboard" side="bottom" /></CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Ranked by calls that counted, not calls dialled.
-          </p>
+        <CardHeader className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-1.5 text-base">
+              Break it down
+              <InfoTip
+                side="bottom"
+                text="The same period, split by whichever dimension you choose. Calls are credited to whoever made them and accounts to whoever holds them, so a manager who works a broker's account shows calls under their own name and the account under the broker's."
+              />
+            </CardTitle>
+            <BreakdownSearch placeholder={`Search ${activeDimension?.label.toLowerCase() ?? ""}…`} />
+          </div>
+          <DimensionTabs dimensions={dimensions} active={dim} />
+          {activeDimension?.hint ? (
+            <p className="text-xs text-muted-foreground">{activeDimension.hint}</p>
+          ) : null}
         </CardHeader>
         <CardContent className="px-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-6 py-2 font-medium">Rep</th>
-                  <th className="px-3 py-2 text-right font-medium">Held</th>
-                  <th className="px-3 py-2 text-right font-medium">At risk</th>
-                  <th className="px-3 py-2 text-right font-medium">Customers</th>
-                  <th className="px-3 py-2 text-right font-medium">Calls</th>
-                  <th className="px-3 py-2 text-right font-medium">Counted</th>
-                  <th className="px-6 py-2 text-right font-medium">Hit rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {board.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-muted-foreground">
-                      Nobody in scope yet.
-                    </td>
+          {breakdown.rows.length === 0 ? (
+            <p className="py-12 text-center text-sm text-muted-foreground">
+              {search
+                ? `Nothing matches “${search}”.`
+                : "Nothing to report for this period."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-5 py-2 font-medium">{activeDimension?.label}</th>
+                    <Th help="Every call captured against these accounts, counted or not.">
+                      Calls
+                    </Th>
+                    <Th help="Activities that met the bar and reset an account's clock.">
+                      Counted
+                    </Th>
+                    <Th help="Counted divided by calls. A low rate is usually short calls or calls nobody wrote up.">
+                      Hit rate
+                    </Th>
+                    <Th help="Accounts held right now. A snapshot, not a figure for the period.">
+                      Accounts
+                    </Th>
+                    <Th help="Accounts taken out of the available pool during this period.">
+                      Claimed
+                    </Th>
+                    <Th help="Accounts that timed out and went back to the pool during this period.">
+                      Lost
+                    </Th>
                   </tr>
-                ) : (
-                  board.map((r) => {
-                    const over = r.prospect_limit !== null && Number(r.owned) > r.prospect_limit;
-                    const isMe = r.user_id === me.id;
-                    return (
-                      <tr
-                        key={r.user_id}
-                        data-me={isMe}
-                        className="border-b last:border-b-0 hover:bg-accent/40 data-[me=true]:bg-navy-50 dark:data-[me=true]:bg-navy-900/50"
-                      >
-                        <td className="px-6 py-2.5">
-                          <Link href={`/accounts?owner=${r.user_id}`} className="font-medium hover:underline">
-                            {r.full_name}
-                          </Link>
-                          {isMe ? (
-                            <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                              you
-                            </span>
-                          ) : null}
-                          <span className="block text-xs text-muted-foreground">
-                            {[r.role, r.location].filter(Boolean).join(" · ")}
+                </thead>
+                <tbody>
+                  {breakdown.rows.map((r) => (
+                    <tr key={r.key} className="border-b last:border-b-0 hover:bg-accent/40">
+                      <td className="px-5 py-2.5 font-medium">{r.label}</td>
+                      <Td>{r.calls.toLocaleString()}</Td>
+                      <Td>{r.approved.toLocaleString()}</Td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="h-1 w-10 overflow-hidden rounded-full bg-muted">
+                            <span
+                              className="block h-full rounded-full bg-brand-500"
+                              style={{ width: `${Math.min(100, r.hitRate)}%` }}
+                            />
                           </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">
-                          {r.owned}
-                          {r.prospect_limit !== null ? (
-                            <span className={over ? "text-destructive" : "text-muted-foreground"}>
-                              {" "}
-                              / {r.prospect_limit}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td
-                          className={`px-3 py-2.5 text-right tabular-nums ${
-                            Number(r.at_risk) > 0 ? "font-semibold text-destructive" : ""
-                          }`}
-                        >
-                          {r.at_risk}
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">{r.customers}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums">{r.calls}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-brand-600">
-                          {r.qualifying}
-                        </td>
-                        <td className="px-6 py-2.5 text-right tabular-nums">
-                          {r.connected_rate === null ? (
-                            <span className="text-muted-foreground">no calls</span>
-                          ) : (
-                            `${r.connected_rate}%`
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">By branch<InfoTip k="byBranch" side="bottom" /></CardTitle>
-          </CardHeader>
-          <CardContent className="px-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-6 py-2 font-medium">Branch</th>
-                  <th className="px-3 py-2 text-right font-medium">Reps</th>
-                  <th className="px-3 py-2 text-right font-medium">Held</th>
-                  <th className="px-3 py-2 text-right font-medium">At risk</th>
-                  <th className="px-6 py-2 text-right font-medium">Counted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {branches.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
-                      No branches in scope.
-                    </td>
-                  </tr>
-                ) : (
-                  branches.map((b) => (
-                    <tr key={b.location} className="border-b last:border-b-0 hover:bg-accent/40">
-                      <td className="px-6 py-2.5 font-medium">
-                        <Link href={`/accounts?loc=${encodeURIComponent(b.location)}`} className="hover:underline">
-                          {b.location}
-                        </Link>
+                          {r.hitRate}%
+                        </span>
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{b.reps}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums">{b.owned}</td>
-                      <td
-                        className={`px-3 py-2.5 text-right tabular-nums ${
-                          Number(b.at_risk) > 0 ? "text-destructive" : ""
-                        }`}
-                      >
-                        {b.at_risk}
-                      </td>
-                      <td className="px-6 py-2.5 text-right tabular-nums text-brand-600">
-                        {b.qualifying}
+                      <Td>{r.accounts.toLocaleString()}</Td>
+                      <Td>{r.claimed.toLocaleString()}</Td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        <span className={r.lost > 0 ? "font-medium text-destructive" : ""}>
+                          {r.lost.toLocaleString()}
+                        </span>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">Pipeline by stage<InfoTip k="stageFunnel" side="bottom" /></CardTitle>
-          </CardHeader>
-          <CardContent>
-            <StageFunnel rows={funnel} hrefBase="/accounts?stage=" />
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">Where the clock stands<InfoTip k="clockDistribution" side="bottom" /></CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BarList
-              rows={clock.map((c) => ({
-                label: LIFECYCLE[c.bucket as LifecycleState]?.label ?? c.bucket,
-                value: Number(c.accounts),
-                href: `/accounts?state=${c.bucket}`,
-              }))}
-              empty="No accounts in scope."
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">By status<InfoTip k="statusMix" side="bottom" /></CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BarList
-              rows={status.map((s) => ({
-                label: STATUS_LABEL[s.bucket] ?? s.bucket,
-                value: Number(s.accounts),
-                href: `/accounts?status=${s.bucket}`,
-              }))}
-              empty="No accounts in scope."
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-base">Industry<InfoTip k="industryMix" side="bottom" /></CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BarList
-              highlightLabel="customers"
-              rows={industries.map((i) => ({
-                label: i.industry,
-                value: Number(i.accounts),
-                highlight: Number(i.customers),
-                note: Number(i.at_risk) > 0 ? `${i.at_risk} at risk` : undefined,
-                href: `/accounts?industry=${encodeURIComponent(i.industry)}`,
-              }))}
-              empty="No industries recorded."
-            />
-          </CardContent>
-        </Card>
-      </div>
+          {pages > 1 ? (
+            <div className="flex items-center justify-between px-5 pt-3 text-sm">
+              <span className="text-muted-foreground">
+                Page {page} of {pages} · {breakdown.total.toLocaleString()} rows
+              </span>
+              <div className="flex gap-2">
+                <PageLink params={params} page={page - 1} disabled={page <= 1}>
+                  ← Previous
+                </PageLink>
+                <PageLink params={params} page={page + 1} disabled={page >= pages}>
+                  Next →
+                </PageLink>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-interface LeaderRow {
-  user_id: string;
-  full_name: string;
-  role: string;
-  location: string | null;
-  prospect_limit: number | null;
-  owned: number;
-  at_risk: number;
-  customers: number;
-  calls: number;
-  qualifying: number;
-  connected_rate: number | null;
+// ---------------------------------------------------------------------------
+// Pieces
+// ---------------------------------------------------------------------------
+
+function ScoreCard({
+  metric,
+  selected,
+  colour,
+}: {
+  metric: MetricValue;
+  selected: boolean;
+  colour?: string;
+}) {
+  const rising = metric.delta !== null && metric.delta > 0;
+  const flat = metric.delta === null || Math.round(metric.delta) === 0;
+  // Up is not automatically good. More calls is good; more accounts lost to the
+  // clock is not, and a green arrow on a rising loss figure is worse than no
+  // arrow at all.
+  const helpful = flat ? null : metric.good === "up" ? rising : !rising;
+  const Arrow = flat ? Minus : rising ? ArrowUpRight : ArrowDownRight;
+
+  return (
+    <div
+      className={`h-full rounded-xl border bg-card p-4 transition-all ${
+        selected ? "border-transparent ring-2" : "hover:border-foreground/20"
+      }`}
+      style={selected && colour ? { boxShadow: `inset 0 0 0 2px ${colour}` } : undefined}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {metric.label}
+        </span>
+        <span className="flex items-center gap-1">
+          <InfoTip side="bottom" text={metric.hint} />
+          {selected ? <SelectedMark /> : null}
+        </span>
+      </div>
+      <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
+        {metric.value.toLocaleString()}
+        {metric.suffix ?? ""}
+      </p>
+      <p className="mt-1 flex items-center gap-1 text-xs">
+        {metric.previous === null ? (
+          <span className="text-muted-foreground">no comparison</span>
+        ) : (
+          <>
+            <Arrow
+              className={`size-3.5 ${
+                helpful === null
+                  ? "text-muted-foreground"
+                  : helpful
+                    ? "text-brand-600"
+                    : "text-destructive"
+              }`}
+              aria-hidden
+            />
+            <span
+              className={
+                helpful === null
+                  ? "text-muted-foreground"
+                  : helpful
+                    ? "font-medium text-brand-600"
+                    : "font-medium text-destructive"
+              }
+            >
+              {metric.delta === null
+                ? "new"
+                : `${Math.abs(Math.round(metric.delta))}%`}
+            </span>
+            <span className="text-muted-foreground">
+              vs {metric.previous.toLocaleString()}
+              {metric.suffix ?? ""}
+            </span>
+          </>
+        )}
+      </p>
+    </div>
+  );
 }
 
-interface BranchRow {
-  location: string;
-  reps: number;
-  owned: number;
-  at_risk: number;
-  customers: number;
-  calls: number;
-  qualifying: number;
+function Th({ children, help }: { children: React.ReactNode; help: string }) {
+  return (
+    <th className="px-3 py-2 text-right font-medium">
+      <span className="inline-flex items-center gap-1">
+        {children}
+        <InfoTip side="bottom" text={help} />
+      </span>
+    </th>
+  );
+}
+
+function Td({ children }: { children: React.ReactNode }) {
+  return <td className="px-3 py-2.5 text-right tabular-nums">{children}</td>;
+}
+
+function Failure({ error }: { error: ReportError }) {
+  return (
+    <Card className="border-destructive/40">
+      <CardContent className="space-y-2 py-5">
+        <p className="flex items-center gap-2 text-sm font-semibold text-destructive">
+          <AlertOctagon className="size-4" aria-hidden />
+          Some of these figures could not be read
+        </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {error.schema
+            ? "The database is behind this version of the app — the reporting functions have not been applied yet. An administrator should re-run setup."
+            : "The reporting query failed."}
+        </p>
+        <p className="font-mono text-xs text-muted-foreground">{error.message}</p>
+        <p className="pt-1 text-sm">
+          <Link href="/admin" className="font-medium text-primary hover:underline">
+            Open the Admin screen →
+          </Link>
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PageLink({
+  params,
+  page,
+  disabled,
+  children,
+}: {
+  params: Record<string, string | string[] | undefined>;
+  page: number;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  if (disabled) {
+    return (
+      <span className="rounded-full border px-4 py-1.5 text-muted-foreground/50">{children}</span>
+    );
+  }
+  const next = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "page") continue;
+    const value = Array.isArray(v) ? v[0] : v;
+    if (value) next.set(k, value);
+  }
+  next.set("page", String(page));
+  return (
+    <Link
+      href={`/reports?${next.toString()}`}
+      className="rounded-full border px-4 py-1.5 font-medium transition-colors hover:bg-accent"
+    >
+      {children}
+    </Link>
+  );
+}
+
+function formatRange(from: string, to: string): string {
+  const fmt = (iso: string) =>
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  return `${fmt(from)} – ${fmt(to)}`;
+}
+
+function formatBucket(iso: string, grain: "day" | "week"): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+    ...(grain === "week" ? {} : {}),
+  });
 }

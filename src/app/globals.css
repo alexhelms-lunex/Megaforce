@@ -166,7 +166,11 @@
   --chart-4: #00d982;
   --chart-5: #00ff9c;
 
-  --radius: 0.5rem;
+  /* Softer than the 0.5rem it was. iOS rounds generously and consistently, and
+     a radius that reads as deliberate at 8px reads as an accident at 4 -- the
+     small radii were what made the interface look unfinished more than any
+     single component did. */
+  --radius: 0.75rem;
 
   --sidebar: #0a0a0a;
   --sidebar-foreground: #b0b0b0;
@@ -287,7 +291,106 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * The finishing pass
+ *
+ * Taken from iOS, and specifically from the three things it does that this
+ * interface was not:
+ *
+ *   1. HAIRLINES, NOT BORDERS. A grouped list separates its rows with a line
+ *      that stops short of the container edge and is thinner than one pixel on
+ *      a retina screen. A full-bleed 1px border draws a box around every row
+ *      and makes a table read as a grid rather than as a list.
+ *
+ *   2. ELEVATION INSTEAD OF OUTLINE. Surfaces are told apart by a very soft
+ *      shadow, not by a drawn edge. Outlines everywhere is what makes an
+ *      interface look like a wireframe of itself.
+ *
+ *   3. MOTION THAT ANSWERS. Every press does something within 150ms. Not
+ *      decoration -- the absence of it is what makes a control feel dead even
+ *      when it worked.
+ *
+ * Applied here rather than at three hundred call sites, so the whole
+ * application moves together and nothing is left behind looking like the old
+ * one.
+ * ------------------------------------------------------------------------ */
+@layer base {
+  /* Hairline separators. 0.5px where the screen can draw it. */
+  table tbody tr,
+  .divide-y > * + * {
+    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  }
+
+  th {
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  /* Table rows get their own hover and a soft transition, so a long list feels
+     like something you are moving through rather than a static dump. */
+  tbody tr {
+    transition: background-color 120ms ease-out;
+  }
+
+  /* Inputs match the control scale of the buttons. A 32px field beside a 36px
+     button is the kind of half-millimetre mismatch that reads as unfinished
+     without anybody being able to say why. */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="number"],
+  input[type="date"],
+  select,
+  textarea {
+    transition:
+      border-color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent);
+  }
+
+  /* Anything that can be pressed says so. */
+  a,
+  button,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+
+  /* Respect the system setting. Motion that cannot be turned off is not polish
+     -- for some people it is a headache. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
 @layer utilities {
+  /* A grouped list, iOS style: one rounded surface, hairlines between rows that
+     stop short of the edge. */
+  .grouped-list > * + * {
+    border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+
+  /* Frosted chrome. Used on the header and the docks, which sit over content
+     that scrolls beneath them. */
+  .chrome-blur {
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+
   /* The navy band behind the top of a page, matching the site header. */
   .brand-gradient {
     background-image: linear-gradient(135deg, #1b1bff 0%, #12126b 55%, #0a0a0a 100%);

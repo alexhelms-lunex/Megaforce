@@ -52,7 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar role={user.role} counts={counts} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-card/85 px-4 backdrop-blur-md">
+        <header className="chrome-blur sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border/60 bg-card/70 px-4">
           <MobileNav role={user.role} counts={counts} />
           <div className="min-w-0 flex-1">
             <CommandPalette role={user.role} />
