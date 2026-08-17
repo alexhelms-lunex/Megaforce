@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import postgres from "postgres";
 import { readFile, readdir } from "node:fs/promises";
@@ -34,7 +35,7 @@ let server: PGLiteSocketServer;
 let sql: postgres.Sql;
 
 beforeAll(async () => {
-  pglite = await PGlite.create({ extensions: { uuid_ossp } });
+  pglite = await PGlite.create({ extensions: { uuid_ossp, pgcrypto } });
   await pglite.exec(`
     -- The migrations create this too, but the fixture table below needs it
     -- first, and this runs before they do.

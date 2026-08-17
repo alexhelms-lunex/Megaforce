@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -34,7 +35,7 @@ let server: PGLiteSocketServer;
 let sql: postgres.Sql;
 
 beforeAll(async () => {
-  pglite = await PGlite.create({ extensions: { uuid_ossp } });
+  pglite = await PGlite.create({ extensions: { uuid_ossp, pgcrypto } });
 
   // Supabase provides auth.uid(). Stand it up before the migrations run, since
   // the RLS policies reference it.

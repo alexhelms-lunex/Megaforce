@@ -42,10 +42,23 @@
   --color-brand-950: #012c17;
 }
 
+/* ---------------------------------------------------------------------------
+ * Typefaces
+ *
+ * Helvetica Neue carries the interface; Adobe Garamond Pro carries body copy.
+ * Both are licensed, so both are named first and fall through to the closest
+ * thing that is actually installed or servable. See src/app/layout.tsx for how
+ * the real Adobe Garamond is switched on.
+ * ------------------------------------------------------------------------ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans:
+    "Helvetica Neue", Helvetica, "Segoe UI Variable Text", "Segoe UI", Arial, system-ui,
+    sans-serif;
+  --font-serif:
+    "adobe-garamond-pro", "Adobe Garamond Pro", "AGaramondPro-Regular",
+    var(--font-serif-fallback), "EB Garamond", Garamond, Georgia, serif;
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -172,20 +185,82 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-    /* A CRM is read all day. Slightly tighter tracking on a dense table beats
-       the browser default, which is set for prose. */
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
   html {
     @apply font-sans;
   }
+
+  /* ------------------------------------------------------------------------
+   * Garamond for body copy, Helvetica Neue for everything operational.
+   *
+   * Body copy means prose: the sentence explaining why a call did not count,
+   * the description under a heading, the reason on a request. Garamond is a
+   * text face and it reads beautifully at that job.
+   *
+   * It is a poor face for a dense grid of figures -- old-style numerals sit at
+   * different heights by design, which is lovely in a paragraph and unreadable
+   * in a column of days-remaining. So tables, controls, labels and anything
+   * numeric are pulled back to the sans below. The split is by what the text
+   * is FOR, not by where it happens to sit.
+   * --------------------------------------------------------------------- */
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-serif);
+    font-size: 1.0125rem;
+    line-height: 1.55;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  th,
+  td,
+  label,
+  button,
+  input,
+  select,
+  textarea,
+  kbd,
+  nav,
+  time,
+  [role="tablist"],
+  [data-slot="badge"],
+  [data-slot="button"],
+  .font-sans,
+  .tabular-nums {
+    font-family: var(--font-sans);
+  }
+
   /* Numbers in a table must line up. Every figure column is tabular, so a
      column of days-remaining scans as a column rather than as a ragged edge. */
   th,
   td {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Garamond runs small for its point size -- it was cut for print. Nudged up
+     where it is used for prose so it sits at the same optical size as the
+     sans beside it. */
+  p,
+  address,
+  li,
+  dd,
+  blockquote {
+    font-family: var(--font-serif);
+  }
+
+  /* ...except inside tables and controls, where the sans has already won and a
+     nested paragraph should not switch back. */
+  th p,
+  td p,
+  th li,
+  td li,
+  button p,
+  label p,
+  [data-slot="badge"] p {
+    font-family: var(--font-sans);
   }
 }
 

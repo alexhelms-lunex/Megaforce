@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import postgres from "postgres";
 import { checkEnvironment, runSetup, SetupError } from "./run";
@@ -23,7 +24,7 @@ let server: PGLiteSocketServer;
 const ORIGINAL = { ...process.env };
 
 beforeAll(async () => {
-  pglite = await PGlite.create({ extensions: { uuid_ossp } });
+  pglite = await PGlite.create({ extensions: { uuid_ossp, pgcrypto } });
   await pglite.exec(`
     create schema if not exists auth;
     create or replace function auth.uid() returns uuid as $$

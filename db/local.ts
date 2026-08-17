@@ -18,6 +18,7 @@
  */
 import { PGlite } from "@electric-sql/pglite";
 import { uuid_ossp } from "@electric-sql/pglite/contrib/uuid_ossp";
+import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -90,7 +91,7 @@ export async function readMigrations(): Promise<{ name: string; sql: string }[]>
 export async function createLocalDb(dataDir?: string): Promise<LocalDb> {
   const db = await PGlite.create({
     dataDir,
-    extensions: { uuid_ossp },
+    extensions: { uuid_ossp, pgcrypto },
   });
 
   await db.exec(SUPABASE_SHIM);
