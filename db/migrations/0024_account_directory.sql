@@ -111,8 +111,7 @@ create or replace function account_directory(
   can_open boolean,
   total_rows bigint
 ) as $$
-  with visible as (select id from visible_user_ids() as id),
-  matched as (
+  with matched as (
     select
       a.id, a.name,
       a.billing_street, a.billing_city, a.billing_state,
@@ -136,6 +135,19 @@ create or replace function account_directory(
         or not account_is_open(a.owner_id, a.ad_owner_id, a.locked_to_credit)
        )
        and (p_scope <> 'available' or a.owner_id is null)
+       /*
+        * SIGNED IN, OR NOTHING.
+        *
+        * This function is SECURITY DEFINER, so it reads past row level
+        * security by design -- and it is granted to `anon`, because PostgREST
+        * needs that grant for authenticated callers to reach it at all. Without
+        * this clause, anybody holding the publishable key could enumerate every
+        * company name, address and holder in the business.
+        *
+        * That key is in the browser bundle on purpose. It is not a secret, and
+        * nothing that treats it as one is safe.
+        */
+       and (select current_user_id()) is not null
   )
   select m.*, (select count(*) from matched) as total_rows
     from matched m
@@ -192,6 +204,9 @@ returns table (
     left join users o on o.id = a.owner_id
     left join users d on d.id = a.ad_owner_id
    where a.id = p_id
+     -- Same reasoning as account_directory: definer rights plus an anon grant
+     -- means the signed-in check has to be here, in the function.
+     and (select current_user_id()) is not null
 $$ language sql stable security definer set search_path = public, auth;
 
 /**
@@ -207,6 +222,7 @@ returns table (mine bigint, locked bigint, available bigint, total bigint) as $$
       account_is_open(a.owner_id, a.ad_owner_id, a.locked_to_credit) as can_open,
       (a.owner_id is null) as available
       from accounts a
+     where (select current_user_id()) is not null
   )
   select
     count(*) filter (where can_open and not available),

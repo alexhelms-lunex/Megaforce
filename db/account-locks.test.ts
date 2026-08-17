@@ -298,6 +298,41 @@ describe("the directory, which everyone can read", () => {
 });
 
 // ===========================================================================
+describe("a caller who is not signed in", () => {
+  /*
+   * The leak this closes.
+   *
+   * account_directory is SECURITY DEFINER -- it reads past row level security
+   * by design -- and it is granted to `anon`, because PostgREST needs that
+   * grant for authenticated callers to reach it at all. Without a signed-in
+   * check INSIDE the function, anybody holding the publishable key could
+   * enumerate every company name, address and holder in the business.
+   *
+   * That key ships in the browser bundle on purpose. It is not a secret, and
+   * any function that treats it as one is a public endpoint.
+   */
+  it("gets nothing from the directory", async () => {
+    await becomeUser(pg, null);
+    const { rows } = await pg.query(`select * from account_directory('', '', 'all', 200, 0)`);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("gets nothing from the single-account lookup", async () => {
+    await becomeUser(pg, null);
+    const { rows } = await pg.query(`select * from account_directory_one($1)`, [ids.danas]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("gets zeroes from the counts rather than the size of the book", async () => {
+    await becomeUser(pg, null);
+    const { rows } = await pg.query<Record<string, string>>(
+      `select * from account_directory_counts()`,
+    );
+    expect(Number(rows[0].total)).toBe(0);
+  });
+});
+
+// ===========================================================================
 describe("who may open what", () => {
   const cases: { who: keyof typeof AUTH; account: string; open: boolean; why: string }[] = [
     { who: "dana", account: "danas", open: true, why: "her own account" },
