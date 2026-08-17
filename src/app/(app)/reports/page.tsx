@@ -20,6 +20,7 @@ import {
   type Scope,
   type SeriesKey,
 } from "@/lib/reports";
+import { CreditReport } from "./credit-report";
 import {
   BreakdownSearch,
   DimensionTabs,
@@ -78,6 +79,7 @@ export default async function ReportsPage({
 
   const me = await currentUser();
   const managerish = me ? me.role !== "broker" : false;
+  const role = me?.role ?? "broker";
 
   const days = ["7", "28", "90", "365"].includes(one("days")) ? one("days") : "28";
   const scope: Scope = one("scope") === "mine" ? "mine" : managerish ? "team" : "mine";
@@ -85,7 +87,7 @@ export default async function ReportsPage({
   const to = isoToday();
   const grain = grainFor(from, to);
 
-  const chosen = (one("metrics") || "calls,approved")
+  const chosen = (one("metrics") || (role === "manager" ? "calls,approved,lost" : "calls,approved"))
     .split(",")
     .filter((m): m is SeriesKey => (SERIES_METRICS as readonly string[]).includes(m));
   const selected = chosen.length > 0 ? chosen : (["calls"] as SeriesKey[]);
@@ -107,7 +109,25 @@ export default async function ReportsPage({
   const seriesPromise = fetchSeries(from, to, scope, grain);
 
   const dimensions = await fetchDimensions();
-  const dim = dimensions.some((d) => d.key === one("dim")) ? one("dim") : "broker";
+  /*
+   * The default breakdown depends on the job.
+   *
+   * A manager opens this to track their brokers, so the useful first cut is by
+   * person. A broker has only themselves in it, and a row of one is not a
+   * breakdown -- their book divides usefully by industry instead. An admin
+   * looks across offices.
+   *
+   * A default is not a restriction: every dimension stays in the menu for
+   * everybody. This only decides which one the page opens on.
+   */
+  const defaultDim =
+    role === "broker" || role === "ad" ? "industry" : role === "admin" ? "branch" : "broker";
+  const requested = one("dim");
+  const dim = dimensions.some((d) => d.key === requested)
+    ? requested
+    : dimensions.some((d) => d.key === defaultDim)
+      ? defaultDim
+      : "broker";
 
   const [totals, series, breakdown] = await Promise.all([
     totalsPromise,
@@ -143,6 +163,12 @@ export default async function ReportsPage({
       </div>
 
       {failure ? <Failure error={failure} /> : null}
+
+      {/* Credit first, and above the selling figures, because for this role
+          those figures are structurally zero -- they hold no book and make no
+          calls. The rest of the page stays available; it simply is not the
+          part of it they came for. */}
+      {role === "credit" ? <CreditReport from={from} to={to} days={days} /> : null}
 
       {/* ---- scorecards, which are also the chart's legend ---- */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

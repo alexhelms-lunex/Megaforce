@@ -232,3 +232,78 @@ describe("the credit work queue", () => {
     expect(rows.map((r) => r.account_name)).not.toContain("Danas Mill");
   });
 });
+
+// ===========================================================================
+describe("credit reporting", () => {
+  /**
+   * Turnaround is the number a credit function is judged on, and it is the one
+   * nobody could see. A broker cannot quote without a limit, so every day of
+   * delay is a stalled deal -- and until this existed the only person who knew
+   * how long credit took was the broker who was waiting.
+   */
+  it("reports throughput and turnaround over a window", async () => {
+    await becomeService(pg);
+    // Raised five days ago, decided two days later.
+    await pg.query(
+      `insert into account_requests
+         (account_id, requested_by, kind, reason, amount, status,
+          created_at, decided_by, decided_at)
+       values ($1,$2,'credit','Needs more room', 90000, 'approved',
+               now() - interval '5 days', $3, now() - interval '3 days')`,
+      [ids.account, ids.dana, ids.credit],
+    );
+
+    await becomeUser(pg, AUTH.credit);
+    const { rows } = await pg.query<Record<string, string>>(
+      `select * from report_credit_summary((now() - interval '30 days')::date, now()::date)`,
+    );
+    expect(Number(rows[0].approved)).toBe(1);
+    expect(Number(rows[0].approved_value)).toBe(90000);
+    // Two days, in hours, give or take the clock.
+    expect(Number(rows[0].mean_hours)).toBeGreaterThan(40);
+    expect(Number(rows[0].mean_hours)).toBeLessThan(56);
+  });
+
+  it("draws a day for every day, including the ones with nothing in them", async () => {
+    // A series that omits empty days slopes through the weekend as though work
+    // happened, and makes a fortnight of silence look like a gentle decline.
+    await becomeUser(pg, AUTH.credit);
+    const { rows } = await pg.query<{ day: string }>(
+      `select day from report_credit_decisions((now() - interval '6 days')::date, now()::date)`,
+    );
+    expect(rows).toHaveLength(7);
+  });
+
+  it("shows who is asking and how often they are right", async () => {
+    await raise(50000);
+    await becomeService(pg);
+    await pg.query(
+      `insert into account_requests
+         (account_id, requested_by, kind, reason, amount, status, decided_by, decided_at)
+       values ($1,$2,'credit','Another ask', 20000, 'denied', $3, now())`,
+      [ids.account, ids.manager, ids.credit],
+    );
+
+    await becomeUser(pg, AUTH.credit);
+    const { rows } = await pg.query<Record<string, string>>(
+      `select * from report_credit_by_requester((now() - interval '30 days')::date, now()::date, 25)`,
+    );
+    const byName = new Map(rows.map((r) => [r.requester, r]));
+    expect(Number(byName.get("Dana")!.pending)).toBe(1);
+    expect(Number(byName.get("Morgan")!.denied)).toBe(1);
+    // Nothing decided yet for Dana, so a rate would be a made-up number.
+    expect(byName.get("Dana")!.approval_rate).toBeNull();
+    expect(Number(byName.get("Morgan")!.approval_rate)).toBe(0);
+  });
+
+  it("tells a broker nothing", async () => {
+    await raise();
+    await becomeUser(pg, AUTH.dana);
+    const { rows } = await pg.query(
+      `select * from report_credit_summary((now() - interval '30 days')::date, now()::date)`,
+    );
+    // The function is scoped to credit and admin, so a broker gets one empty
+    // aggregate row rather than the company's credit position.
+    expect(Number((rows[0] as Record<string, string>).raised ?? 0)).toBe(0);
+  });
+});

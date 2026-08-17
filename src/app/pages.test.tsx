@@ -439,6 +439,77 @@ describe("the dashboard for every role", () => {
   }
 });
 
+describe("reports, which open differently depending on the job", () => {
+  // The credit branch mounts an entirely separate component with its own three
+  // queries. Rendering only the admin case left it never executed.
+  for (const role of ["broker", "manager", "ad", "credit", "admin"]) {
+    it(`renders for a ${role}`, async () => {
+      currentRole = role;
+      try {
+        await expect(
+          render(SCREENS.find((s) => s.name === "reports")!, {
+            rpc: {
+              report_credit_summary: [
+                {
+                  raised: 8,
+                  decided: 6,
+                  approved: 5,
+                  denied: 1,
+                  still_waiting: 2,
+                  approved_value: 400000,
+                  mean_hours: 51.5,
+                  median_hours: 30,
+                  slowest_hours: 180,
+                },
+              ],
+              report_credit_by_requester: [
+                {
+                  requester: "Dana",
+                  branch: "Charlotte, NC",
+                  raised: 5,
+                  approved: 4,
+                  denied: 1,
+                  pending: 0,
+                  approved_value: 300000,
+                  approval_rate: 80,
+                },
+                {
+                  requester: "Raj",
+                  branch: null,
+                  raised: 1,
+                  approved: 0,
+                  denied: 0,
+                  pending: 1,
+                  approved_value: 0,
+                  approval_rate: null,
+                },
+              ],
+              report_credit_decisions: [
+                { day: "2026-08-01", raised: 2, approved: 1, denied: 0 },
+                { day: "2026-08-02", raised: 0, approved: 0, denied: 0 },
+                { day: "2026-08-03", raised: 1, approved: 2, denied: 1 },
+              ],
+            },
+          }),
+        ).resolves.toBeUndefined();
+      } finally {
+        currentRole = "admin";
+      }
+    });
+
+    it(`renders for a ${role} when every read fails`, async () => {
+      currentRole = role;
+      try {
+        await expect(
+          render(SCREENS.find((s) => s.name === "reports")!, { fail: true }),
+        ).resolves.toBeUndefined();
+      } finally {
+        currentRole = "admin";
+      }
+    });
+  }
+});
+
 describe("the directory, which anybody may open", () => {
   const fixture = {
     rpc: {

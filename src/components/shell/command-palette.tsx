@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, CornerDownLeft, Search, User } from "lucide-react";
+import { Building2, CornerDownLeft, Lock, Search, User } from "lucide-react";
 import { allNavItems } from "./nav";
 import { globalSearch, type SearchHit } from "./search-actions";
 
@@ -151,8 +151,16 @@ export function CommandPalette({ role }: { role: string }) {
           ) : (
             rows.map((row, i) => {
               const key = row.type === "nav" ? `nav:${row.href}` : `hit:${row.hit.kind}:${row.hit.id}`;
+              // A locked result gets a padlock rather than a building, so it
+              // is obvious before clicking that this one is somebody else's.
               const Icon =
-                row.type === "nav" ? row.icon : row.hit.kind === "account" ? Building2 : User;
+                row.type === "nav"
+                  ? row.icon
+                  : row.hit.kind === "locked"
+                    ? Lock
+                    : row.hit.kind === "account"
+                      ? Building2
+                      : User;
               return (
                 <button
                   key={key}
@@ -175,6 +183,10 @@ export function CommandPalette({ role }: { role: string }) {
                   {row.type === "nav" ? (
                     <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
                       Go to
+                    </span>
+                  ) : row.hit.kind === "locked" ? (
+                    <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-px text-[10px] font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                      held
                     </span>
                   ) : null}
                   {i === cursor ? (

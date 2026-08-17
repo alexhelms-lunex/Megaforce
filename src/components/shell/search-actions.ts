@@ -10,7 +10,7 @@ import { createClient } from "@/lib/supabase/server";
  * palette runs the searches concurrently and interleaves the results.
  */
 export interface SearchHit {
-  kind: "account" | "contact";
+  kind: "account" | "contact" | "locked";
   id: string;
   /** Where to navigate. Contacts open their account. */
   href: string;
@@ -29,7 +29,7 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
   const safe = q.replace(/[,()*\\]/g, " ").trim();
   if (!safe) return [];
 
-  const [accounts, contacts] = await Promise.all([
+  const [accounts, contacts, directory] = await Promise.all([
     supabase
       .from("accounts_with_state")
       .select("id, name, status, billing_city, billing_state, owner_name")
@@ -40,6 +40,26 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       .select("id, first_name, last_name, title, email, phone_e164, account_id, accounts(name)")
       .or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`)
       .limit(6),
+    /*
+     * The rest of the company.
+     *
+     * The two searches above run through row level security, so they can only
+     * ever find accounts the caller may OPEN. That is correct for them and it
+     * is not the whole answer: somebody typing a company name wants to know
+     * whether it is already taken, and an empty result reads as "we have never
+     * heard of them" -- which is how two brokers end up calling the same buyer
+     * in the same week.
+     *
+     * The directory answers the rest. Name, address and holder only; see
+     * 0024_account_directory.sql for what it may and may not carry.
+     */
+    supabase.rpc("account_directory", {
+      p_search: safe,
+      p_state: "",
+      p_scope: "locked",
+      p_limit: 5,
+      p_offset: 0,
+    }),
   ]);
 
   const hits: SearchHit[] = [];
@@ -84,6 +104,30 @@ export async function globalSearch(query: string): Promise<SearchHit[]> {
       href: `/accounts/${row.account_id}?tab=contacts`,
       title: `${row.first_name} ${row.last_name}`,
       subtitle: [row.title, account?.name].filter(Boolean).join(" · ") || "Contact",
+    });
+  }
+
+  // Held-by-somebody-else results go last, after everything the caller can
+  // actually work. They answer a question rather than offering a destination.
+  for (const d of (directory.data ?? []) as {
+    id: string;
+    name: string;
+    billing_city: string | null;
+    billing_state: string | null;
+    owner_name: string | null;
+  }[]) {
+    if (hits.some((h) => h.id === d.id)) continue;
+    hits.push({
+      kind: "locked",
+      id: d.id,
+      href: `/accounts/${d.id}`,
+      title: d.name,
+      subtitle: [
+        d.billing_city && d.billing_state ? `${d.billing_city}, ${d.billing_state}` : null,
+        `held by ${d.owner_name ?? "somebody"}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     });
   }
 
