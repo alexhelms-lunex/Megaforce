@@ -42,6 +42,22 @@ export async function createRequest(_prev: RequestResult, form: FormData): Promi
   }
   if (spec.needsTarget && !transferTo) return { error: "Pick who it should go to." };
 
+  /*
+   * The amount is the decision on a credit request, so it is required at the
+   * point of asking rather than at the point of approving. An approval with no
+   * amount would set the limit to null -- which every screen reads as "no limit
+   * agreed", the exact state the request existed to end. The database refuses
+   * that too; this is the version with a sentence on it.
+   */
+  let amount: number | null = null;
+  if (spec.needsAmount) {
+    amount = Number(String(form.get("amount") ?? "").replace(/[^\d.]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { error: "Say what credit limit you need, as a number." };
+    }
+    if (amount > 100_000_000) return { error: "That is larger than any limit this company sets." };
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.from("account_requests").insert({
     account_id: accountId,
@@ -49,6 +65,7 @@ export async function createRequest(_prev: RequestResult, form: FormData): Promi
     kind,
     reason,
     days,
+    amount,
     transfer_to: spec.needsTarget ? transferTo : null,
     status: "pending",
   });

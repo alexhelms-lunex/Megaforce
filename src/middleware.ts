@@ -68,6 +68,11 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isPublic =
     path === "/login" ||
+    // The password reset flow, all of which happens WITHOUT a session -- and
+    // /auth/callback is the route that creates one, so bouncing it to /login
+    // would make every reset email dead on arrival.
+    path === "/forgot-password" ||
+    path.startsWith("/auth/") ||
     path.startsWith("/api/webhooks") ||
     path.startsWith("/api/inngest") ||
     // Setup has to be reachable before any login exists -- it is the thing that

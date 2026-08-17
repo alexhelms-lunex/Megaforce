@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +44,18 @@ export default async function LoginPage({
               <Input id="email" name="email" type="email" required autoComplete="email" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-baseline justify-between">
+                <Label htmlFor="password">Password</Label>
+                {/* Beside the field rather than under the button. Somebody who
+                    needs this has already failed once and is looking at the
+                    password box, not at the bottom of the form. */}
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  Forgot your password?
+                </Link>
+              </div>
               <Input
                 id="password"
                 name="password"

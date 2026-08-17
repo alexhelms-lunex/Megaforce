@@ -88,6 +88,27 @@ export function RequestForm({
         </div>
       ) : null}
 
+      {spec?.needsAmount ? (
+        <div className="space-y-1.5">
+          <Label className="text-xs">Credit limit you need</Label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">$</span>
+            <input
+              name="amount"
+              type="number"
+              min={0}
+              step={1000}
+              placeholder="75000"
+              className="h-9 w-40 rounded-md border bg-background px-2 text-sm tabular-nums"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The total limit you want them to have, not the increase. Credit decides this one —
+            your manager cannot approve it.
+          </p>
+        </div>
+      ) : null}
+
       {spec?.needsTarget ? (
         <div className="space-y-1.5">
           <Label className="text-xs">Transfer to</Label>

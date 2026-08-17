@@ -210,6 +210,11 @@ const SCREENS: Screen[] = [
     props: () => ({ searchParams: Promise.resolve({}) }),
   },
   {
+    name: "company directory",
+    load: () => import("./(app)/directory/page"),
+    props: () => ({ searchParams: Promise.resolve({}) }),
+  },
+  {
     name: "contacts",
     load: () => import("./(app)/contacts/page"),
     props: () => ({ searchParams: Promise.resolve({}) }),
@@ -323,6 +328,159 @@ describe("every screen survives an unreachable auth server", () => {
       ).resolves.toMatch(/rendered|sent away/);
     });
   }
+});
+
+/**
+ * The home screen is five different screens now.
+ *
+ * Credit and admin route to entirely separate components with entirely separate
+ * queries, and a manager reorders the sales one. Rendering only the admin case
+ * -- which is what this file did, because currentRole defaults to admin -- left
+ * three of the five never executed by anything.
+ */
+describe("the dashboard for every role", () => {
+  const roles = ["broker", "manager", "ad", "credit", "admin"];
+
+  for (const role of roles) {
+    it(`renders for a ${role}`, async () => {
+      currentRole = role;
+      try {
+        await expect(
+          render(SCREENS.find((s) => s.name === "dashboard")!, {
+            rpc: {
+              dashboard_kpis: [{ owned: 12, at_risk: 2, calls_7d: 40, qualifying_7d: 9 }],
+              dashboard_credit: [
+                {
+                  pending_credit: 3,
+                  pending_credit_value: 225000,
+                  oldest_pending_days: 7,
+                  decided_30d: 10,
+                  approved_30d: 8,
+                  duplicates_open: 1,
+                  customers_without_limit: 4,
+                  total_exposure: 1750000,
+                  accounts_at_limit: 22,
+                },
+              ],
+              credit_queue: [
+                {
+                  request_id: "r1",
+                  account_id: "a1",
+                  account_name: "Tanglewood Milling",
+                  billing_city: "Stockton",
+                  billing_state: "CA",
+                  current_limit: 25000,
+                  requested_amount: 75000,
+                  reason: "Doubling their lanes",
+                  requested_by_name: "Dana",
+                  owner_name: "Dana",
+                  waiting_days: 7,
+                },
+              ],
+              credit_gaps: [
+                {
+                  account_id: "a2",
+                  account_name: "No Limit Co",
+                  billing_city: "Raleigh",
+                  billing_state: "NC",
+                  owner_name: "Raj",
+                  activity_90d: 12,
+                },
+              ],
+              admin_user_counts: [
+                { bucket: "active", n: 24 },
+                { bucket: "nologin", n: 2 },
+              ],
+              account_directory_counts: [{ mine: 12, locked: 40, available: 9, total: 61 }],
+            },
+            from: {
+              accounts_with_state: [
+                {
+                  id: "a1",
+                  name: "Tanglewood Milling",
+                  owner_name: "Dana",
+                  state: "overdue",
+                  days_left: 0,
+                  billing_city: "Stockton",
+                  billing_state: "CA",
+                },
+              ],
+            },
+          }),
+        ).resolves.toBeUndefined();
+      } finally {
+        currentRole = "admin";
+      }
+    });
+
+    it(`renders for a ${role} against an empty database`, async () => {
+      currentRole = role;
+      try {
+        await expect(
+          render(SCREENS.find((s) => s.name === "dashboard")!, {}),
+        ).resolves.toBeUndefined();
+      } finally {
+        currentRole = "admin";
+      }
+    });
+
+    it(`renders for a ${role} when every read fails`, async () => {
+      // A credit dashboard that throws when the migration has not run is a
+      // credit team with no home screen at all.
+      currentRole = role;
+      try {
+        await expect(
+          render(SCREENS.find((s) => s.name === "dashboard")!, { fail: true }),
+        ).resolves.toBeUndefined();
+      } finally {
+        currentRole = "admin";
+      }
+    });
+  }
+});
+
+describe("the directory, which anybody may open", () => {
+  const fixture = {
+    rpc: {
+      account_directory: [
+        {
+          id: "a1",
+          name: "Tanglewood Milling",
+          billing_street: "1 Mill Rd",
+          billing_city: "Stockton",
+          billing_state: "CA",
+          billing_postal_code: "95202",
+          billing_country: "US",
+          owner_id: "u1",
+          owner_name: "Dana",
+          ad_owner_id: null,
+          ad_owner_name: null,
+          available: false,
+          can_open: false,
+          total_rows: 1,
+        },
+      ],
+      account_directory_counts: [{ mine: 1, locked: 1, available: 1, total: 3 }],
+    },
+  };
+
+  it("renders with rows", async () => {
+    await expect(
+      render(SCREENS.find((s) => s.name === "company directory")!, fixture),
+    ).resolves.toBeUndefined();
+  });
+
+  it("renders with nothing on file", async () => {
+    await expect(
+      render(SCREENS.find((s) => s.name === "company directory")!, {}),
+    ).resolves.toBeUndefined();
+  });
+
+  it("renders when the function is not in the database yet", async () => {
+    await expect(
+      render(SCREENS.find((s) => s.name === "company directory")!, { fail: true }),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("the screens that carry real rows", () => {

@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  BookOpen,
   BarChart3,
   Building2,
   ClipboardCheck,
@@ -57,6 +58,15 @@ export const NAV: NavSection[] = [
         label: "Available pool",
         icon: Inbox,
         keywords: "unclaimed open claim free",
+      },
+      {
+        // Above Contacts on purpose. This is the screen somebody uses BEFORE
+        // prospecting, to find out whether a company is already taken -- and a
+        // check nobody can find is a check nobody makes.
+        href: "/directory",
+        label: "Company directory",
+        icon: BookOpen,
+        keywords: "search every company who has it taken held owner lookup duplicate",
       },
       {
         href: "/contacts",

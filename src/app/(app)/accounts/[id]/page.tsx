@@ -24,6 +24,7 @@ import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
 import { RequestForm } from "@/components/request-form";
 import { AccountTabs } from "./account-tabs";
 import { ZoomInfoPanel } from "@/components/zoominfo-panel";
+import { LockedAccount, type DirectoryEntry } from "@/components/locked-account";
 import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { daysSince, formatDateTime, formatDuration, formatMoney, staleTone } from "@/lib/format";
@@ -122,7 +123,25 @@ export default async function AccountDetailPage({
     ]);
 
   const account = accountRes.data;
-  if (!account) notFound();
+
+  /*
+   * Not found, or not yours?
+   *
+   * Row level security makes a colleague's account genuinely invisible, so the
+   * read above returns nothing for both cases -- and this used to 404 for both,
+   * which answered the wrong question. Somebody arriving here from a search
+   * wants to know whether the company is already taken, and a 404 tells them it
+   * does not exist.
+   *
+   * The directory answers it: name, address, holder, and nothing else. See
+   * 0024_account_directory.sql for exactly what it may and may not carry.
+   */
+  if (!account) {
+    const { data: entry } = await supabase.rpc("account_directory_one", { p_id: id });
+    const found = (entry as DirectoryEntry[] | null)?.[0];
+    if (found && !found.can_open) return <LockedAccount entry={found} />;
+    notFound();
+  }
 
   const me = await currentUser();
   const state = (account.state ?? "fresh") as LifecycleState;

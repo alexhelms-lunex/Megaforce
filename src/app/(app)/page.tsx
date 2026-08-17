@@ -12,6 +12,8 @@ import { BarList, DailyBars, StageFunnel, StatCard, type DayBar } from "@/compon
 import { LifecycleFlag } from "@/components/lifecycle-flag";
 import { InfoTip } from "@/components/info-tip";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
+import { CreditDashboard } from "./dashboards/credit";
+import { AdminDashboard } from "./dashboards/admin";
 import { daysSince } from "@/lib/format";
 import type { LifecycleState } from "@/lib/lifecycle";
 
@@ -58,12 +60,43 @@ const ZERO: Kpis = {
  * manager sees their subtree, and both see the same shapes, so nobody has to
  * learn a second screen when they get promoted.
  */
+/**
+ * The home screen, which is a different screen depending on who you are.
+ *
+ * ---------------------------------------------------------------------------
+ * Everybody used to land on the sales dashboard: pipeline, call volume, stage
+ * funnel, conversion rate. For a broker that is exactly right. For Customer
+ * Credit every number on it was about work they do not do -- they hold no book,
+ * make no calls, and their conversion rate is structurally zero -- and for an
+ * administrator it was a book they do not own with none of the queues they are
+ * responsible for.
+ *
+ * Alex, on what each role opens in the morning:
+ *
+ *   credit   credit increase requests and setting up credit
+ *   broker   pipelines and sales
+ *   manager  tracking the brokers
+ *   admin    visibility into everything
+ *
+ * A role with the wrong dashboard does not complain, it simply stops opening
+ * the application -- which is the failure mode worth avoiding.
+ * ---------------------------------------------------------------------------
+ */
 export default async function DashboardPage() {
   const supabase = await createClient();
   const me = await currentUser();
   if (!me) return null;
 
+  if (me.role === "credit") return <CreditDashboard me={me} />;
+  if (me.role === "admin") return <AdminDashboard me={me} />;
+
+  // Brokers, managers and account directors all work a book, so they share a
+  // dashboard -- with the team table promoted to the top for a manager, whose
+  // job is the people rather than the pipeline.
   const managerish = me.role === "manager" || isPrivileged(me.role);
+  // A manager's job is the people, not the pipeline, so their brokers go above
+  // the charts rather than below them.
+  const leadWithTeam = me.role === "manager";
   const scope = managerish ? "team" : "mine";
 
   /*
@@ -360,7 +393,8 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      {managerish && team.length > 0 ? <TeamTable rows={team} /> : null}
+      {/* Managers get it at the top instead — see above. */}
+      {managerish && !leadWithTeam && team.length > 0 ? <TeamTable rows={team} /> : null}
     </div>
   );
 }
