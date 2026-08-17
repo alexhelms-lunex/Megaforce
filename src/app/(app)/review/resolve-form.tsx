@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { runAction } from "@/lib/run-action";
 import { Button } from "@/components/ui/button";
 import { resolveQueueItem } from "./actions";
 
@@ -36,9 +36,10 @@ export function ResolveForm({
       className="flex flex-wrap items-center gap-2"
       action={(formData) => {
         startTransition(async () => {
-          const result = await resolveQueueItem(formData);
-          if (result?.error) toast.error(result.error);
-          else toast.success("Attached, and the call is now on the account's timeline.");
+          await runAction(() => resolveQueueItem(formData), {
+            label: "Could not attach that call",
+            success: "Attached, and the call is now on the account's timeline.",
+          });
         });
       }}
     >

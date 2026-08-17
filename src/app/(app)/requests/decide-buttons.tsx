@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { runAction } from "@/lib/run-action";
 import { Button } from "@/components/ui/button";
 import { decideRequest, withdrawRequest } from "./actions";
 
@@ -26,14 +26,14 @@ export function DecideButtons({ requestId }: { requestId: string }) {
     form.set("decision", decision);
     form.set("note", note);
     start(async () => {
-      const result = await decideRequest(form);
-      if (result.error) toast.error(result.error);
-      else {
-        toast.success(decision === "approve" ? "Approved." : "Denied.");
-        setDenying(false);
-        setNote("");
-        router.refresh();
-      }
+      const result = await runAction(() => decideRequest(form), {
+        label: "Could not record that decision",
+        success: decision === "approve" ? "Approved." : "Denied.",
+      });
+      if (!result) return;
+      setDenying(false);
+      setNote("");
+      router.refresh();
     });
   }
 
@@ -85,12 +85,11 @@ export function WithdrawButton({ requestId }: { requestId: string }) {
         start(async () => {
           const form = new FormData();
           form.set("requestId", requestId);
-          const result = await withdrawRequest(form);
-          if (result.error) toast.error(result.error);
-          else {
-            toast.success("Withdrawn.");
-            router.refresh();
-          }
+          const result = await runAction(() => withdrawRequest(form), {
+            label: "Could not withdraw it",
+            success: "Withdrawn.",
+          });
+          if (result) router.refresh();
         })
       }
     >

@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { KeyRound, RotateCcw, UserMinus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/info-tip";
 import { ROLES, ROLE_BADGE, ROLE_LABEL, type AdminUser } from "@/lib/roles";
+import { runAction } from "@/lib/run-action";
 import { bulkAction, createLogin, deactivateUser, reactivateUser } from "./actions";
 import { DeactivateDialog } from "./deactivate-dialog";
 
@@ -62,21 +62,15 @@ export function UserTable({
     });
   }
 
-  function run(label: string, fn: () => Promise<{ ok?: true; message?: string; error?: string; password?: string }>) {
+  function run(
+    label: string,
+    fn: () => Promise<{ ok?: true; message?: string; error?: string; password?: string }>,
+  ) {
     start(async () => {
-      const result = await fn();
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      if (result.password) {
-        // Shown once and never stored anywhere this screen can read again.
-        toast.success(`${result.message ?? label} Password: ${result.password}`, {
-          duration: 30_000,
-        });
-      } else {
-        toast.success(result.message ?? label);
-      }
+      // Through runAction, so a rejected action is a toast rather than the
+      // whole screen being replaced by an error boundary.
+      const result = await runAction(fn, { success: label, label: "That did not work" });
+      if (!result) return;
       setSelected(new Set());
       router.refresh();
     });

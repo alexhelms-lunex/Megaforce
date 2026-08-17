@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
 import { ROLES, type AdminUser } from "@/lib/roles";
+import { runAction } from "@/lib/run-action";
 import { createUser, resetPassword, setRole, updateUser } from "./actions";
 
 interface Colleague {
@@ -46,7 +47,7 @@ export function UserForm({
   const [issued, setIssued] = useState<string | null>(null);
   const router = useRouter();
 
-  const [form, setForm] = useState({
+  const initialForm = {
     full_name: user?.full_name ?? "",
     email: user?.email ?? "",
     role: user?.role ?? "broker",
@@ -57,7 +58,10 @@ export function UserForm({
     start_date: user?.start_date ?? "",
     prospect_limit: user?.prospect_limit != null ? String(user.prospect_limit) : "",
     create_login: true,
-  });
+  };
+  const [form, setForm] = useState(initialForm);
+  const [saved, setSaved] = useState(initialForm);
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved);
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -72,46 +76,58 @@ export function UserForm({
       }
 
       if (!editing) {
-        const result = await createUser({
-          email: form.email,
-          full_name: form.full_name,
-          role: form.role,
-          manager_id: form.manager_id,
-          location: form.location,
-          title: form.title,
-          phone: form.phone,
-          start_date: form.start_date,
-          prospect_limit: limit,
-          create_login: form.create_login,
-        });
-        if (result.error) return void toast.error(result.error);
+        const result = await runAction(
+          () =>
+            createUser({
+              email: form.email,
+              full_name: form.full_name,
+              role: form.role,
+              manager_id: form.manager_id,
+              location: form.location,
+              title: form.title,
+              phone: form.phone,
+              start_date: form.start_date,
+              prospect_limit: limit,
+              create_login: form.create_login,
+            }),
+          { label: "Could not add them", success: "Added." },
+        );
+        if (!result) return;
         if (result.password) setIssued(result.password);
-        toast.success(result.message ?? "Added.");
-        if (!result.password) router.push("/admin/users");
-        else router.refresh();
+        else router.push("/admin/users");
+        router.refresh();
         return;
       }
 
-      // The role goes through its own function, which is where the last-admin
+      // The role goes through its own action, which is where the last-admin
       // refusal lives. Sending it with the rest would turn that into a
       // constraint violation nobody can read.
       if (form.role !== user!.role) {
-        const roleResult = await setRole(user!.id, form.role);
-        if (roleResult.error) return void toast.error(roleResult.error);
+        const roleResult = await runAction(() => setRole(user!.id, form.role), {
+          label: "Could not change the role",
+          quiet: true,
+        });
+        if (!roleResult) return;
       }
 
-      const result = await updateUser(user!.id, {
-        full_name: form.full_name,
-        email: form.email,
-        title: form.title,
-        phone: form.phone,
-        location: form.location,
-        manager_id: form.manager_id,
-        start_date: form.start_date,
-        prospect_limit: limit,
-      });
-      if (result.error) return void toast.error(result.error);
-      toast.success(result.message ?? "Saved.");
+      const result = await runAction(
+        () =>
+          updateUser(user!.id, {
+            full_name: form.full_name,
+            email: form.email,
+            title: form.title,
+            phone: form.phone,
+            location: form.location,
+            manager_id: form.manager_id,
+            start_date: form.start_date,
+            prospect_limit: limit,
+          }),
+        { label: "Could not save", success: "Saved." },
+      );
+      if (!result) return;
+      // The screen now matches what is stored, so the form stops looking
+      // unsaved even before the server round trip finishes.
+      setSaved({ ...form, prospect_limit: form.prospect_limit });
       router.refresh();
     });
   }
@@ -343,10 +359,10 @@ export function UserForm({
                 disabled={pending}
                 onClick={() =>
                   start(async () => {
-                    const result = await resetPassword(user!.id);
-                    if (result.error) return void toast.error(result.error);
-                    setIssued(result.password ?? null);
-                    toast.success(result.message ?? "Password reset.");
+                    const result = await runAction(() => resetPassword(user!.id), {
+                      label: "Could not reset the password",
+                    });
+                    if (result?.password) setIssued(result.password);
                   })
                 }
               >
@@ -365,8 +381,8 @@ export function UserForm({
         >
           Cancel
         </Link>
-        <Button onClick={submit} disabled={pending}>
-          {pending ? "Saving…" : editing ? "Save changes" : "Add them"}
+        <Button onClick={submit} disabled={pending || (editing && !dirty)}>
+          {pending ? "Saving…" : editing ? (dirty ? "Save changes" : "Saved") : "Add them"}
         </Button>
       </div>
     </div>

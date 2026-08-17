@@ -71,6 +71,14 @@ export default function AppError({
           >
             Back to the dashboard
           </Link>
+          {/* The message above is redacted in production. This is where the
+              real one is -- captured before Next hides it, admin only. */}
+          <a
+            href="/api/errors"
+            className="inline-flex h-8 items-center rounded-full px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
+          >
+            What actually failed
+          </a>
           <Link
             href="/admin"
             className="inline-flex h-8 items-center rounded-full px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"

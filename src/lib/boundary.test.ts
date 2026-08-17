@@ -100,3 +100,66 @@ describe("the server/client boundary", () => {
     expect(serverFiles.length).toBeGreaterThan(20);
   });
 });
+
+
+/**
+ * Every action handler catches.
+ *
+ * ---------------------------------------------------------------------------
+ * A server action that REFUSES returns `{ error }`, and every handler checked
+ * for that. A server action that REJECTS throws inside a React transition, and
+ * React sends that to the nearest error boundary -- which replaces the entire
+ * screen with "This page did not load" and a message production redacts.
+ *
+ * Pressing Save on the user form did exactly that. The form's contents were
+ * gone, the cause was invisible, and the underlying problem deserved a toast
+ * at most. It was one missing try/catch, in nine separate places.
+ *
+ * So: no handler may await a server action without a guard. runAction() is the
+ * guard; a hand-written try/catch is accepted for the few places that need
+ * something bespoke.
+ * ---------------------------------------------------------------------------
+ */
+describe("client action handlers", () => {
+  function unguardedHandlers(): { file: string; line: number }[] {
+    const found: { file: string; line: number }[] = [];
+
+    for (const file of walk(SRC)) {
+      const source = readFileSync(file, "utf8");
+      if (!/^\s*["']use client["']/m.test(source.slice(0, 200))) continue;
+      // The helper itself quotes the bad pattern in its own comment.
+      if (file.endsWith("run-action.ts")) continue;
+
+      const lines = source.split("\n");
+      lines.forEach((line, i) => {
+        // The shape every handler uses: a transition wrapping an async body.
+        if (!/start(Transition)?\(\s*async\s*\(\)\s*=>/.test(line)) return;
+        // Look ahead far enough to cover the body of a realistic handler.
+        const body = lines.slice(i, i + 20).join("\n");
+        if (/runAction|try\s*\{/.test(body)) return;
+        found.push({ file: path.relative(process.cwd(), file), line: i + 1 });
+      });
+    }
+    return found;
+  }
+
+  it("never awaits a server action without catching a rejection", () => {
+    const offenders = unguardedHandlers();
+    expect(
+      offenders,
+      "A rejected action here destroys the page instead of showing a message:\n" +
+        offenders.map((o) => `  ${o.file}:${o.line}`).join("\n"),
+    ).toEqual([]);
+  });
+
+  it("is finding the handlers it is meant to be checking", () => {
+    // The scan is only meaningful if it actually matches the pattern in use.
+    let handlers = 0;
+    for (const file of walk(SRC)) {
+      const source = readFileSync(file, "utf8");
+      if (!/^\s*["']use client["']/m.test(source.slice(0, 200))) continue;
+      handlers += (source.match(/start(Transition)?\(\s*async\s*\(\)\s*=>/g) ?? []).length;
+    }
+    expect(handlers).toBeGreaterThan(5);
+  });
+});

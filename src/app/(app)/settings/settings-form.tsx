@@ -17,6 +17,7 @@ import {
   type Preferences,
 } from "@/lib/preferences";
 import { PRESETS } from "@/lib/account-filters";
+import { runAction } from "@/lib/run-action";
 import { saveAlert, savePreferences } from "./actions";
 
 /**
@@ -70,20 +71,22 @@ export function SettingsForm({ initial }: { initial: Preferences }) {
     ) as Partial<Preferences>;
 
     start(async () => {
-      const result = await savePreferences(patch);
-      if (result.error) {
+      const result = await runAction(() => savePreferences(patch), {
+        label: "Could not save your settings",
+        quiet: true,
+      });
+
+      if (!result) {
         // Put the screen back to what is actually stored. Leaving the controls
         // showing an unsaved state after a failed write is how somebody walks
         // away believing a setting took.
         setPrefs(saved);
         applyLive(saved);
-        toast.error(result.error);
         return;
       }
+
       setSaved(prefs);
-      toast.success(
-        changed.length === 1 ? "Saved." : `Saved ${changed.length} changes.`,
-      );
+      toast.success(changed.length === 1 ? "Saved." : `Saved ${changed.length} changes.`);
       router.refresh();
     });
   }
@@ -100,12 +103,26 @@ export function SettingsForm({ initial }: { initial: Preferences }) {
       ...p,
       alerts: { ...p.alerts, [key]: { ...(p.alerts[key] ?? { app: true, email: true }), [channel]: value } },
     }));
+    // Saved on the spot rather than through the Save bar: this is a matrix of
+    // forty switches, and a pending count on those would be noise.
     start(async () => {
-      const result = await saveAlert(key, channel, value);
-      if (result.error) {
+      const result = await runAction(() => saveAlert(key, channel, value), {
+        label: "Could not change that alert",
+        quiet: true,
+      });
+      if (!result) {
         setPrefs((p) => ({ ...p, alerts: previous }));
-        toast.error(result.error);
+        return;
       }
+      // Keep the saved snapshot in step, or the Save bar appears for a change
+      // that has already been written.
+      setSaved((sv) => ({
+        ...sv,
+        alerts: {
+          ...sv.alerts,
+          [key]: { ...(sv.alerts[key] ?? { app: true, email: true }), [channel]: value },
+        },
+      }));
     });
   }
 

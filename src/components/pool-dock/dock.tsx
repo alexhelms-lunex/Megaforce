@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { runAction } from "@/lib/run-action";
 import { Inbox, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/info-tip";
@@ -67,11 +67,11 @@ export function PoolDock() {
     start(async () => {
       const form = new FormData();
       form.set("accountId", account.id);
-      const result = await claim(form);
-      if (result.error) {
-        toast.error(result.error);
-      } else {
-        toast.success(`${account.name} is yours. The clock starts now.`);
+      const result = await runAction(() => claim(form), {
+        label: "Could not claim it",
+        success: `${account.name} is yours. The clock starts now.`,
+      });
+      if (result) {
         // Drop it from the list immediately rather than waiting for the
         // refetch, so a fast second click cannot claim it twice.
         setAccounts((list) => list.filter((a) => a.id !== account.id));

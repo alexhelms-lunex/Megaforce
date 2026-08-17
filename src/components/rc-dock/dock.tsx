@@ -3,6 +3,7 @@
 import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { runAction } from "@/lib/run-action";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -394,9 +395,10 @@ function Dialer() {
           disabled={pending || !number}
           onClick={() =>
             start(async () => {
-              const result = await placeCall(number);
-              if (result.error) toast.error(result.error);
-              else toast.success("Ringing your handset now.");
+              await runAction(() => placeCall(number), {
+                label: "Could not place the call",
+                success: "Ringing your handset now.",
+              });
             })
           }
         >
