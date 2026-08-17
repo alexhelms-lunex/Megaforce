@@ -106,6 +106,9 @@ export interface BreakdownRow {
   accounts: number;
   claimed: number;
   lost: number;
+  /** The same two figures from the comparison window. Null when unavailable. */
+  prevCalls: number | null;
+  prevApproved: number | null;
 }
 
 export interface ReportError {
@@ -130,6 +133,168 @@ export function daysAgo(n: number): string {
 
 export function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Periods
+//
+// Alex: "A period is 7 days for our sake. A period begins on Monday and ends on
+// Sunday evening."
+//
+// That is not a cosmetic relabelling of the old day counts. "The last 28 days"
+// starts on whatever weekday you happen to open the screen, so a Friday report
+// and a Monday report cover different Mondays -- and every week-over-week
+// comparison drawn from them silently compares four Fridays against three.
+// Anchoring to Monday makes two reports of the same period identical whoever
+// runs them and whenever.
+//
+// Everything below is UTC. The whole reporting engine is: the buckets in
+// report_series come from Postgres date_trunc, which starts its weeks on Monday
+// too, so the app and the database agree on where a week begins without either
+// having to be told.
+// ---------------------------------------------------------------------------
+
+/** Days per week, named so the arithmetic below reads as weeks. */
+const WEEK = 7;
+
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The Monday of the week an ISO date falls in.
+ *
+ * getUTCDay() calls Sunday 0, so Sunday has to walk back six days rather than
+ * forward one. Getting that backwards moves one day in seven into the wrong
+ * week, which is the kind of bug that shows up as "the numbers were fine except
+ * last Sunday".
+ */
+export function mondayOf(iso: string): string {
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return addDays(iso, -((day + 6) % WEEK));
+}
+
+export interface Period {
+  key: PeriodKey;
+  from: string;
+  to: string;
+  /** Weeks the window spans, used to step the comparison back cleanly. */
+  weeks: number;
+  /** True while the last week in it is still running. */
+  partial: boolean;
+}
+
+export const PERIODS = [
+  { key: "this-week", label: "This week", weeks: 1 },
+  { key: "last-week", label: "Last week", weeks: 1 },
+  { key: "4-weeks", label: "4 weeks", weeks: 4 },
+  { key: "13-weeks", label: "13 weeks", weeks: 13 },
+  { key: "52-weeks", label: "52 weeks", weeks: 52 },
+] as const;
+
+export type PeriodKey = (typeof PERIODS)[number]["key"];
+
+export function isPeriodKey(value: string): value is PeriodKey {
+  return PERIODS.some((p) => p.key === value);
+}
+
+/**
+ * Resolve a period into the two dates the queries actually take.
+ *
+ * "This week" runs Monday to today and says so. Every other period ends on the
+ * last COMPLETED Sunday, deliberately: a four-week window that quietly includes
+ * two days of the current week is being compared against four whole weeks, and
+ * the report says the team is down when it is only Tuesday.
+ */
+export function resolvePeriod(key: PeriodKey, today = isoToday()): Period {
+  const thisMonday = mondayOf(today);
+  const lastSunday = addDays(thisMonday, -1);
+
+  switch (key) {
+    case "this-week":
+      return { key, from: thisMonday, to: today, weeks: 1, partial: today !== addDays(thisMonday, 6) };
+    case "last-week":
+      return { key, from: addDays(thisMonday, -WEEK), to: lastSunday, weeks: 1, partial: false };
+    default: {
+      const weeks = PERIODS.find((p) => p.key === key)?.weeks ?? 4;
+      return { key, from: addDays(lastSunday, -(weeks * WEEK - 1)), to: lastSunday, weeks, partial: false };
+    }
+  }
+}
+
+export const COMPARISONS = [
+  {
+    key: "previous",
+    label: "Previous period",
+    hint: "The same length of time immediately before this period.",
+  },
+  {
+    key: "previous-week",
+    label: "A week earlier",
+    hint: "The identical window shifted back seven days. Same weekdays, same length.",
+  },
+  {
+    key: "last-year",
+    label: "Same weeks last year",
+    hint:
+      "Fifty-two weeks back. Not a calendar year — 364 days, so the window lands on a " +
+      "Monday again and Tuesdays are compared against Tuesdays.",
+  },
+  { key: "none", label: "No comparison", hint: "Show the figures on their own." },
+] as const;
+
+export type CompareKey = (typeof COMPARISONS)[number]["key"];
+
+export function isCompareKey(value: string): value is CompareKey {
+  return COMPARISONS.some((c) => c.key === value);
+}
+
+export interface CompareWindow {
+  key: CompareKey;
+  from: string | null;
+  to: string | null;
+  label: string;
+}
+
+/**
+ * The window a period is measured against.
+ *
+ * Three shifts, all of whole weeks, which is the only way a Monday-anchored
+ * window stays Monday-anchored:
+ *
+ *   previous       back by the period's own length in whole weeks. For a part-
+ *                  finished week that is seven days, so Monday-to-Wednesday is
+ *                  compared against last Monday-to-Wednesday rather than
+ *                  against the Friday-to-Sunday that immediately preceded it.
+ *   previous-week  back seven days, whatever the length.
+ *   last-year      back 364 days. 365 would move the window onto a Sunday and
+ *                  compare six weekdays against five.
+ */
+export function resolveCompare(period: Period, key: CompareKey): CompareWindow {
+  if (key === "none") return { key, from: null, to: null, label: "no comparison" };
+
+  const shift =
+    key === "previous" ? period.weeks * WEEK : key === "last-year" ? 52 * WEEK : WEEK;
+
+  return {
+    key,
+    from: addDays(period.from, -shift),
+    to: addDays(period.to, -shift),
+    label: COMPARISONS.find((c) => c.key === key)?.label.toLowerCase() ?? "the previous period",
+  };
+}
+
+/** "18 Aug – 24 Aug", or a single date when the window is one day long. */
+export function formatWindow(from: string, to: string): string {
+  const fmt = (iso: string) =>
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  return from === to ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
 }
 
 /** Whole days between two ISO dates, inclusive of both ends. */

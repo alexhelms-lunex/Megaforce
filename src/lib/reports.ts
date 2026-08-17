@@ -24,16 +24,36 @@ import {
 
 export * from "./report-metrics";
 
+/**
+ * The comparison window, or nothing.
+ *
+ * Passed through to the database rather than derived there. The old behaviour
+ * -- "the same number of days immediately before" -- is one of the three
+ * comparisons Alex asked for, and the other two cannot be expressed as a span:
+ * "the same weeks last year" is a different window, not a longer one.
+ * Omitting it leaves the database computing the old default, so every caller
+ * that has not been updated behaves exactly as it did.
+ */
+export interface Against {
+  from: string | null;
+  to: string | null;
+}
+
+const NO_COMPARISON: Against = { from: null, to: null };
+
 export async function fetchTotals(
   from: string,
   to: string,
   scope: Scope,
+  against: Against = NO_COMPARISON,
 ): Promise<{ metrics: MetricValue[]; error: ReportError | null }> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("report_window", {
     p_from: from,
     p_to: to,
     p_scope: scope,
+    p_prev_from: against.from,
+    p_prev_to: against.to,
   });
 
   if (error) return { metrics: [], error: classify(error.message) };
@@ -111,6 +131,7 @@ export async function fetchBreakdown(
   search: string,
   limit: number,
   offset: number,
+  against: Against = NO_COMPARISON,
 ): Promise<{ rows: BreakdownRow[]; total: number; error: ReportError | null }> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("report_breakdown", {
@@ -121,6 +142,8 @@ export async function fetchBreakdown(
     p_search: search,
     p_limit: limit,
     p_offset: offset,
+    p_prev_from: against.from,
+    p_prev_to: against.to,
   });
 
   if (error) return { rows: [], total: 0, error: classify(error.message) };
@@ -138,6 +161,11 @@ export async function fetchBreakdown(
       accounts: Number(r.accounts ?? 0),
       claimed: Number(r.claimed ?? 0),
       lost: Number(r.lost ?? 0),
+      // Absent on a database that has not applied 0030 yet, which is why these
+      // read as null rather than as zero. Zero would draw a red arrow next to
+      // every broker on the screen.
+      prevCalls: r.prev_calls == null ? null : Number(r.prev_calls),
+      prevApproved: r.prev_approved == null ? null : Number(r.prev_approved),
     })),
   };
 }

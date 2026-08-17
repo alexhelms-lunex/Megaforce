@@ -322,3 +322,63 @@ describe("server action modules", () => {
     });
   }
 });
+
+/**
+ * Migrations have to survive being run twice.
+ *
+ * ---------------------------------------------------------------------------
+ * Setup re-runs the whole migration set every time, because people re-run it
+ * when something looks wrong -- and a setup button that is only safe once is
+ * a trap, not a button.
+ *
+ * The specific way this breaks is subtle enough to have caught this project
+ * three times, in 0021, 0024 and 0030. `create or replace function` cannot
+ * change a return type or add a parameter; it creates an OVERLOAD instead. So
+ * a migration that widens a signature has to drop the old one first. On the
+ * SECOND run, though, an earlier migration has already recreated the old
+ * signature and the new one is still there from the first run -- so the drop
+ * clears one and the create collides with the other, and setup stops dead at
+ * that file with an error nobody would connect to it.
+ *
+ * The rule: a migration using a bare `create function` must drop that
+ * function's name somewhere in the same file, and must drop EVERY signature it
+ * has ever had rather than only the one being replaced.
+ *
+ * This checks the first half statically, which is the cheap half. The second
+ * half is only provable against a real database, which is what the double-run
+ * in setup/run.test.ts is for.
+ * ---------------------------------------------------------------------------
+ */
+describe("migrations are safe to re-run", () => {
+  const migrationsDir = path.join(process.cwd(), "db", "migrations");
+  const files = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+
+  it("finds the migrations it is meant to be checking", () => {
+    expect(files.length).toBeGreaterThan(20);
+  });
+
+  for (const file of files) {
+    it(`${file} drops any function it creates outright`, () => {
+      const sql = readFileSync(path.join(migrationsDir, file), "utf8");
+      // Comments carry example SQL and prose about dropping; stripping them
+      // keeps this measuring the statements rather than the explanation.
+      const code = sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+
+      const created = [...code.matchAll(/\bcreate\s+function\s+([a-z0-9_]+)\s*\(/gi)]
+        .map((m) => m[1].toLowerCase());
+      const dropped = new Set(
+        [...code.matchAll(/\bdrop\s+function\s+if\s+exists\s+([a-z0-9_]+)\s*\(/gi)]
+          .map((m) => m[1].toLowerCase()),
+      );
+
+      const undropped = [...new Set(created)].filter((name) => !dropped.has(name));
+      expect(
+        undropped,
+        `${file} uses a bare "create function" for ${undropped.join(", ")} without a ` +
+          `matching "drop function if exists". On a second run of setup that fails with ` +
+          `"function already exists". Either drop it first — every signature it has ever ` +
+          `had — or use "create or replace" if the signature is unchanged.`,
+      ).toEqual([]);
+    });
+  }
+});

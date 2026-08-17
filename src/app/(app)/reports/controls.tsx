@@ -28,56 +28,125 @@ function useGo() {
   };
 }
 
-const RANGES = [
-  { key: "7", label: "7 days" },
-  { key: "28", label: "28 days" },
-  { key: "90", label: "90 days" },
-  { key: "365", label: "12 months" },
+/**
+ * The period picker.
+ *
+ * Alex: "A period is 7 days for our sake. A period begins on Monday and ends on
+ * Sunday evening."
+ *
+ * So the tabs are named in WEEKS, not days. "28 days" and "4 weeks" are the
+ * same length and they are not the same window: one starts on whatever day you
+ * happened to open the screen, the other always starts on a Monday. Naming them
+ * in weeks is the only labelling that stays honest once the window is anchored,
+ * and it is how the floor already talks -- nobody says "how did we do over the
+ * last twenty-eight days".
+ *
+ * Each tab carries what it actually means underneath, because "13 weeks" and
+ * "the thirteen complete weeks ending last Sunday" are different promises and
+ * only the second one is true.
+ */
+const PERIOD_TABS = [
+  { key: "this-week", label: "This week", hint: "Monday to today. Still running." },
+  { key: "last-week", label: "Last week", hint: "The last complete Monday to Sunday." },
+  { key: "4-weeks", label: "4 weeks", hint: "The four complete weeks ending last Sunday." },
+  { key: "13-weeks", label: "13 weeks", hint: "A quarter, as thirteen complete weeks." },
+  { key: "52-weeks", label: "52 weeks", hint: "A year, as fifty-two complete weeks." },
 ];
 
-export function RangeControls({ scope, days }: { scope: string; days: string }) {
+const COMPARE_TABS = [
+  { key: "previous", label: "Previous", hint: "The same length of time immediately before." },
+  {
+    key: "previous-week",
+    label: "Week earlier",
+    hint: "The same window shifted back seven days — same weekdays, same length.",
+  },
+  {
+    key: "last-year",
+    label: "Last year",
+    hint:
+      "Fifty-two weeks back. 364 days rather than 365, so the window lands on a Monday " +
+      "again and Tuesdays are compared against Tuesdays.",
+  },
+  { key: "none", label: "Off", hint: "Show the figures on their own." },
+];
+
+function Pills({
+  options,
+  active,
+  onPick,
+}: {
+  options: { key: string; label: string; hint: string }[];
+  active: string;
+  onPick: (key: string) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-full border p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onPick(o.key)}
+          aria-pressed={active === o.key}
+          title={o.hint}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            active === o.key
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function RangeControls({
+  scope,
+  period,
+  compare,
+}: {
+  scope: string;
+  period: string;
+  compare: string;
+}) {
   const go = useGo();
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="inline-flex rounded-full border p-0.5">
-        {RANGES.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => go({ days: r.key })}
-            aria-pressed={days === r.key}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              days === r.key
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Period
+        </span>
+        {/* Clearing ?days= as well: an old bookmark carries it, and leaving it
+            in the URL means the legacy fallback fights the new control. */}
+        <Pills
+          options={PERIOD_TABS}
+          active={period}
+          onPick={(key) => go({ period: key, days: null })}
+        />
+        <InfoTip
+          side="bottom"
+          text="A period runs Monday to Sunday. Everything except This week ends on the last completed Sunday, so a part-finished week is never compared against a whole one."
+        />
       </div>
 
-      <div className="inline-flex rounded-full border p-0.5">
-        {[
-          { key: "mine", label: "My book" },
-          { key: "team", label: "Everyone I can see" },
-        ].map((s) => (
-          <button
-            key={s.key}
-            onClick={() => go({ scope: s.key })}
-            aria-pressed={scope === s.key}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              scope === s.key
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Compare
+        </span>
+        <Pills options={COMPARE_TABS} active={compare} onPick={(key) => go({ cmp: key })} />
       </div>
-      <InfoTip
-        side="bottom"
-        text="Every figure is compared against the period immediately before it, of exactly the same length — so a 28-day report is compared against the 28 days before that, never against a calendar month."
+
+      <Pills
+        options={[
+          { key: "mine", label: "My book", hint: "Only accounts you hold." },
+          {
+            key: "team",
+            label: "Everyone I can see",
+            hint: "You and everybody who reports to you, however many levels down.",
+          },
+        ]}
+        active={scope}
+        onPick={(key) => go({ scope: key })}
       />
     </div>
   );

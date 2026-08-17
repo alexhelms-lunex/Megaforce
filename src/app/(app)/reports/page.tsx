@@ -7,14 +7,16 @@ import { currentUser } from "@/lib/supabase/server";
 import {
   METRICS,
   SERIES_METRICS,
-  daysAgo,
   fetchBreakdown,
   fetchDimensions,
   fetchSeries,
   fetchTotals,
+  formatWindow,
   grainFor,
-  isoToday,
-  spanDays,
+  isCompareKey,
+  isPeriodKey,
+  resolveCompare,
+  resolvePeriod,
   type MetricValue,
   type ReportError,
   type Scope,
@@ -81,10 +83,39 @@ export default async function ReportsPage({
   const managerish = me ? me.role !== "broker" : false;
   const role = me?.role ?? "broker";
 
-  const days = ["7", "28", "90", "365"].includes(one("days")) ? one("days") : "28";
+  /*
+   * A period is a number of WEEKS, Monday to Sunday.
+   *
+   * Alex: "A period is 7 days for our sake. A period begins on Monday and ends
+   * on Sunday evening."
+   *
+   * The old control counted days back from today, which meant the same report
+   * covered a different set of Mondays depending on which day of the week you
+   * opened it -- so two people comparing notes were never looking at the same
+   * numbers. resolvePeriod() snaps both ends to the week; every figure on this
+   * screen follows from those two dates.
+   *
+   * The old ?days= links are still honoured. A bookmark that stops working is
+   * indistinguishable from a broken screen.
+   */
+  const LEGACY: Record<string, string> = {
+    "7": "last-week",
+    "28": "4-weeks",
+    "90": "13-weeks",
+    "365": "52-weeks",
+  };
+  const requestedPeriod = one("period") || LEGACY[one("days")] || "4-weeks";
+  const requestedCompare = one("cmp");
+  const period = resolvePeriod(isPeriodKey(requestedPeriod) ? requestedPeriod : "4-weeks");
+  const compare = resolveCompare(
+    period,
+    isCompareKey(requestedCompare) ? requestedCompare : "previous",
+  );
+
   const scope: Scope = one("scope") === "mine" ? "mine" : managerish ? "team" : "mine";
-  const from = daysAgo(Number(days) - 1);
-  const to = isoToday();
+  const from = period.from;
+  const to = period.to;
+  const against = { from: compare.from, to: compare.to };
   const grain = grainFor(from, to);
 
   const chosen = (one("metrics") || (role === "manager" ? "calls,approved,lost" : "calls,approved"))
@@ -105,8 +136,21 @@ export default async function ReportsPage({
    * first takes a whole trip to Supabase off the critical path of the screen
    * somebody just clicked on, and reporting was the screen singled out as slow.
    */
-  const totalsPromise = fetchTotals(from, to, scope);
+  const totalsPromise = fetchTotals(from, to, scope, against);
   const seriesPromise = fetchSeries(from, to, scope, grain);
+  /*
+   * The comparison line on the chart.
+   *
+   * A second call rather than a second set of columns from the first: the two
+   * windows have different numbers of buckets when a period is part-finished,
+   * and forcing them into one row set means picking which one is "the" bucket
+   * list. Drawn dashed and aligned by POSITION -- week one against week one --
+   * which is what "compared against" means to somebody reading a chart.
+   */
+  const comparePromise =
+    compare.from && compare.to
+      ? fetchSeries(compare.from, compare.to, scope, grain)
+      : Promise.resolve({ points: [], error: null });
 
   const dimensions = await fetchDimensions();
   /*
@@ -129,22 +173,49 @@ export default async function ReportsPage({
       ? defaultDim
       : "broker";
 
-  const [totals, series, breakdown] = await Promise.all([
+  const [totals, series, priorSeries, breakdown] = await Promise.all([
     totalsPromise,
     seriesPromise,
-    fetchBreakdown(from, to, scope, dim, search, PAGE_SIZE, (page - 1) * PAGE_SIZE),
+    comparePromise,
+    fetchBreakdown(from, to, scope, dim, search, PAGE_SIZE, (page - 1) * PAGE_SIZE, against),
   ]);
 
   const failure = totals.error ?? series.error ?? breakdown.error;
   const activeDimension = dimensions.find((d) => d.key === dim);
+  /*
+   * "Off" has to be enforced here, not by the query.
+   *
+   * report_window falls back to its own default comparison when it is handed
+   * nulls, which is right for every caller that has not been updated and wrong
+   * for somebody who has just pressed Off. Stripping the figures after the fact
+   * keeps one code path instead of two and makes Off mean what it says.
+   */
+  const comparing = compare.key !== "none";
+  const metrics = comparing
+    ? totals.metrics
+    : totals.metrics.map((m) => ({ ...m, previous: null, delta: null }));
   const pages = Math.max(1, Math.ceil(breakdown.total / PAGE_SIZE));
 
-  const chartSeries: TrendSeries[] = selected.map((key) => ({
-    key,
-    label: METRICS.find((m) => m.key === key)?.label ?? key,
-    color: SERIES_COLOUR[key],
-    values: series.points.map((p) => p[key]),
-  }));
+  const chartSeries: TrendSeries[] = selected.flatMap((key) => {
+    const label = METRICS.find((m) => m.key === key)?.label ?? key;
+    const line: TrendSeries = {
+      key,
+      label,
+      color: SERIES_COLOUR[key],
+      values: series.points.map((p) => p[key]),
+    };
+    if (priorSeries.points.length === 0) return [line];
+    return [
+      line,
+      {
+        key: `${key}__prior`,
+        label: `${label}, ${compare.label}`,
+        color: SERIES_COLOUR[key],
+        dashed: true,
+        values: priorSeries.points.map((p) => p[key]),
+      },
+    ];
+  });
 
   return (
     <div className="space-y-6">
@@ -154,12 +225,22 @@ export default async function ReportsPage({
             Reports
             <InfoTip k="reportsScreen" side="bottom" />
           </h1>
+          {/* The dates spelled out, both of them.
+              A screen that says "4 weeks" and "compared against the previous
+              period" has told you the shape of the question and not the
+              question. Somebody arguing about a number needs to know exactly
+              which Mondays are in it. */}
           <p className="mt-1 text-sm text-muted-foreground">
-            {formatRange(from, to)} · compared against the {spanDays(from, to)} days before ·{" "}
+            <span className="font-medium text-foreground">{formatWindow(from, to)}</span>
+            {period.partial ? " · week still running" : ""}
+            {compare.from && compare.to
+              ? ` · vs ${formatWindow(compare.from, compare.to)}`
+              : " · no comparison"}
+            {" · "}
             {grain === "week" ? "weekly" : "daily"}
           </p>
         </div>
-        <RangeControls scope={scope} days={days} />
+        <RangeControls scope={scope} period={period.key} compare={compare.key} />
       </div>
 
       {failure ? <Failure error={failure} /> : null}
@@ -168,11 +249,11 @@ export default async function ReportsPage({
           those figures are structurally zero -- they hold no book and make no
           calls. The rest of the page stays available; it simply is not the
           part of it they came for. */}
-      {role === "credit" ? <CreditReport from={from} to={to} days={days} /> : null}
+      {role === "credit" ? <CreditReport from={from} to={to} window={formatWindow(from, to)} /> : null}
 
       {/* ---- scorecards, which are also the chart's legend ---- */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {totals.metrics.map((m) => (
+        {metrics.map((m) => (
           <MetricToggle
             key={m.key}
             metricKey={m.key}
@@ -182,6 +263,7 @@ export default async function ReportsPage({
               metric={m}
               selected={(selected as string[]).includes(m.key)}
               colour={SERIES_COLOUR[m.key as SeriesKey]}
+              compareLabel={compare.label}
             />
           </MetricToggle>
         ))}
@@ -247,6 +329,13 @@ export default async function ReportsPage({
                     <Th help="Activities that met the bar and reset an account's clock.">
                       Counted
                     </Th>
+                    {comparing ? (
+                      <Th
+                        help={`Counted activities in this row against ${compare.label}. This is the column that says which broker moved, rather than only that the team did.`}
+                      >
+                        vs {compare.label}
+                      </Th>
+                    ) : null}
                     <Th help="Counted divided by calls. A low rate is usually short calls or calls nobody wrote up.">
                       Hit rate
                     </Th>
@@ -267,6 +356,11 @@ export default async function ReportsPage({
                       <td className="px-5 py-2.5 font-medium">{r.label}</td>
                       <Td>{r.calls.toLocaleString()}</Td>
                       <Td>{r.approved.toLocaleString()}</Td>
+                      {comparing ? (
+                        <td className="px-3 py-2.5 text-right tabular-nums">
+                          <Movement now={r.approved} before={r.prevApproved} />
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2.5 text-right tabular-nums">
                         <span className="inline-flex items-center gap-2">
                           <span className="h-1 w-10 overflow-hidden rounded-full bg-muted">
@@ -321,10 +415,12 @@ function ScoreCard({
   metric,
   selected,
   colour,
+  compareLabel,
 }: {
   metric: MetricValue;
   selected: boolean;
   colour?: string;
+  compareLabel: string;
 }) {
   const rising = metric.delta !== null && metric.delta > 0;
   const flat = metric.delta === null || Math.round(metric.delta) === 0;
@@ -382,14 +478,51 @@ function ScoreCard({
                 ? "new"
                 : `${Math.abs(Math.round(metric.delta))}%`}
             </span>
-            <span className="text-muted-foreground">
+            {/* Names the comparison rather than just the number. "vs 412" on a
+                screen with three possible comparisons is a number nobody can
+                check without going back to the picker. */}
+            <span className="truncate text-muted-foreground">
               vs {metric.previous.toLocaleString()}
-              {metric.suffix ?? ""}
+              {metric.suffix ?? ""} · {compareLabel}
             </span>
           </>
         )}
       </p>
     </div>
+  );
+}
+
+/**
+ * One row's movement against the comparison window.
+ *
+ * Shows the CHANGE and the figure it moved from, not a percentage. On a row
+ * that did two counted activities last week and three this week, "+50%" is
+ * arithmetically true and useless; "+1 from 2" is what somebody can act on.
+ * Percentages are for the totals at the top, where the denominators are large
+ * enough to mean something.
+ */
+function Movement({ now, before }: { now: number; before: number | null }) {
+  if (before === null) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const change = now - before;
+  if (change === 0) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        level at {before.toLocaleString()}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`text-xs font-medium ${change > 0 ? "text-brand-600" : "text-destructive"}`}
+    >
+      {change > 0 ? "+" : "−"}
+      {Math.abs(change).toLocaleString()}
+      <span className="ml-1 font-normal text-muted-foreground">
+        from {before.toLocaleString()}
+      </span>
+    </span>
   );
 }
 
@@ -465,12 +598,3 @@ function PageLink({
   );
 }
 
-function formatRange(from: string, to: string): string {
-  const fmt = (iso: string) =>
-    new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      timeZone: "UTC",
-    });
-  return `${fmt(from)} – ${fmt(to)}`;
-}

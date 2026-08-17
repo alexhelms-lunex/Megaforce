@@ -47,7 +47,16 @@ interface Requester {
   approval_rate: number | null;
 }
 
-export async function CreditReport({ from, to, days }: { from: string; to: string; days: string }) {
+export async function CreditReport({
+  from,
+  to,
+  window,
+}: {
+  from: string;
+  to: string;
+  /** The period spelled out, so the card names the same dates the page does. */
+  window: string;
+}) {
   const supabase = await createClient();
 
   const [summaryRes, byRequesterRes, dailyRes] = await Promise.all([
@@ -83,7 +92,7 @@ export async function CreditReport({ from, to, days }: { from: string; to: strin
     <section className="space-y-4">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-          Credit, last {days} days
+          Credit · {window}
           <InfoTip text="Throughput and turnaround on credit limit requests. This is what a credit function is measured on — the selling figures below are about work you do not do." />
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">

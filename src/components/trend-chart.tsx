@@ -8,6 +8,16 @@ export interface TrendSeries {
   /** A CSS colour. Passed in so the palette lives with the screen's tokens. */
   color: string;
   values: number[];
+  /**
+   * A comparison line: same colour, dashed, no area fill.
+   *
+   * Same colour rather than a second palette entry on purpose -- the dashed
+   * line IS the solid one, a period earlier, and giving it its own hue makes it
+   * read as a different metric. Dashes carry the meaning, so the pairing
+   * survives being printed in black and white or read by somebody who cannot
+   * separate the hues.
+   */
+  dashed?: boolean;
 }
 
 /**
@@ -140,16 +150,32 @@ export function TrendChart({
         )}
 
         {series.map((s) => {
-          const line = s.values.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(v)}`).join(" ");
-          const area = `${line} L ${x(n - 1)} ${PAD.top + plotH} L ${x(0)} ${PAD.top + plotH} Z`;
+          /*
+           * Read through at() rather than indexing straight into values.
+           *
+           * A comparison window can come back one bucket short -- a part
+           * finished week has fewer days in it than the whole week it is being
+           * measured against. Indexing past the end yields undefined, undefined
+           * becomes NaN in the path data, and one NaN makes the entire <path>
+           * invisible: the line silently disappears rather than stopping early.
+           */
+          const at = (i: number) => s.values[i] ?? 0;
+          const drawn = Math.min(n, s.values.length);
+          if (drawn === 0) return null;
+          const line = Array.from({ length: drawn }, (_, i) =>
+            `${i === 0 ? "M" : "L"} ${x(i)} ${y(at(i))}`,
+          ).join(" ");
+          const area = `${line} L ${x(drawn - 1)} ${PAD.top + plotH} L ${x(0)} ${PAD.top + plotH} Z`;
           return (
             <g key={s.key}>
-              <path d={area} fill={s.color} opacity={0.1} />
+              {s.dashed ? null : <path d={area} fill={s.color} opacity={0.1} />}
               <path
                 d={line}
                 fill="none"
                 stroke={s.color}
                 strokeWidth={2}
+                strokeDasharray={s.dashed ? "5 4" : undefined}
+                opacity={s.dashed ? 0.75 : 1}
                 strokeLinejoin="round"
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
@@ -171,18 +197,20 @@ export function TrendChart({
               strokeDasharray="3 3"
               vectorEffect="non-scaling-stroke"
             />
-            {series.map((s) => (
-              <circle
-                key={s.key}
-                cx={x(hover)}
-                cy={y(s.values[hover] ?? 0)}
-                r={4}
-                fill={s.color}
-                stroke="var(--card)"
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
+            {series.map((s) =>
+              hover < s.values.length ? (
+                <circle
+                  key={s.key}
+                  cx={x(hover)}
+                  cy={y(s.values[hover] ?? 0)}
+                  r={4}
+                  fill={s.dashed ? "var(--card)" : s.color}
+                  stroke={s.dashed ? s.color : "var(--card)"}
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null,
+            )}
           </g>
         ) : null}
       </svg>
@@ -201,7 +229,11 @@ export function TrendChart({
             <span
               aria-hidden
               className="size-2 rounded-full"
-              style={{ backgroundColor: s.color }}
+              style={
+                s.dashed
+                  ? { border: `2px solid ${s.color}` }
+                  : { backgroundColor: s.color }
+              }
             />
             {s.label}
             <span className="font-semibold tabular-nums text-foreground">
