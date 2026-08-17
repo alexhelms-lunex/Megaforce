@@ -162,7 +162,7 @@ export async function updateAccount(_prev: FormState, form: FormData): Promise<F
     return { fieldErrors: Object.fromEntries(errors.map((e) => [e.key, e.message])) };
   }
 
-  const { error: updateError } = await supabase
+  const { data: saved, error: updateError } = await supabase
     .from("accounts")
     .update({
       name,
@@ -173,9 +173,29 @@ export async function updateAccount(_prev: FormState, form: FormData): Promise<F
       // otherwise be destroyed by an unrelated edit.
       custom: mergeCustom(existing.custom as Record<string, unknown>, values),
     })
-    .eq("id", accountId);
+    .eq("id", accountId)
+    /*
+     * `.select("id")` is what makes a refusal visible.
+     *
+     * Row level security does not reject a write -- it makes the rows
+     * invisible, so a policy that does not admit the caller produces an UPDATE
+     * matching zero rows, which PostgREST reports as a success with nothing
+     * returned. This then redirected to the account page, which rendered the
+     * OLD values, with no error anywhere. That is "I changed the status and it
+     * did not work", and it is indistinguishable from a save that worked
+     * followed by a page that did not refresh.
+     */
+    .select("id");
 
   if (updateError) return { error: friendly(updateError.message) };
+  if (!saved || saved.length === 0) {
+    return {
+      error:
+        "Nothing was saved — the database refused the change. This usually means the account " +
+        "moved to another broker while this form was open. Reload the page and check who holds " +
+        "it before trying again.",
+    };
+  }
 
   log.info({ accountId, by: user.id }, "account updated");
 

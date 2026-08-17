@@ -168,12 +168,23 @@ export async function createUser(input: NewUser): Promise<Result> {
 
     // Link the two. Without this the person signs in successfully and the
     // application cannot work out who they are.
-    const { error: linkError } = await supabase
+    const { data: linked, error: linkError } = await supabase
       .from("users")
       .update({ auth_id: authUser.user.id })
-      .eq("id", created.id);
+      .eq("id", created.id)
+      .select("id");
 
     if (linkError) return { error: friendly(linkError.message) };
+    if (!linked || linked.length === 0) {
+      // The worst version of this failure is the silent one: the login exists
+      // and works, and the application cannot tell who signed in, so they land
+      // on "no CRM profile for this login" and nobody knows why.
+      return {
+        error:
+          `${input.full_name} was added and a login was created, but the two could not be ` +
+          "linked, so they cannot sign in yet. Use \"Create login\" on their row to finish it.",
+      };
+    }
 
     revalidatePath("/admin/users");
     return {
@@ -437,11 +448,19 @@ export async function createLogin(userId: string): Promise<Result> {
 
     if (!authId) return { error: `Could not create the login: ${error?.message ?? "unknown error"}` };
 
-    const { error: linkError } = await supabase
+    const { data: linked, error: linkError } = await supabase
       .from("users")
       .update({ auth_id: authId })
-      .eq("id", userId);
+      .eq("id", userId)
+      .select("id");
     if (linkError) return { error: friendly(linkError.message) };
+    if (!linked || linked.length === 0) {
+      return {
+        error:
+          "The login was created but could not be attached to their profile, so they still " +
+          "cannot sign in. Nothing else was changed — try again.",
+      };
+    }
 
     revalidatePath("/admin/users");
     revalidatePath(`/admin/users/${userId}`);

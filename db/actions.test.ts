@@ -772,6 +772,66 @@ describe("editing an account", () => {
     expect(rows[0].status).toBe("engaged");
   });
 
+  /*
+   * The failure that produced "I changed the status and it did not work", with
+   * no error anywhere on screen.
+   *
+   * Row level security does not REJECT a write. It makes rows invisible, so a
+   * policy that does not admit the caller turns the UPDATE into one that
+   * matches nothing -- and an UPDATE matching nothing is a success as far as
+   * PostgREST is concerned. The action then redirected to the account page,
+   * which rendered the values that were already there.
+   *
+   * Dropping the policy is the honest way to reproduce it: this is exactly the
+   * state a deployment is in when its migrations are behind its code, which is
+   * the state that actually occurs.
+   */
+  it("says so when the database silently refuses the write", async () => {
+    const { updateAccount } = await import("../src/app/(app)/accounts/actions");
+    await becomeService(pg);
+    const { rows: policies } = await pg.query<{ policyname: string; cmd: string }>(
+      `select policyname, cmd from pg_policies where tablename = 'accounts' and cmd in ('ALL','UPDATE')`,
+    );
+    for (const policy of policies) {
+      await pg.query(`drop policy if exists "${policy.policyname}" on accounts`);
+    }
+
+    try {
+      await as(AUTH.dana);
+      const form = new FormData();
+      form.set("accountId", ids.held);
+      form.set("name", "Renamed Behind The Policy");
+      form.set("status", "engaged");
+
+      let outcome: string | undefined;
+      try {
+        outcome = (await updateAccount({}, form))?.error;
+      } catch (err) {
+        // A redirect here would be the bug: it means the action believed it
+        // saved something and sent somebody to look at the old values.
+        if (/NEXT_REDIRECT/.test(String(err))) {
+          throw new Error("updateAccount redirected after saving nothing");
+        }
+        throw err;
+      }
+      expect(outcome).toMatch(/nothing was saved/i);
+
+      await becomeService(pg);
+      const { rows } = await pg.query<{ name: string }>(
+        `select name from accounts where id = $1`, [ids.held],
+      );
+      expect(rows[0].name).not.toBe("Renamed Behind The Policy");
+    } finally {
+      // Put it back, or every test after this one runs against a database with
+      // no write policy and passes for the wrong reason.
+      await becomeService(pg);
+      const { readMigrations } = await import("./local");
+      for (const migration of await readMigrations()) {
+        if (/rls|lifecycle/i.test(migration.name)) await pg.exec(migration.sql);
+      }
+    }
+  });
+
   it("refuses a status the system does not have", async () => {
     const { updateAccount } = await import("../src/app/(app)/accounts/actions");
     await as(AUTH.dana);

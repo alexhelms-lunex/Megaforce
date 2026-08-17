@@ -55,15 +55,23 @@ export async function savePreferences(patch: Partial<Preferences>): Promise<Save
     const supabase = await createClient();
     const current = await readPreferences();
 
-    const { error } = await supabase.from("user_preferences").upsert(
-      {
-        ...current,
-        ...patch,
-        user_id: lookup.user.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
+    const { data: written, error } = await supabase
+      .from("user_preferences")
+      .upsert(
+        {
+          ...current,
+          ...patch,
+          user_id: lookup.user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      )
+      // Read back, so "saved" means saved. An upsert whose UPDATE half matches
+      // no rows -- which is what row level security hiding the existing row
+      // looks like -- returns success having written nothing, and a settings
+      // screen that says Saved and changes nothing is the exact complaint this
+      // screen has already produced twice.
+      .select("user_id");
 
     if (error) {
       if (/does not exist|schema cache|could not find/i.test(error.message)) {
@@ -74,6 +82,14 @@ export async function savePreferences(patch: Partial<Preferences>): Promise<Save
         };
       }
       return { error: error.message };
+    }
+
+    if (!written || written.length === 0) {
+      return {
+        error:
+          "Nothing was saved. The database refused the write, which usually means the " +
+          "preferences table is older than this build — an administrator should re-run setup.",
+      };
     }
 
     // Guarded for the same reason the claim action guards it: a stale cache
