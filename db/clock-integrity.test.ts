@@ -28,6 +28,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pg.exec(`
+    delete from job_runs;
     delete from account_requests;
     delete from account_claims;
     delete from unmatched_activities;
@@ -374,5 +375,110 @@ describe("the ownership timeline", () => {
     expect(current.segment).toBe("owned");
     expect(current.user_name).toBe("Dana Whitfield");
     expect(current.release_reason).toBeNull();
+  });
+});
+
+
+/**
+ * The thresholds hold themselves in place.
+ *
+ * 0017 corrected them with a one-time UPDATE, and a one-time UPDATE has one
+ * failure mode and it is total: a database whose deployment predates the
+ * migration keeps the old numbers forever, and nothing notices. From the
+ * outside that is indistinguishable from a broken release -- 69 days against a
+ * 45-day rule genuinely IS "24 days over", so the screen is telling the truth
+ * about the wrong rule.
+ */
+describe("a stale database corrects itself", () => {
+  const thresholds = async () =>
+    rows<{ applies_to: string; release_days: number }>(
+      await db.execute(
+        sql`select applies_to, release_days from account_retention_rules where active order by applies_to`,
+      ),
+    );
+
+  it("puts a drifted threshold back to the policy", async () => {
+    await db.execute(
+      sql`update account_retention_rules set release_days = 45 where applies_to = 'prospect'`,
+    );
+
+    const corrected = rows<{ n: number }>(
+      await db.execute(sql`select ensure_policy_thresholds() n`),
+    )[0].n;
+
+    expect(corrected).toBe(1);
+    expect((await thresholds()).find((t) => t.applies_to === "prospect")!.release_days).toBe(31);
+  });
+
+  it("restores a rule that has been deleted entirely", async () => {
+    // Without the prospect rule, account_state() falls through and reports the
+    // entire book healthy forever.
+    await db.execute(sql`delete from account_retention_rules where applies_to = 'prospect'`);
+
+    await db.execute(sql`select ensure_policy_thresholds()`);
+
+    expect((await thresholds()).find((t) => t.applies_to === "prospect")!.release_days).toBe(31);
+  });
+
+  it("does nothing, and says so, when the numbers are already right", async () => {
+    const corrected = rows<{ n: number }>(
+      await db.execute(sql`select ensure_policy_thresholds() n`),
+    )[0].n;
+    expect(corrected).toBe(0);
+  });
+
+  it("corrects the thresholds and releases in the same sweep", async () => {
+    // The order matters. Correcting after the sweep would leave a whole cycle
+    // of accounts sitting overdue under the old numbers -- which is the exact
+    // complaint this exists to answer.
+    await db.execute(sql`
+      update account_retention_rules
+         set warning_days = 60, expiring_days = 75, release_days = 90
+       where applies_to = 'prospect'
+    `);
+    const id = await makeAccount(40);
+
+    // Under the wrong rule it is comfortably inside its window.
+    expect(
+      rows<{ s: string }>(
+        await db.execute(sql`
+          select account_state(owner_id, status, last_activity_at, claimed_at,
+                               retention_override_until) s from accounts where id = ${id}
+        `),
+      )[0].s,
+    ).toBe("fresh");
+
+    await db.execute(sql`select * from sweep_if_due(0)`);
+
+    const owner = rows<{ owner_id: string | null }>(
+      await db.execute(sql`select owner_id from accounts where id = ${id}`),
+    )[0].owner_id;
+    expect(owner, "40 days is past the real 31-day rule, so it should be gone").toBeNull();
+  });
+
+  it("records what it corrected, so a hand edit being reverted is explainable", async () => {
+    // Valid but wrong: the ordering constraint refuses release_days = 60 next
+    // to expiring_days = 150, and rightly so. Drift has to stay well-formed to
+    // be interesting -- a malformed set is caught by the CHECK already.
+    await db.execute(sql`
+      update account_retention_rules
+         set warning_days = 30, expiring_days = 60, release_days = 120
+       where applies_to = 'customer'
+    `);
+    await db.execute(sql`select * from sweep_if_due(0)`);
+
+    const run = rows<{ result: { thresholds_corrected?: number } }>(
+      await db.execute(sql`
+        select result from job_runs where job = 'release-overdue-accounts'
+         order by started_at desc limit 1
+      `),
+    )[0];
+    expect(run.result.thresholds_corrected).toBe(1);
+  });
+
+  it("holds off when a sweep ran recently, so paging the book costs nothing", async () => {
+    await db.execute(sql`select * from sweep_if_due(0)`);
+    const second = rows<{ ran: boolean }>(await db.execute(sql`select * from sweep_if_due(15)`))[0];
+    expect(second.ran).toBe(false);
   });
 });

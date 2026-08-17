@@ -37,6 +37,14 @@ export default async function AccountsPage({
     : defaultColumns();
   const visible = COLUMNS.filter((c) => columns.includes(c.key));
 
+  // Release anything past its deadline before listing. The dashboard already
+  // did this, but the accounts list is the screen somebody actually stares at
+  // when they are wondering why a dead account is still in their name -- and a
+  // rule that only self-corrects on a screen you did not open is not much of a
+  // rule. Rate-limited to once every fifteen minutes inside the function, so
+  // paging through the book costs nothing.
+  await supabase.rpc("sweep_if_due", { p_max_age_minutes: 15 });
+
   const [from, to] = pageRange(filters.page);
 
   /*
