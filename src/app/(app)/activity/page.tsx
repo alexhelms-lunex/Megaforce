@@ -2,6 +2,12 @@ import Link from "next/link";
 import { InfoTip } from "@/components/info-tip";
 import { CheckCircle2, CircleSlash, Mail, PhoneCall, StickyNote, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  NEEDS_WRITE_UP,
+  activityTone,
+  countedTone,
+  directionTone,
+} from "@/lib/activity-style";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/charts";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
@@ -242,14 +248,15 @@ export default async function ActivityPage({
                 const account = Array.isArray(r.accounts) ? r.accounts[0] : r.accounts;
                 const user = Array.isArray(r.users) ? r.users[0] : r.users;
                 const needsWriteUp = r.type === "call" && !r.logged_at;
+                const tone = activityTone(r.type);
+                const direction = directionTone(r.direction);
                 return (
                   <li key={r.id} className="flex items-start gap-3 px-5 py-3 hover:bg-accent/40">
+                    {/* Coloured by TYPE, not by whether it counted. The type
+                        is what somebody scans for; whether it counted is on
+                        the right, in words, where a decision gets made. */}
                     <span
-                      className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${
-                        r.qualifies
-                          ? "bg-brand-100 text-brand-700 dark:bg-brand-950 dark:text-brand-300"
-                          : "bg-muted text-muted-foreground"
-                      }`}
+                      className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${tone.icon}`}
                     >
                       <Icon className="size-3.5" aria-hidden />
                     </span>
@@ -268,22 +275,35 @@ export default async function ActivityPage({
                             no company matched
                           </span>
                         )}
+                        <span
+                          className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${tone.chip}`}
+                        >
+                          {tone.label}
+                        </span>
+                        {direction ? (
+                          <span
+                            className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${direction}`}
+                          >
+                            {r.direction}
+                          </span>
+                        ) : null}
                         {r.stage_outcome ? (
                           <Badge variant="secondary" className="text-[10px]">
                             → {r.stage_outcome}
                           </Badge>
                         ) : null}
                         {needsWriteUp ? (
-                          <Badge variant="destructive" className="text-[10px]">
+                          <span
+                            className={`rounded-full border px-1.5 py-px text-[10px] font-semibold ${NEEDS_WRITE_UP}`}
+                          >
                             not written up
-                          </Badge>
+                          </span>
                         ) : null}
                       </div>
                       <p className="truncate text-xs text-muted-foreground">
                         {[
                           r.subject,
                           user?.full_name,
-                          r.direction,
                           r.duration_seconds !== null ? formatDuration(r.duration_seconds) : null,
                           r.result,
                         ]
@@ -298,12 +318,13 @@ export default async function ActivityPage({
                       <p className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDateTime(r.occurred_at)}
                       </p>
-                      <Badge
-                        variant={r.qualifies ? "secondary" : "outline"}
-                        className="mt-1 text-[10px]"
+                      <span
+                        className={`mt-1 inline-flex rounded-full border px-1.5 py-px text-[10px] font-medium ${countedTone(
+                          r.qualifies,
+                        )}`}
                       >
                         {r.qualifies ? "counted" : "did not count"}
-                      </Badge>
+                      </span>
                     </div>
                   </li>
                 );

@@ -31,14 +31,26 @@ import { claim, release } from "./actions";
  * ends the matter.
  * ---------------------------------------------------------------------------
  */
+/*
+ * Both buttons take a className, because one of the places they appear is not
+ * a page background.
+ *
+ * The account header is a dark blue gradient, and the default button variants
+ * are drawn for a light surface -- so Release rendered there as a near-white
+ * slab with white text on it, which read as a rendering fault rather than a
+ * button. It sits beside a hand-styled Edit pill, and the fix is for the three
+ * of them to agree.
+ */
 export function ClaimButton({
   accountId,
   size = "sm",
   onClaimed,
+  className,
 }: {
   accountId: string;
   size?: "sm" | "default";
   onClaimed?: () => void;
+  className?: string;
 }) {
   const [pending, start] = useTransition();
   const router = useRouter();
@@ -63,13 +75,19 @@ export function ClaimButton({
   }
 
   return (
-    <Button type="button" size={size} onClick={run} disabled={pending}>
+    <Button type="button" size={size} onClick={run} disabled={pending} className={className}>
       {pending ? "Claiming…" : "Claim"}
     </Button>
   );
 }
 
-export function ReleaseButton({ accountId }: { accountId: string }) {
+export function ReleaseButton({
+  accountId,
+  className,
+}: {
+  accountId: string;
+  className?: string;
+}) {
   const [pending, start] = useTransition();
   const router = useRouter();
 
@@ -86,7 +104,14 @@ export function ReleaseButton({ accountId }: { accountId: string }) {
   }
 
   return (
-    <Button type="button" size="sm" variant="outline" onClick={run} disabled={pending}>
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={run}
+      disabled={pending}
+      className={className}
+    >
       {pending ? "Releasing…" : "Release"}
     </Button>
   );

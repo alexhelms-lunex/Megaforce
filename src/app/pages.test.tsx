@@ -52,6 +52,14 @@ interface Fixture {
    * different route.
    */
   noUser?: boolean;
+  /**
+   * Named RPCs fail while everything else works.
+   *
+   * `fail` makes the whole database unreachable, which cannot express the case
+   * that actually happens on a deploy: the code calls a function the migration
+   * has not created yet, and everything else is fine.
+   */
+  failRpc?: string[];
 }
 
 let fixture: Fixture = {};
@@ -65,11 +73,12 @@ let currentRole = "admin";
  * Proxy rather than a hand-written double, so a page calling a builder method
  * this fake has never heard of does not fail for the wrong reason.
  */
-function chainable(rows: unknown[]) {
+function chainable(rows: unknown[], broken = false) {
+  const failed = broken || fixture.fail;
   const result = {
-    data: fixture.fail ? null : rows,
-    error: fixture.fail ? { message: "relation does not exist" } : null,
-    count: fixture.fail ? null : rows.length,
+    data: failed ? null : rows,
+    error: failed ? { message: "relation does not exist" } : null,
+    count: failed ? null : rows.length,
   };
 
   const self: Record<string | symbol, unknown> = {};
@@ -91,7 +100,8 @@ vi.mock("@/lib/supabase/server", () => ({
   isSupabaseConfigured: () => true,
   isPrivileged: (role: string) => role === "admin" || role === "credit",
   createClient: async () => ({
-    rpc: (name: string) => chainable(fixture.rpc?.[name] ?? []),
+    rpc: (name: string) =>
+      chainable(fixture.rpc?.[name] ?? [], fixture.failRpc?.includes(name) ?? false),
     from: (table: string) => chainable(fixture.from?.[table] ?? []),
     auth: { getUser: async () => ({ data: { user: null } }), signOut: async () => {} },
   }),
@@ -319,6 +329,23 @@ describe("the screens that carry real rows", () => {
   it("renders one person on the edit screen", async () => {
     await expect(
       render(SCREENS.find((s) => s.name === "edit one person")!, {
+        rpc: { admin_user: [ADMIN_USER] },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  /*
+   * The window between deploying the single-row lookup and running setup.
+   *
+   * admin_user() does not exist yet, so the read errors, and the page falls
+   * back to the old list-and-find. Without that fallback every person's edit
+   * screen 404s until somebody applies the migration -- including the screen an
+   * administrator would use to work out why.
+   */
+  it("falls back to the list when the single-row lookup is not in the database yet", async () => {
+    await expect(
+      render(SCREENS.find((s) => s.name === "edit one person")!, {
+        failRpc: ["admin_user"],
         rpc: { admin_users: [ADMIN_USER] },
       }),
     ).resolves.toBeUndefined();
@@ -328,7 +355,7 @@ describe("the screens that carry real rows", () => {
     await expect(
       render(SCREENS.find((s) => s.name === "edit one person")!, {
         rpc: {
-          admin_users: [
+          admin_user: [
             { ...ADMIN_USER, active: false, deactivated_at: "2026-02-01T09:00:00Z" },
           ],
         },

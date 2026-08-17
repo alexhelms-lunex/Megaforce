@@ -71,7 +71,19 @@ export async function runAction<T extends ActionResult>(
     // message is worth showing even in its raw form -- it is the only thing
     // anybody gets to see.
     const shown = describe(err);
-    if (REDACTED.test(shown)) {
+    if (REDACTED.test(shown) || STALE.test(shown)) {
+      // Order matters. A stale tab explains the failure completely, and
+      // chasing the server's error log for one produces a red herring.
+      const stale = await pageIsFromAnOlderBuild();
+      if (stale) {
+        toast.error(
+          "This page was loaded before the last update, so the button no longer matches the " +
+            "server. Nothing was changed. Reload the page and try again.",
+          { duration: 15_000 },
+        );
+        return null;
+      }
+
       const real = await realCause();
       toast.error(real ? `${label}: ${real}` : `${label}: ${shown}`);
     } else {
@@ -100,6 +112,43 @@ export async function runAction<T extends ActionResult>(
 
 /** Next's stand-in for a server error it will not repeat in production. */
 const REDACTED = /omitted in production|Server Components render|digest property/i;
+
+/** What Next says when the action the page is calling no longer exists. */
+const STALE = /Failed to find Server Action|could not be found|deployment/i;
+
+/**
+ * Is this tab older than the server it is talking to?
+ *
+ * ---------------------------------------------------------------------------
+ * A server action is addressed by an id baked into the page's JavaScript when
+ * it was built. Deploy a new build and those ids change -- so a TAB THAT WAS
+ * ALREADY OPEN is now calling ids the server has never heard of. Every button
+ * on it fails, and Next reports the failure with the same redacted sentence it
+ * uses for genuine server crashes.
+ *
+ * That is indistinguishable, from the outside, from the application being
+ * broken. It is especially cruel during a round of fixes: each deploy silently
+ * breaks the tab being used to test the previous one, so a fix that worked
+ * looks like a fix that did nothing.
+ *
+ * Comparing the build the page came from with the build now serving separates
+ * the two in one request. "Reload the page" is a real instruction; "an error
+ * occurred in the Server Components render" is not.
+ * ---------------------------------------------------------------------------
+ */
+async function pageIsFromAnOlderBuild(): Promise<boolean> {
+  const pageBuild = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7);
+  if (!pageBuild) return false;
+
+  try {
+    const res = await fetch("/api/version", { cache: "no-store" });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { commit?: string };
+    return Boolean(body.commit) && body.commit !== pageBuild;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Go and get the message production just refused to show.

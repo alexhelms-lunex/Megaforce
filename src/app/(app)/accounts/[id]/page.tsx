@@ -28,6 +28,7 @@ import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { daysSince, formatDateTime, formatDuration, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
+import { NEEDS_WRITE_UP, activityTone, countedTone, directionTone } from "@/lib/activity-style";
 import { STATUS_LABEL } from "@/lib/account-filters";
 
 export const dynamic = "force-dynamic";
@@ -232,10 +233,23 @@ export default async function AccountDetailPage({
               {/* Claim when unowned; release only what is yours. Taking an
                   account somebody else holds is refused by the database, so the
                   button simply is not offered. */}
+              {/* Styled for this header rather than for a page. The default
+                  variants are drawn for a light surface, and on the gradient
+                  Release came out as a white slab with white text on it.
+                  Claim is solid because it is the primary thing to do with an
+                  unowned account; Release matches the Edit pill beside it,
+                  because giving an account up is not something to invite. */}
               {account.owner_id === null ? (
-                <ClaimButton accountId={account.id} size="default" />
+                <ClaimButton
+                  accountId={account.id}
+                  size="default"
+                  className="h-9 rounded-full bg-white px-4 text-brand-700 shadow-sm hover:bg-white/90 focus-visible:ring-white/70 disabled:bg-white/60"
+                />
               ) : isMine || privileged ? (
-                <ReleaseButton accountId={account.id} />
+                <ReleaseButton
+                  accountId={account.id}
+                  className="h-9 rounded-full border-white/25 bg-white/10 px-4 text-white hover:border-white/40 hover:bg-white/20 hover:text-white focus-visible:ring-white/70 disabled:opacity-60 dark:border-white/25 dark:bg-white/10 dark:hover:bg-white/20"
+                />
               ) : null}
             </div>
           </div>
@@ -659,11 +673,19 @@ function Timeline({ activities }: { activities: Activity[] }) {
           <div className="flex items-start justify-between gap-4 py-3">
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="capitalize">
-                  {a.type}
-                </Badge>
-                {a.direction ? (
-                  <span className="text-xs text-muted-foreground">{a.direction}</span>
+                {/* Coloured by type, so a column of history is scannable
+                    without reading every line of it. */}
+                <span
+                  className={`rounded-full border px-2 py-px text-[11px] font-medium ${activityTone(a.type).chip}`}
+                >
+                  {activityTone(a.type).label}
+                </span>
+                {directionTone(a.direction) ? (
+                  <span
+                    className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${directionTone(a.direction)}`}
+                  >
+                    {a.direction}
+                  </span>
                 ) : null}
                 {a.stage_outcome ? (
                   <Badge variant="secondary" className="text-[10px]">
@@ -681,13 +703,22 @@ function Timeline({ activities }: { activities: Activity[] }) {
               {a.notes ? <p className="text-sm">{a.notes}</p> : null}
               <p className="text-xs text-muted-foreground">{a.qualification_reason}</p>
             </div>
-            <Badge variant={a.qualifies ? "secondary" : "outline"} className="shrink-0">
+            {/* Three states, three treatments. "Not written up" is amber
+                because it is work outstanding for the person reading; "counted"
+                is green because it is the only thing holding the clock; "not
+                counted" stays quiet, since it is the ordinary case and colouring
+                it would drown the other two. */}
+            <span
+              className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                a.type === "call" && !a.logged_at ? NEEDS_WRITE_UP : countedTone(a.qualifies)
+              }`}
+            >
               {a.type === "call" && !a.logged_at
                 ? "not written up"
                 : a.qualifies
                   ? "counted"
                   : "not counted"}
-            </Badge>
+            </span>
           </div>
         </li>
       ))}

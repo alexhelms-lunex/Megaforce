@@ -23,19 +23,31 @@ export default async function EditUserPage({ params }: { params: Promise<{ id: s
   if (me.role !== "admin") redirect("/");
 
   const supabase = await createClient();
-  const [listRes, colleaguesRes] = await Promise.all([
-    supabase.rpc("admin_users", {
-      p_search: "",
-      p_role: "",
-      p_status: "all",
-      p_limit: 200,
-      p_offset: 0,
-    }),
+  const [oneRes, colleaguesRes] = await Promise.all([
+    // One row, by id. This used to read the first two hundred people -- each
+    // with their accounts-held and calls-in-30-days counts -- and then find one
+    // of them in JavaScript. It ran again on every save, and it 404'd anybody
+    // sorting past position two hundred.
+    supabase.rpc("admin_user", { p_id: id }),
     supabase.from("users").select("id, full_name, role").eq("active", true).order("full_name").limit(500),
   ]);
 
-  const all = (listRes.data ?? []) as unknown as AdminUser[];
-  const user = all.find((u) => u.id === id);
+  let user = ((oneRes.data ?? []) as unknown as AdminUser[])[0];
+
+  // The old path, kept only for the window between deploying this and running
+  // setup. Without it, every person's edit screen 404s until the migration is
+  // applied -- including the screen an administrator would use to work out why.
+  if (!user && oneRes.error) {
+    const { data } = await supabase.rpc("admin_users", {
+      p_search: "",
+      p_role: "",
+      p_status: "all",
+      p_limit: 500,
+      p_offset: 0,
+    });
+    user = ((data ?? []) as unknown as AdminUser[]).find((u) => u.id === id)!;
+  }
+
   if (!user) notFound();
 
   const colleagues = ((colleaguesRes.data ?? []) as { id: string; full_name: string; role: string }[])

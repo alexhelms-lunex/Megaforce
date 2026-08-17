@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@/lib/supabase/server";
-import { clearErrors, recentErrors } from "../../../../instrumentation";
+import { createClient, currentUser } from "@/lib/supabase/server";
+import { clearErrors, recentErrors, type CapturedError } from "@/instrumentation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,22 +30,58 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  const errors = recentErrors();
-
   if (new URL(req.url).searchParams.get("clear") === "1") {
+    const cleared = recentErrors().length;
     clearErrors();
-    return NextResponse.json({ cleared: errors.length });
+    return NextResponse.json({ cleared });
   }
+
+  /*
+   * The table first, this instance's memory second.
+   *
+   * The in-memory copy is per-instance, and Vercel discards instances
+   * constantly -- so on its own it answered "nothing has failed here" seconds
+   * after something had, which reads as evidence that the error is not real.
+   * The table is written by every instance and read by every instance.
+   *
+   * Memory is still merged in, because it is the one thing that still works
+   * when the database is the thing that broke.
+   */
+  const stored = await fromTable();
+  const inMemory = recentErrors();
+
+  const seen = new Set(stored.map((e) => `${e.at}|${e.message}`));
+  const errors = [
+    ...stored,
+    ...inMemory.filter((e) => !seen.has(`${e.at}|${e.message}`)),
+  ].sort((a, b) => (a.at < b.at ? 1 : -1));
 
   return NextResponse.json(
     {
       note:
         errors.length === 0
-          ? "Nothing has failed on this server instance since it started. If a screen just broke, reload it once and check again — the retry may land on a different instance."
+          ? "Nothing has been recorded. If a screen just broke and this is empty, the error log table may be missing — re-run /api/setup."
           : "Newest first. These are the real messages, before production redacts them.",
       count: errors.length,
+      storedInDatabase: stored.length,
       errors,
     },
     { headers: { "cache-control": "no-store" } },
   );
+}
+
+async function fromTable(): Promise<CapturedError[]> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("app_errors")
+      .select("at, digest, message, path, kind, stack, release")
+      .order("at", { ascending: false })
+      .limit(25);
+    return (data ?? []) as CapturedError[];
+  } catch {
+    // The table may not exist yet on a database that has not been migrated,
+    // and this endpoint has to keep working precisely then.
+    return [];
+  }
 }

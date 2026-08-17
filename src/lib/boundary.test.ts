@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -215,5 +215,46 @@ describe("the application shell", () => {
       const window = layout.split("\n").slice(index, index + 6).join("\n");
       expect(guarded.test(window), `${pattern} is unguarded in the layout`).toBe(true);
     }
+  });
+});
+
+/**
+ * Where Next looks for the instrumentation hook.
+ *
+ * ---------------------------------------------------------------------------
+ * This file was at the repository root while the application lives in src/.
+ * Next only loads it from ONE of those two places -- the src/ one, when a src
+ * directory exists -- so the hook was never compiled into the build and never
+ * ran.
+ *
+ * The consequence was worse than not having it. onRequestError is what captures
+ * the real message behind production's redaction, so /api/errors answered
+ * "nothing has failed" every single time, seconds after something had. That
+ * reads as evidence the error is not real, and it cost several rounds of
+ * looking in the wrong place while the one instrument built to prevent exactly
+ * that was switched off.
+ *
+ * Nothing else catches this. It is not a type error, it is not a lint error,
+ * and the build succeeds -- the file is simply ignored.
+ * ---------------------------------------------------------------------------
+ */
+describe("the instrumentation hook", () => {
+  it("lives where Next will actually load it from", () => {
+    const inSrc = existsSync(path.join(SRC, "instrumentation.ts"));
+    const atRoot = existsSync(path.join(process.cwd(), "instrumentation.ts"));
+
+    expect(inSrc, "instrumentation.ts must be in src/, since the app is in src/app").toBe(true);
+    expect(atRoot, "a copy at the root is the one Next ignores — delete it").toBe(false);
+  });
+
+  it("is compiled into the build when one has been made", () => {
+    // Only meaningful after `npm run build`, so it skips rather than failing on
+    // a clean checkout. When a build IS present, its absence is the bug above.
+    const built = path.join(process.cwd(), ".next", "server");
+    if (!existsSync(built)) return;
+    expect(
+      existsSync(path.join(built, "instrumentation.js")),
+      "no instrumentation.js in .next/server — Next did not pick the hook up",
+    ).toBe(true);
   });
 });
