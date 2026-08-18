@@ -72,22 +72,14 @@ export const processEmail = inngest.createFunction(
   },
 );
 
-/**
- * Keep the RingCentral webhook subscription alive.
+/*
+ * The subscription renewal cron used to live here.
  *
- * Subscriptions expire. When one lapses, calls simply stop arriving -- there is
- * no error, no failed request, nothing in a log. The first sign is a rep asking
- * why nothing has logged since Tuesday. A scheduled renewal is the only thing
- * that prevents a silent outage.
+ * It has moved to jobs/registry.ts, which runs on the cron this project
+ * already has. Leaving it here would have meant the one job whose failure is
+ * completely silent -- a lapsed subscription stops calls arriving with no error
+ * anywhere -- depending on a service that is now optional. See
+ * renewCallSubscription for the reasoning.
  */
-export const renewSubscription = inngest.createFunction(
-  { id: "renew-ringcentral-subscription", retries: 2, triggers: [{ cron: "0 6 * * *" }] },
-  async ({ step }) => {
-    return step.run("renew", async () => {
-      const { ensureSubscription } = await import("@/lib/ringcentral/client");
-      return ensureSubscription();
-    });
-  },
-);
 
-export const functions = [processCall, processEmail, renewSubscription];
+export const functions = [processCall, processEmail];

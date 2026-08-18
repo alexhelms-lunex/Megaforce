@@ -124,6 +124,13 @@ export const NAV: NavSection[] = [
         keywords: "users staff roles permissions accounts logins add new starter leaver",
       },
       {
+        href: "/admin/integrations",
+        label: "Phone connection",
+        icon: PhoneCall,
+        roles: ["admin"],
+        keywords: "ringcentral phone calls webhook subscription integration connected logging",
+      },
+      {
         href: "/admin",
         label: "Admin",
         icon: Settings,

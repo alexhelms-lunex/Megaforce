@@ -143,7 +143,69 @@ export const syncInbox: JobDef = {
   },
 };
 
-export const JOBS: JobDef[] = [releaseOverdue, dailyDigest, syncInbox];
+/**
+ * Finish any call that was written down but never filed.
+ *
+ * The safety net under queue.ts: a hard crash between the webhook's response
+ * and the write leaves a payload on disk that nothing would ever look at again.
+ * The reasoning, the five-minute floor and the batch limit are all in
+ * lib/sweep.ts, which is where the work happens and where it can be tested
+ * against a real database.
+ */
+export const sweepPendingEvents: JobDef = {
+  name: "sweep-pending-events",
+  description:
+    "Finishes any call or email that was received and stored but never turned into activity.",
+  async run() {
+    const { sweepRawEvents } = await import("@/lib/sweep");
+    // Spread rather than returned directly: JobResult is an index signature and
+    // a named interface does not satisfy one, even when every field matches.
+    const { processed, failed, remaining } = await sweepRawEvents(db);
+    return { processed, failed, remaining };
+  },
+};
+
+/**
+ * Keep the RingCentral webhook subscription alive.
+ *
+ * ---------------------------------------------------------------------------
+ * Subscriptions expire -- seven days is the maximum RingCentral allows. When
+ * one lapses, calls simply stop arriving. There is no error, no failed request
+ * and nothing in any log, because from our side nothing happened at all. The
+ * first symptom is a rep asking why nothing has logged since Tuesday.
+ *
+ * This lived in an Inngest cron, which meant renewal only happened if a service
+ * we no longer use was signed up for and healthy -- a silent outage waiting on
+ * a dependency nobody would think to check. It belongs beside the other
+ * scheduled work, where the Admin screen shows when it last ran.
+ *
+ * A daily cron against a seven-day expiry gives six missed runs of headroom
+ * before anything breaks.
+ * ---------------------------------------------------------------------------
+ */
+export const renewCallSubscription: JobDef = {
+  name: "renew-call-subscription",
+  description: "Renews the RingCentral webhook subscription, which expires every seven days.",
+  async shouldRun() {
+    const { env } = await import("@/lib/env");
+    return env.ringCentralConfigured;
+  },
+  async run() {
+    const { ensureSubscription } = await import("@/lib/ringcentral/client");
+    const { id, action } = await ensureSubscription();
+    return { subscriptionId: id, action };
+  },
+};
+
+export const JOBS: JobDef[] = [
+  releaseOverdue,
+  // Before the digest: the morning email counts calls, and counting them before
+  // the overnight backlog has been filed sends everybody the wrong number.
+  sweepPendingEvents,
+  renewCallSubscription,
+  dailyDigest,
+  syncInbox,
+];
 
 export function findJob(name: string): JobDef | undefined {
   return JOBS.find((j) => j.name === name);

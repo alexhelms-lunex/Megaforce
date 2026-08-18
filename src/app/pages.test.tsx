@@ -137,6 +137,48 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
+/*
+ * The phone status is mocked rather than read.
+ *
+ * ringCentralStatus() talks to RingCentral over HTTP and to Postgres over a
+ * socket. Neither exists here, and neither is what this file is for: the
+ * question is whether the SCREEN survives every shape that function can
+ * return, including the ones nobody looks at until something is broken.
+ */
+let rcStatus: unknown = null;
+vi.mock("@/lib/ringcentral/status", () => ({
+  // Falls back to the not-configured shape, so the two whole-application
+  // sweeps below cover this screen without having to know it exists.
+  ringCentralStatus: async () => rcStatus ?? RC_BASE,
+}));
+
+const RC_BASE = {
+  configured: false,
+  sandbox: true,
+  server: "https://platform.devtest.ringcentral.com",
+  credentials: [
+    { key: "RC_CLIENT_ID", label: "Client ID", present: false, help: "help" },
+    { key: "RC_JWT", label: "JWT credential", present: false, help: "help" },
+  ],
+  subscription: {
+    status: "not-configured" as const,
+    id: null,
+    expiresAt: null,
+    deliveringTo: null,
+    shouldDeliverTo: "https://example.test/api/webhooks/ringcentral",
+    detail: null,
+  },
+  pipeline: {
+    lastCallAt: null,
+    callsLast7Days: 0,
+    backlog: 0,
+    failed: 0,
+    unmatchedOpen: 0,
+    usersWithoutExtension: 0,
+    totalCallers: 0,
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The screens
 // ---------------------------------------------------------------------------
@@ -281,6 +323,11 @@ const SCREENS: Screen[] = [
   {
     name: "roles",
     load: () => import("./(app)/admin/roles/page"),
+    props: () => ({}),
+  },
+  {
+    name: "phone connection",
+    load: () => import("./(app)/admin/integrations/page"),
     props: () => ({}),
   },
 ];
@@ -643,6 +690,91 @@ describe("Prospects, which contains every company in the business", () => {
     await expect(
       mod.default({ searchParams: Promise.resolve({ q: "mill", scope: "locked" }) } as never),
     ).rejects.toThrow(/NEXT_REDIRECT/);
+  });
+});
+
+describe("the phone connection screen, in every state it can be in", () => {
+  /*
+   * Each of these is a real failure somebody will hit, and every one of them is
+   * SILENT in the application itself -- no error, no empty screen, just calls
+   * that never arrive. This screen is the only place they become words, so it
+   * has to survive rendering all of them.
+   */
+  const screen = () => SCREENS.find((s) => s.name === "phone connection")!;
+
+  it("renders before anything has been set up", async () => {
+    rcStatus = RC_BASE;
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("renders when the credentials are set but RingCentral refuses them", async () => {
+    rcStatus = {
+      ...RC_BASE,
+      configured: true,
+      credentials: RC_BASE.credentials.map((c) => ({ ...c, present: true })),
+      subscription: {
+        ...RC_BASE.subscription,
+        status: "unreachable",
+        detail: "RingCentral answered 400: invalid_grant",
+      },
+    };
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("renders when calls are being delivered to an old deployment", async () => {
+    // The one most likely to happen here, and the hardest to spot: everything
+    // reports healthy and the calls are going somewhere else.
+    rcStatus = {
+      ...RC_BASE,
+      configured: true,
+      subscription: {
+        ...RC_BASE.subscription,
+        status: "wrong-address",
+        id: "sub-1",
+        expiresAt: "2026-08-24T09:00:00Z",
+        deliveringTo: "https://old-deployment.vercel.app/api/webhooks/ringcentral",
+        detail: "There is a live subscription, but it delivers somewhere else.",
+      },
+    };
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("renders when everything is working", async () => {
+    rcStatus = {
+      ...RC_BASE,
+      configured: true,
+      sandbox: false,
+      server: "https://platform.ringcentral.com",
+      credentials: RC_BASE.credentials.map((c) => ({ ...c, present: true })),
+      subscription: {
+        ...RC_BASE.subscription,
+        status: "ok",
+        id: "sub-1",
+        expiresAt: "2026-08-24T09:00:00Z",
+        deliveringTo: RC_BASE.subscription.shouldDeliverTo,
+      },
+      pipeline: {
+        lastCallAt: "2026-08-18T14:02:00Z",
+        callsLast7Days: 412,
+        backlog: 2,
+        failed: 1,
+        unmatchedOpen: 6,
+        usersWithoutExtension: 3,
+        totalCallers: 27,
+      },
+    };
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("is a 404 for anybody who is not an administrator", async () => {
+    // Not a hidden nav item. The page names which credentials exist, and a
+    // button on it repoints where every future call is delivered.
+    rcStatus = RC_BASE;
+    for (const role of ["broker", "manager", "ad", "credit"]) {
+      currentRole = role;
+      await expect(render(screen(), {}), role).rejects.toThrow(/NEXT_NOT_FOUND/);
+    }
+    currentRole = "admin";
   });
 });
 
