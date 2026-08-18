@@ -972,29 +972,48 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
       };
     }
 
-    const token = await rcToken();
-    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/extension/~/ring-out`, {
-      method: "POST",
-      // Bounded like every other call to RingCentral. Node's fetch waits
-      // forever by default, and a dialler that hangs is worse than one that
-      // fails: the broker keeps pressing it.
-      signal: AbortSignal.timeout(15_000),
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: { phoneNumber: fromNumber },
-        to: { phoneNumber: phone },
-        // No "press 1 to connect". The broker asked for the call; making them
-        // confirm it on the handset is a step that exists to prevent misdials
-        // from an autodialler, which this is not.
-        playPrompt: false,
-      }),
-    });
+    const { resetTokenCache } = await import("@/lib/ringcentral/client");
+
+    const ring = async (token: string) =>
+      fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/extension/~/ring-out`, {
+        method: "POST",
+        // Bounded like every other call to RingCentral. Node's fetch waits
+        // forever by default, and a dialler that hangs is worse than one that
+        // fails: the broker keeps pressing it.
+        signal: AbortSignal.timeout(15_000),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: { phoneNumber: fromNumber },
+          to: { phoneNumber: phone },
+          // No "press 1 to connect". The broker asked for the call; making them
+          // confirm it on the handset is a step that exists to prevent misdials
+          // from an autodialler, which this is not.
+          playPrompt: false,
+        }),
+      });
+
+    let res = await ring(await rcToken());
+
+    /*
+     * A permission added five minutes ago is not on an hour-old token.
+     *
+     * Access tokens carry the permissions the app had when they were issued,
+     * and ours are cached for most of an hour. So the sequence that actually
+     * happens -- press Call, get told RingOut is missing, go and enable it,
+     * press Call again -- would fail a second time on a token minted before the
+     * change, and the obvious conclusion is that enabling it did not work.
+     *
+     * One retry with a fresh token turns that into "enable it, press Call".
+     * Only on 403, and only once: a genuinely missing permission fails the same
+     * way twice and must not become a loop.
+     */
+    if (res.status === 403) {
+      resetTokenCache();
+      res = await ring(await rcToken());
+    }
 
     if (!res.ok) {
-      // The body says which parameter, which is the difference between a
-      // fixable problem and a shrug.
-      const detail = (await res.text()).slice(0, 300);
-      return { error: `RingCentral refused the call (${res.status}). ${detail}` };
+      return { error: explainCallRefusal(res.status, await res.text()) };
     }
     return { ok: true };
   } catch (err) {
@@ -1003,6 +1022,44 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
       error: `Could not reach RingCentral: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+/**
+ * RingCentral's refusal, as an instruction.
+ *
+ * ---------------------------------------------------------------------------
+ * The raw body is a nested JSON object repeating itself twice, and the useful
+ * word is buried in the middle of it. Somebody pressing Call does not want a
+ * payload; they want to know whether this is theirs to fix and what to do.
+ *
+ * The permission case is worth naming specifically because it is not a bug and
+ * cannot be fixed from this application at all -- it is a checkbox in
+ * RingCentral's developer console, and without being told that, the reasonable
+ * conclusion is that the dialler is broken.
+ * ---------------------------------------------------------------------------
+ */
+function explainCallRefusal(status: number, body: string): string {
+  if (/RingOut/i.test(body) && /InsufficientPermissions|CMN-401/i.test(body)) {
+    return (
+      "RingCentral will not place calls for this app yet: it needs the RingOut permission. " +
+      "In the RingCentral developer console open your app, go to Settings, and add RingOut to " +
+      "the app's permissions (also called scopes). Save it, then press Call again — no redeploy " +
+      "needed."
+    );
+  }
+
+  if (status === 401) {
+    return "RingCentral rejected our sign-in. Check the credentials on the Phone connection screen.";
+  }
+
+  if (/parameter \[from\]/i.test(body)) {
+    return (
+      "RingCentral would not dial from that number. The number that rings your handset must be " +
+      "one on the account — check it on the Phone connection screen under Who can make calls."
+    );
+  }
+
+  return `RingCentral refused the call (${status}). ${body.slice(0, 300)}`;
 }
 
 /** Calls the caller has not written up yet. Drives the dock's badge. */
