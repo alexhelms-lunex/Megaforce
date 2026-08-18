@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { DB_UNCONFIGURED, schema, tryGetDb } from "@/lib/db";
 import { qualify, toRule } from "@/lib/qualify";
 import { toE164 } from "@/lib/phone";
@@ -138,10 +138,21 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
    * The calls that matched nothing.
    *
    * Scoped by user_id, which 0033 added -- before that these rows did not know
-   * whose call they were and could only ever be shown to a manager. An
-   * extension nobody has claimed still leaves user_id null, and those stay in
-   * the review queue rather than appearing in an arbitrary person's dock.
+   * whose call they were and could only ever be shown to a manager.
+   *
+   * Plus, for the people who triage, the ones that belong to NOBODY. An
+   * extension the CRM does not recognise leaves user_id null, and that is not a
+   * rare edge -- it is the state every account is in until somebody maps the
+   * extensions, which is to say it is the state on the day this is first
+   * switched on. Those calls would otherwise appear in no dock at all, and the
+   * person setting it up would conclude nothing is arriving when everything is.
+   *
+   * Deliberately NOT "a manager sees everybody's calls". An unclaimed call is
+   * unowned work; a colleague's call is theirs. The first belongs in the dock
+   * of whoever can sort it out, the second does not.
    */
+  const triages = ["manager", "credit", "admin"].includes(user.role);
+
   const orphans = await db
     .select({
       id: schema.unmatchedActivities.id,
@@ -152,11 +163,18 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
       result: schema.unmatchedActivities.result,
       occurredAt: schema.unmatchedActivities.occurredAt,
       createdAt: schema.unmatchedActivities.createdAt,
+      userId: schema.unmatchedActivities.userId,
+      extensionId: schema.unmatchedActivities.extensionId,
     })
     .from(schema.unmatchedActivities)
     .where(
       and(
-        eq(schema.unmatchedActivities.userId, user.id),
+        triages
+          ? or(
+              eq(schema.unmatchedActivities.userId, user.id),
+              isNull(schema.unmatchedActivities.userId),
+            )
+          : eq(schema.unmatchedActivities.userId, user.id),
         isNull(schema.unmatchedActivities.resolvedAt),
       ),
     )
@@ -179,7 +197,14 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     loggedAt: null,
     stageOutcome: null,
     qualifies: false,
-    qualificationReason: EXPLAIN_UNMATCHED[r.reason] ?? r.reason,
+    qualificationReason:
+      (EXPLAIN_UNMATCHED[r.reason] ?? r.reason) +
+      // Named, because an unclaimed call is not the same problem as an
+      // unrecognised number and the fix is different: this one is somebody's
+      // extension missing from their user record, not a contact missing a phone.
+      (r.userId === null && r.extensionId
+        ? ` Nobody is recorded against extension ${r.extensionId}, so this is not credited to anyone yet.`
+        : ""),
     reason: r.reason,
   }));
 
@@ -198,6 +223,65 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
       return b.occurredAt.localeCompare(a.occurredAt);
     })
     .slice(0, limit);
+}
+
+/**
+ * Ask RingCentral for anything that happened while nobody was looking.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "This needs to load like calls even when the app wasnt open."
+ *
+ * Opening the dock is the exact moment somebody expects to see the call they
+ * just made, and it is also the moment the CRM finds out anybody is watching.
+ * A subscription that lapsed on Thursday, a deployment whose URL changed, a
+ * call made before any of this was connected -- all of them look identical from
+ * inside the dock, which is to say they look like an empty list.
+ *
+ * So the dock asks. It does not wait for the answer to render: the list draws
+ * from the database immediately, and reloads if the pull brought anything new.
+ * A dock that spends two seconds on a network round trip before showing calls
+ * it already had is worse than one that never pulled at all.
+ *
+ * THE THROTTLE IS SERVER SIDE, ON PURPOSE
+ *
+ * Every broker with the dock open would otherwise hit RingCentral on every
+ * open, on every machine. The gate reads job_runs -- the same row the Admin
+ * screen shows and the cron writes -- so it holds across all of them, and a
+ * pull that just happened for one person counts for everybody.
+ *
+ * Nothing here is destructive and nothing is refused loudly: a throttled call
+ * returns imported: 0 and the dock simply carries on with what it has.
+ * ---------------------------------------------------------------------------
+ */
+export async function syncRecentCalls(): Promise<{ imported: number; error?: string }> {
+  try {
+    const user = await currentUser();
+    if (!user) return { imported: 0 };
+    if (!env.ringCentralConfigured) return { imported: 0 };
+
+    const db = tryGetDb();
+    if (!db) return { imported: 0 };
+
+    const { secondsSinceLastPull } = await import("@/lib/ringcentral/pull");
+    const age = await secondsSinceLastPull(db);
+    // Sixty seconds. Short enough that a call made a minute ago turns up on the
+    // next open, long enough that a floor of brokers is one request a minute.
+    if (age !== null && age < 60) return { imported: 0 };
+
+    const { findJob, runJob } = await import("@/lib/jobs/registry");
+    const job = findJob("pull-recent-calls");
+    if (!job) return { imported: 0 };
+
+    const summary = await runJob(job, { trigger: "manual", utcHour: new Date().getUTCHours() });
+    if (!summary.ok) return { imported: 0, error: summary.error };
+
+    return { imported: Number(summary.result?.imported ?? 0) };
+  } catch (err) {
+    // The dock renders on every screen. A failed pull is a dock showing what it
+    // already had; a throw is the page behind it replaced by an error.
+    log.error({ err }, "dock could not pull the call log");
+    return { imported: 0, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Why a call did not land on a company, written for the person who made it. */

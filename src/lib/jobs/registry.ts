@@ -197,12 +197,58 @@ export const renewCallSubscription: JobDef = {
   },
 };
 
+/**
+ * Fetch the calls RingCentral already has, instead of only being told about new ones.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "This needs to load like calls even when the app wasnt open."
+ *
+ * A webhook only delivers while a live subscription points at this deployment.
+ * Before one exists, while one is lapsed, or after a delivery is abandoned,
+ * nothing arrives -- and nothing complains, because from our side nothing
+ * happened. The calls sit in RingCentral's log the whole time.
+ *
+ * So this is the floor under the webhook, not a replacement for it: the webhook
+ * makes a call appear in seconds, this makes sure it appears at all. The
+ * reasoning, and why running it repeatedly writes nothing, is in lib/ringcentral/pull.ts.
+ *
+ * Forty-eight hours, against a cron that fires once a day. The overlap is
+ * deliberate and it costs nothing -- every call deduplicates on its telephony
+ * session id -- whereas a window narrower than the gap between two runs drops
+ * whatever fell between them, silently, which is the exact failure this exists
+ * to end. A missed cron run is then survivable rather than a lost day.
+ *
+ * The dock runs this too, throttled to once a minute across everybody, which is
+ * what makes a call appear shortly after somebody looks for it rather than
+ * tomorrow morning.
+ * ---------------------------------------------------------------------------
+ */
+export const pullRecentCalls: JobDef = {
+  name: "pull-recent-calls",
+  description: "Loads recent calls straight from RingCentral, including any the webhook missed.",
+  async shouldRun() {
+    const { env } = await import("@/lib/env");
+    return env.ringCentralConfigured;
+  },
+  async run() {
+    const { importRecentCalls } = await import("@/lib/ringcentral/pull");
+    const { fetched, imported, duplicates, matched, unmatched, failed } = await importRecentCalls(
+      db,
+      { sinceHours: 48 },
+    );
+    return { fetched, imported, duplicates, matched, unmatched, failed };
+  },
+};
+
 export const JOBS: JobDef[] = [
   releaseOverdue,
   // Before the digest: the morning email counts calls, and counting them before
   // the overnight backlog has been filed sends everybody the wrong number.
   sweepPendingEvents,
   renewCallSubscription,
+  // After the subscription is renewed, so a run that repairs a lapsed webhook
+  // also picks up whatever was missed while it was lapsed, in the same pass.
+  pullRecentCalls,
   dailyDigest,
   syncInbox,
 ];

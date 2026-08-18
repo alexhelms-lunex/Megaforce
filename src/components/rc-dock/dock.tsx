@@ -16,6 +16,7 @@ import {
   attachCall,
   recentCalls,
   searchCompanies,
+  syncRecentCalls,
   type DockCall,
   type LogResult,
   type MatchOptions,
@@ -53,6 +54,33 @@ export function RcDock() {
 
   useEffect(() => {
     if (open) void refresh();
+  }, [open, refresh]);
+
+  /*
+   * Ask RingCentral for anything that happened while this was closed.
+   *
+   * Alex: "This needs to load like calls even when the app wasnt open."
+   *
+   * The webhook only carries calls made while a live subscription is pointing
+   * here. Before one exists -- day one, and any day one has lapsed -- it
+   * carries nothing at all, and the dock looks like a phone system with no
+   * calls in it rather than a CRM that was not listening.
+   *
+   * Fired alongside the read above, NOT before it. The list draws from the
+   * database instantly and re-draws only if the pull actually brought something
+   * new. Waiting on a network round trip before showing calls we already had
+   * would make the dock slower for the ordinary case in order to help the rare
+   * one. The server throttles this to once a minute across everybody.
+   */
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void syncRecentCalls().then((r) => {
+      if (live && r.imported > 0) void refresh();
+    });
+    return () => {
+      live = false;
+    };
   }, [open, refresh]);
 
   /*

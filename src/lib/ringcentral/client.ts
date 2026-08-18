@@ -272,3 +272,122 @@ export async function listPhoneNumbers(): Promise<RcPhoneNumber[]> {
       extensionNumber: r.extension?.extensionNumber ?? null,
     }));
 }
+
+// ---------------------------------------------------------------------------
+// Pulling the call log, rather than waiting to be told
+// ---------------------------------------------------------------------------
+
+/**
+ * The calls RingCentral already has, fetched rather than delivered.
+ *
+ * ===========================================================================
+ * WHY PULLING MATTERS WHEN A WEBHOOK ALREADY EXISTS
+ *
+ * Alex: "This needs to load like calls even when the app wasnt open. Just the
+ * most recent calls in ring central."
+ *
+ * A webhook only delivers calls that happen while a live subscription is
+ * pointing here. That leaves three holes, and all three are silent:
+ *
+ *   Before the subscription exists, nothing arrives -- which is the state on
+ *     day one, and the state right now.
+ *   While a subscription is lapsed or pointing at an old deployment, nothing
+ *     arrives, and RingCentral does not resend afterwards.
+ *   A delivery that fails is retried for a while and then abandoned.
+ *
+ * In every one of those the calls are sitting in RingCentral's own log,
+ * perfectly intact, and the CRM simply never asked. This asks.
+ *
+ * IT IS THE SAME PIPELINE
+ *
+ * Each record is wrapped in the identical envelope the webhook delivers, so the
+ * matcher, the qualifier and the review queue cannot tell the difference -- and
+ * the external id is the telephony session, so a call that arrives BOTH ways
+ * lands once. Pulling is therefore always safe to repeat: re-running it over a
+ * window already imported writes nothing.
+ * ===========================================================================
+ */
+export interface PulledCall {
+  telephonySessionId: string;
+  counterpartyNumber: string;
+  ourNumber: string;
+  direction: "Inbound" | "Outbound";
+  durationSeconds: number;
+  result: string;
+  startTime: Date;
+  extensionId: string | null;
+  contactName: string;
+}
+
+export async function fetchCallLog(options: {
+  /** How far back to look. RingCentral keeps a rolling window of its own. */
+  sinceHours?: number;
+  /** Cap. The account-wide log on a busy floor is long. */
+  limit?: number;
+} = {}): Promise<PulledCall[]> {
+  const { sinceHours = 24, limit = 250 } = options;
+  const token = await rcToken();
+
+  const dateFrom = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
+  const url =
+    `${env.RC_SERVER}/restapi/v1.0/account/~/call-log` +
+    `?view=Detailed&type=Voice&dateFrom=${encodeURIComponent(dateFrom)}` +
+    `&perPage=${Math.max(1, Math.min(limit, 1000))}`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`could not read the call log (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  const json = (await res.json()) as {
+    records?: {
+      id?: string;
+      sessionId?: string;
+      telephonySessionId?: string;
+      startTime?: string;
+      duration?: number;
+      direction?: string;
+      result?: string;
+      to?: { phoneNumber?: string; name?: string };
+      from?: { phoneNumber?: string; name?: string };
+      extension?: { id?: number | string };
+    }[];
+  };
+
+  const out: PulledCall[] = [];
+  for (const r of json.records ?? []) {
+    /*
+     * The id, in the same order the webhook parser reads it.
+     *
+     * telephonySessionId first, because that is what a Call Log Sync
+     * notification carries -- so the same conversation arriving by both roads
+     * collides on the unique index and is stored once. Falling back to the
+     * record id keeps a call that has no session id from being dropped, at the
+     * cost of it not deduplicating against a webhook. That is the right way
+     * round: a duplicate is visible and fixable, a missing call is neither.
+     */
+    const id = r.telephonySessionId ?? r.sessionId ?? r.id;
+    if (!id) continue;
+
+    const outbound = String(r.direction ?? "Outbound") === "Outbound";
+    const counterparty = outbound ? r.to?.phoneNumber : r.from?.phoneNumber;
+    const ours = outbound ? r.from?.phoneNumber : r.to?.phoneNumber;
+    if (!counterparty) continue;
+
+    out.push({
+      telephonySessionId: String(id),
+      counterpartyNumber: counterparty,
+      ourNumber: ours ?? "",
+      direction: outbound ? "Outbound" : "Inbound",
+      durationSeconds: Number(r.duration ?? 0),
+      result: String(r.result ?? "Unknown"),
+      startTime: r.startTime ? new Date(r.startTime) : new Date(),
+      extensionId: r.extension?.id != null ? String(r.extension.id) : null,
+      contactName: (outbound ? r.to?.name : r.from?.name) ?? "",
+    });
+  }
+  return out;
+}

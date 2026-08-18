@@ -121,6 +121,13 @@ export default async function IntegrationsPage() {
             RingCentral has to be told where to send calls, and the instruction expires every
             seven days. The nightly job renews it; these buttons do it now.
           </p>
+          <p className="text-xs text-muted-foreground">
+            Delivery only carries calls made <em>after</em> it is switched on. To see calls made
+            before that — or during any stretch when delivery had lapsed —{" "}
+            <strong>Load recent calls now</strong> asks RingCentral for the last 48 hours instead
+            of waiting to be told. It also runs on its own: once with the nightly job, and again
+            whenever anybody opens the phone dock. Loading the same calls twice adds nothing.
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <Delivery status={status} />

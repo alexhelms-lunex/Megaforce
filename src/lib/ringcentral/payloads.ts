@@ -30,7 +30,17 @@ export interface CallPayloadOptions {
   ourNumber?: string;
   direction?: "Inbound" | "Outbound";
   durationSeconds?: number;
-  result?: CallResult;
+  /**
+   * The union lists the results worth naming; the `string & {}` keeps it open.
+   *
+   * RingCentral's real log carries plenty more -- "Stopped", "Internal Error",
+   * "IP Phone Offline", "Restricted Number", "Partial" -- and a pulled call must
+   * carry its result through VERBATIM. Coercing an unrecognised one to a known
+   * value would tell the qualifier a call ended in a way it did not, which is
+   * the one lie this pipeline must never tell. The odd construction is what
+   * keeps editor completion for the common ones while accepting the rest.
+   */
+  result?: CallResult | (string & {});
   startTime?: Date;
   /** Extension that handled the call; maps to users.rc_extension_id. */
   extensionId?: string;

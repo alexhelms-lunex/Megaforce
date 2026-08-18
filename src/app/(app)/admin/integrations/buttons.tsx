@@ -9,6 +9,7 @@ import { runAction } from "@/lib/run-action";
 import {
   clearTestCalls,
   loadExtensions,
+  pullCallsNow,
   renewNow,
   sendTestCall,
   sweepNow,
@@ -37,13 +38,33 @@ export function IntegrationButtons({ configured }: { configured: boolean }) {
   const [reply, setReply] = useState<ActionResult | null>(null);
   const router = useRouter();
 
+  /*
+   * Deliberately NOT runAction.
+   *
+   * runAction returns null both when an action REFUSES and when it REJECTS,
+   * reporting the reason as a toast either way. That is right for a Save button
+   * and wrong for a diagnostic: the reason IS the output of these buttons, and
+   * a toast that fades after four seconds is not where somebody reads an error
+   * they are about to act on.
+   *
+   * It also produced a sentence that was not true. A refusal came back as null,
+   * this panel could not tell that apart from "never reached the server", and
+   * printed the latter -- over the top of a toast carrying the real cause.
+   * Somebody diagnosing a failed subscription was told the wrong thing.
+   *
+   * So the action is called directly and its answer goes on the screen, where
+   * it stays until the next press.
+   */
   function run(action: () => Promise<ActionResult>, label: string) {
     setReply(null);
     start(async () => {
-      const result = await runAction(action, { label, quiet: true });
-      // runAction returns null when the action itself failed to reach the
-      // server, which it has already reported. Anything else is an answer.
-      setReply(result ?? { error: `${label} did not reach the server.` });
+      try {
+        setReply(await action());
+      } catch (err) {
+        // A rejection rather than a refusal. Uncaught inside a transition this
+        // destroys the page, so it is caught and shown like everything else.
+        setReply({ error: `${label}: ${describe(err)}` });
+      }
       router.refresh();
     });
   }
@@ -68,6 +89,26 @@ export function IntegrationButtons({ configured }: { configured: boolean }) {
           onClick={() => run(renewNow, "Could not renew the subscription")}
         >
           Start or renew call delivery
+        </Button>
+        {/*
+          The one that works before anything else does.
+          Delivery only carries calls made while a subscription is alive and
+          pointing here, so on day one it carries nothing. This asks RingCentral
+          for the calls it already has, which is how somebody sees a call they
+          made an hour ago rather than being told to make another one.
+        */}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending || !configured}
+          title={
+            configured
+              ? "Asks RingCentral for the last 48 hours, including calls made while this was closed."
+              : "Add the credentials first."
+          }
+          onClick={() => run(pullCallsNow, "Could not read the call log")}
+        >
+          Load recent calls now
         </Button>
         <Button
           variant="ghost"
@@ -119,11 +160,33 @@ export function TestCallButtons() {
   const [reply, setReply] = useState<ActionResult | null>(null);
   const router = useRouter();
 
+  /*
+   * Deliberately NOT runAction.
+   *
+   * runAction returns null both when an action REFUSES and when it REJECTS,
+   * reporting the reason as a toast either way. That is right for a Save button
+   * and wrong for a diagnostic: the reason IS the output of these buttons, and
+   * a toast that fades after four seconds is not where somebody reads an error
+   * they are about to act on.
+   *
+   * It also produced a sentence that was not true. A refusal came back as null,
+   * this panel could not tell that apart from "never reached the server", and
+   * printed the latter -- over the top of a toast carrying the real cause.
+   * Somebody diagnosing a failed subscription was told the wrong thing.
+   *
+   * So the action is called directly and its answer goes on the screen, where
+   * it stays until the next press.
+   */
   function run(action: () => Promise<ActionResult>, label: string) {
     setReply(null);
     start(async () => {
-      const result = await runAction(action, { label, quiet: true });
-      setReply(result ?? { error: `${label} did not reach the server.` });
+      try {
+        setReply(await action());
+      } catch (err) {
+        // A rejection rather than a refusal. Uncaught inside a transition this
+        // destroys the page, so it is caught and shown like everything else.
+        setReply({ error: `${label}: ${describe(err)}` });
+      }
       router.refresh();
     });
   }
@@ -318,4 +381,23 @@ export function ExtensionList() {
       ) : null}
     </div>
   );
+}
+
+
+/**
+ * The whole chain of causes, not just the outermost one.
+ *
+ * A failed subscription wraps a fetch failure wraps a DNS error, and only the
+ * innermost one says anything useful. Next also redacts server errors in
+ * production, so the outermost is frequently a sentence about nothing.
+ */
+function describe(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const e = current as { message?: string; cause?: unknown };
+    if (e?.message && !parts.includes(e.message)) parts.push(e.message);
+    current = e?.cause;
+  }
+  return parts.join(" — ") || String(err);
 }

@@ -263,6 +263,65 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
   }
 }
 
+/**
+ * Go and get the recent calls, now.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "This needs to load like calls even when the app wasnt open. Just the
+ * most recent calls in ring central."
+ *
+ * The subscription only delivers calls made while it is alive and pointing
+ * here. This asks RingCentral for what it already has, which is the only way to
+ * see a call made before the subscription existed -- and on day one, that is
+ * every call there is.
+ *
+ * Run through the job runner rather than calling the import directly, so the
+ * attempt lands in job_runs like every other piece of scheduled work: the Admin
+ * screen shows when it last happened, and the dock's automatic pull reads the
+ * same row to decide whether it is due.
+ * ---------------------------------------------------------------------------
+ */
+export async function pullCallsNow(): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    const { env } = await import("@/lib/env");
+    if (!env.ringCentralConfigured) {
+      return { error: "Add the RingCentral credentials first — there is nowhere to fetch from." };
+    }
+
+    const { findJob, runJob } = await import("@/lib/jobs/registry");
+    const job = findJob("pull-recent-calls");
+    if (!job) return { error: "The call-log job is not registered in this build." };
+
+    const summary = await runJob(job, { trigger: "manual", utcHour: new Date().getUTCHours() });
+    if (!summary.ok) return { error: summary.error ?? "The call log could not be read." };
+
+    const { describePull } = await import("@/lib/ringcentral/pull");
+    const counts = (summary.result ?? {}) as Record<string, number>;
+
+    revalidatePath("/admin/integrations");
+    revalidatePath("/activity");
+    revalidatePath("/review");
+
+    return {
+      ok: true,
+      message: describePull({
+        fetched: Number(counts.fetched ?? 0),
+        imported: Number(counts.imported ?? 0),
+        duplicates: Number(counts.duplicates ?? 0),
+        matched: Number(counts.matched ?? 0),
+        unmatched: Number(counts.unmatched ?? 0),
+        failed: Number(counts.failed ?? 0),
+      }),
+      href: Number(counts.imported ?? 0) > 0 ? "/activity" : undefined,
+    };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
 /** Work through the backlog now rather than waiting for tonight's sweep. */
 export async function sweepNow(): Promise<ActionResult> {
   const refused = await requireAdmin();
