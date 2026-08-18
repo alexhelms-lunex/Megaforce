@@ -1,28 +1,14 @@
 import Link from "next/link";
 import { InfoTip } from "@/components/info-tip";
-import { CheckCircle2, CircleSlash, Mail, PhoneCall, StickyNote, Users } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import {
-  NEEDS_WRITE_UP,
-  activityTone,
-  countedTone,
-  directionTone,
-} from "@/lib/activity-style";
+import { CheckCircle2, CircleSlash } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/charts";
+import { ActivityRow, FeedViewTabs, type FeedView } from "@/components/activity-row";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { loadPreferences } from "@/lib/prefs-server";
+import { resolvePageSize } from "@/lib/preferences";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 60;
-
-const TYPE_ICON: Record<string, React.ElementType> = {
-  call: PhoneCall,
-  email: Mail,
-  meeting: Users,
-  note: StickyNote,
-};
 
 const FILTERS: { param: string; label: string; options: { value: string; label: string }[] }[] = [
   {
@@ -97,6 +83,9 @@ export default async function ActivityPage({
 
   const mine = get("mine") === "1" || (!get("owner") && !isPrivileged(me.role) && me.role !== "manager");
   const page = Math.max(1, Number.parseInt(get("page") || "1", 10) || 1);
+  const view: FeedView = get("view") === "system" ? "system" : "notes";
+  const prefs = await loadPreferences().catch(() => null);
+  const PAGE_SIZE = resolvePageSize(get("per") || undefined, prefs?.rows_per_page);
   const from = (page - 1) * PAGE_SIZE;
 
   let query = supabase
@@ -222,6 +211,22 @@ export default async function ActivityPage({
           <CardTitle className="text-base">
             {total.toLocaleString()} {total === 1 ? "activity" : "activities"}
           </CardTitle>
+          <div className="flex items-center gap-3">
+            {/* Alex: the note is what we see first; the machine's reasoning
+                lives behind the second tab. */}
+            <FeedViewTabs
+              view={view}
+              hrefFor={(v) => {
+                const next = new URLSearchParams();
+                for (const [k, val] of Object.entries(raw)) {
+                  const one = Array.isArray(val) ? val[0] : val;
+                  if (one && k !== "view") next.set(k, one);
+                }
+                if (v !== "notes") next.set("view", v);
+                const qs = next.toString();
+                return qs ? `/activity?${qs}` : "/activity";
+              }}
+            />
           {total > PAGE_SIZE ? (
             <div className="flex items-center gap-1 text-xs">
               <PageLink raw={raw} page={page - 1} disabled={page <= 1}>
@@ -235,6 +240,7 @@ export default async function ActivityPage({
               </PageLink>
             </div>
           ) : null}
+          </div>
         </CardHeader>
         <CardContent className="px-0">
           {rows.length === 0 ? (
@@ -243,92 +249,17 @@ export default async function ActivityPage({
             </p>
           ) : (
             <ul className="divide-y">
-              {rows.map((r) => {
-                const Icon = TYPE_ICON[r.type] ?? StickyNote;
-                const account = Array.isArray(r.accounts) ? r.accounts[0] : r.accounts;
-                const user = Array.isArray(r.users) ? r.users[0] : r.users;
-                const needsWriteUp = r.type === "call" && !r.logged_at;
-                const tone = activityTone(r.type);
-                const direction = directionTone(r.direction);
-                return (
-                  <li key={r.id} className="flex items-start gap-3 px-5 py-3 hover:bg-accent/40">
-                    {/* Coloured by TYPE, not by whether it counted. The type
-                        is what somebody scans for; whether it counted is on
-                        the right, in words, where a decision gets made. */}
-                    <span
-                      className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${tone.icon}`}
-                    >
-                      <Icon className="size-3.5" aria-hidden />
-                    </span>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {r.account_id && account ? (
-                          <Link
-                            href={`/accounts/${r.account_id}`}
-                            className="truncate text-sm font-medium hover:underline"
-                          >
-                            {account.name}
-                          </Link>
-                        ) : (
-                          <span className="text-sm font-medium italic text-muted-foreground">
-                            no company matched
-                          </span>
-                        )}
-                        <span
-                          className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${tone.chip}`}
-                        >
-                          {tone.label}
-                        </span>
-                        {direction ? (
-                          <span
-                            className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${direction}`}
-                          >
-                            {r.direction}
-                          </span>
-                        ) : null}
-                        {r.stage_outcome ? (
-                          <Badge variant="secondary" className="text-[10px]">
-                            → {r.stage_outcome}
-                          </Badge>
-                        ) : null}
-                        {needsWriteUp ? (
-                          <span
-                            className={`rounded-full border px-1.5 py-px text-[10px] font-semibold ${NEEDS_WRITE_UP}`}
-                          >
-                            not written up
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {[
-                          r.subject,
-                          user?.full_name,
-                          r.duration_seconds !== null ? formatDuration(r.duration_seconds) : null,
-                          r.result,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                      {r.notes ? <p className="mt-0.5 truncate text-sm">{r.notes}</p> : null}
-                      <p className="text-xs text-muted-foreground/80">{r.qualification_reason}</p>
-                    </div>
-
-                    <div className="shrink-0 text-right">
-                      <p className="whitespace-nowrap text-xs text-muted-foreground">
-                        {formatDateTime(r.occurred_at)}
-                      </p>
-                      <span
-                        className={`mt-1 inline-flex rounded-full border px-1.5 py-px text-[10px] font-medium ${countedTone(
-                          r.qualifies,
-                        )}`}
-                      >
-                        {r.qualifies ? "counted" : "did not count"}
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
+              {rows.map((r) => (
+                <ActivityRow
+                  key={r.id}
+                  view={view}
+                  activity={{
+                    ...r,
+                    accountName: (Array.isArray(r.accounts) ? r.accounts[0] : r.accounts)?.name ?? null,
+                    userName: (Array.isArray(r.users) ? r.users[0] : r.users)?.full_name ?? null,
+                  }}
+                />
+              ))}
             </ul>
           )}
         </CardContent>

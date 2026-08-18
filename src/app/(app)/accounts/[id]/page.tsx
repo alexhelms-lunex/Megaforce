@@ -24,13 +24,13 @@ import { ClaimButton, ReleaseButton } from "@/app/(app)/available/claim-button";
 import { RequestForm } from "@/components/request-form";
 import { AssignBroker } from "@/components/assign-broker";
 import { AccountTabs } from "./account-tabs";
+import { ActivityRow, FeedViewTabs, type FeedView } from "@/components/activity-row";
 import { ZoomInfoPanel } from "@/components/zoominfo-panel";
 import { LockedAccount, type DirectoryEntry } from "@/components/locked-account";
 import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
-import { daysSince, formatDateTime, formatDuration, formatMoney, staleTone } from "@/lib/format";
+import { daysSince, formatDateTime, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
-import { NEEDS_WRITE_UP, activityTone, countedTone, directionTone } from "@/lib/activity-style";
 import { STATUS_LABEL } from "@/lib/account-filters";
 
 export const dynamic = "force-dynamic";
@@ -42,10 +42,10 @@ export default async function AccountDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; view?: string }>;
 }) {
   const { id } = await params;
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, view: rawView } = await searchParams;
   const supabase = await createClient();
 
   // Issued together. RLS filters every one of them; an account the user cannot
@@ -388,7 +388,13 @@ export default async function AccountDetailPage({
             />
           ) : null}
 
-          {tab === "activity" ? <ActivityTab activities={activities} /> : null}
+          {tab === "activity" ? (
+            <ActivityTab
+              activities={activities}
+              view={rawView === "system" ? "system" : "notes"}
+              accountId={account.id}
+            />
+          ) : null}
 
           {tab === "contacts" ? (
             <div className="space-y-4">
@@ -686,95 +692,79 @@ function Overview({
           </Link>
         </CardHeader>
         <CardContent>
-          <Timeline activities={activities.slice(0, 6)} />
+          <Timeline activities={activities.slice(0, 6)} view="notes" />
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function ActivityTab({ activities }: { activities: Activity[] }) {
+function ActivityTab({
+  activities,
+  view,
+  accountId,
+}: {
+  activities: Activity[];
+  view: FeedView;
+  accountId: string;
+}) {
   const qualifying = activities.filter((a) => a.qualifies).length;
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">
-          {qualifying} of the last {activities.length} counted
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Every row carries the reason it did or did not count, so &ldquo;why didn&apos;t my call
-          log&rdquo; is answered here rather than in a support ticket.
-        </p>
+      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-base">
+            {qualifying} of the last {activities.length} qualified
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {view === "notes"
+              ? "What was actually said, and whether it held the clock."
+              : "The subject line, the qualifier's verdict, and where each record came from."}
+          </p>
+        </div>
+        {/* Alex: "the only thing under the title should be notes on the call.
+            Not system notes. Then in a tab you can put those system notes." */}
+        <FeedViewTabs
+          view={view}
+          hrefFor={(v) =>
+            v === "notes"
+              ? `/accounts/${accountId}?tab=activity`
+              : `/accounts/${accountId}?tab=activity&view=${v}`
+          }
+        />
       </CardHeader>
-      <CardContent>
-        <Timeline activities={activities} />
+      <CardContent className="px-0">
+        <Timeline activities={activities} view={view} />
       </CardContent>
     </Card>
   );
 }
 
-function Timeline({ activities }: { activities: Activity[] }) {
+/**
+ * The account's own history.
+ *
+ * Shares ActivityRow with the Activity screen rather than drawing its own
+ * version. They had drifted -- the same call showed a different set of facts
+ * depending on which screen you were on, and only one of the two had been
+ * updated when the badge wording changed.
+ *
+ * The company name is suppressed: every row here is the same company, and
+ * repeating it thirty times pushes the note off the side of the card.
+ */
+function Timeline({ activities, view }: { activities: Activity[]; view: FeedView }) {
   if (activities.length === 0) {
-    return <p className="py-6 text-sm text-muted-foreground">Nothing logged against this company yet.</p>;
+    return (
+      <p className="px-5 py-6 text-sm text-muted-foreground">
+        Nothing logged against this company yet.
+      </p>
+    );
   }
   return (
-    <ol className="space-y-0">
-      {activities.map((a, i) => (
-        <li key={a.id}>
-          {i > 0 ? <Separator /> : null}
-          <div className="flex items-start justify-between gap-4 py-3">
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Coloured by type, so a column of history is scannable
-                    without reading every line of it. */}
-                <span
-                  className={`rounded-full border px-2 py-px text-[11px] font-medium ${activityTone(a.type).chip}`}
-                >
-                  {activityTone(a.type).label}
-                </span>
-                {directionTone(a.direction) ? (
-                  <span
-                    className={`rounded-full border px-1.5 py-px text-[10px] font-medium ${directionTone(a.direction)}`}
-                  >
-                    {a.direction}
-                  </span>
-                ) : null}
-                {a.stage_outcome ? (
-                  <Badge variant="secondary" className="text-[10px]">
-                    → {a.stage_outcome}
-                  </Badge>
-                ) : null}
-                <span className="truncate text-sm font-medium">{a.subject ?? "—"}</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {formatDateTime(a.occurred_at)}
-                {a.duration_seconds !== null ? ` · ${formatDuration(a.duration_seconds)}` : ""}
-                {a.result ? ` · ${a.result}` : ""}
-                {` · via ${a.source}`}
-              </p>
-              {a.notes ? <p className="text-sm">{a.notes}</p> : null}
-              <p className="text-xs text-muted-foreground">{a.qualification_reason}</p>
-            </div>
-            {/* Three states, three treatments. "Not written up" is amber
-                because it is work outstanding for the person reading; "counted"
-                is green because it is the only thing holding the clock; "not
-                counted" stays quiet, since it is the ordinary case and colouring
-                it would drown the other two. */}
-            <span
-              className={`inline-flex shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                a.type === "call" && !a.logged_at ? NEEDS_WRITE_UP : countedTone(a.qualifies)
-              }`}
-            >
-              {a.type === "call" && !a.logged_at
-                ? "not written up"
-                : a.qualifies
-                  ? "counted"
-                  : "not counted"}
-            </span>
-          </div>
-        </li>
+    <ul className="divide-y">
+      {activities.map((a) => (
+        <ActivityRow key={a.id} activity={a} view={view} showAccount={false} />
       ))}
-    </ol>
+    </ul>
   );
 }
 
