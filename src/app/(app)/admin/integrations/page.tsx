@@ -6,7 +6,7 @@ import { InfoTip } from "@/components/info-tip";
 import { currentUser } from "@/lib/supabase/server";
 import { ringCentralStatus, type RingCentralStatus } from "@/lib/ringcentral/status";
 import { formatDateTime } from "@/lib/format";
-import { IntegrationButtons, TestCallButtons } from "./buttons";
+import { ExtensionList, IntegrationButtons, TestCallButtons } from "./buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +125,22 @@ export default async function IntegrationsPage() {
         <CardContent className="space-y-4">
           <Delivery status={status} />
           <IntegrationButtons configured={status.configured} />
+        </CardContent>
+      </Card>
+
+      {/* ---- 2b. who can call ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Who can make calls</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Read from RingCentral. A call is credited to whoever made it by matching its extension
+            number against the person&apos;s record here — so an extension the CRM does not
+            recognise has its calls credited to whoever owns the account instead. That looks
+            correct on screen and is not.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ExtensionList />
         </CardContent>
       </Card>
 

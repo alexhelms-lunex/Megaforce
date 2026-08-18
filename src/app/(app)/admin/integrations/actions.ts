@@ -152,6 +152,117 @@ export async function clearTestCalls(): Promise<ActionResult> {
   }
 }
 
+export interface ExtensionRow {
+  extensionNumber: string;
+  name: string;
+  email: string | null;
+  type: string;
+  /** The CRM user this extension is already recorded against, if any. */
+  matchedUser: string | null;
+  /** A CRM user with the same email who has no extension recorded yet. */
+  suggestedUser: { id: string; name: string } | null;
+}
+
+export interface ExtensionsResult {
+  ok?: boolean;
+  error?: string;
+  numbers?: { phoneNumber: string; usageType: string | null; extensionNumber: string | null }[];
+  extensions?: ExtensionRow[];
+}
+
+/**
+ * Who can make calls, and which of them the CRM would recognise.
+ *
+ * ---------------------------------------------------------------------------
+ * Two questions, one answer. "What number do I call to test this" is the first
+ * thing anybody setting this up asks, and hunting for it through RingCentral's
+ * admin site is where an afternoon goes.
+ *
+ * The second is the one that matters later. A call is credited to whoever made
+ * it by matching its extension number against users.rc_extension_id. Until that
+ * mapping exists, every call lands on the account OWNER instead -- which looks
+ * like working software while quietly corrupting every leaderboard and every
+ * commission argument. Forty extensions typed by hand from another browser tab
+ * is a job nobody does without a typo.
+ *
+ * So the numbers come from RingCentral, and the matching is done here: already
+ * recorded, or a CRM user with the same email address who has no extension yet.
+ * Suggested, never applied automatically -- putting the wrong extension on
+ * somebody credits their colleague's calls to them, and an email address is a
+ * good guess rather than a fact.
+ *
+ * On demand rather than on page load. This is two round trips to RingCentral,
+ * and the screen it sits on is one somebody opens when they already suspect
+ * something is wrong.
+ * ---------------------------------------------------------------------------
+ */
+export async function loadExtensions(): Promise<ExtensionsResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    const { env } = await import("@/lib/env");
+    if (!env.ringCentralConfigured) {
+      return { error: "Add the RingCentral credentials first." };
+    }
+
+    const { listExtensions, listPhoneNumbers } = await import("@/lib/ringcentral/client");
+    const { createClient } = await import("@/lib/supabase/server");
+
+    const [extensions, numbers, supabase] = await Promise.all([
+      listExtensions(),
+      // A failure here must not lose the extensions, which are the half that
+      // matters. An account with no direct numbers is perfectly normal.
+      listPhoneNumbers().catch(() => []),
+      createClient(),
+    ]);
+
+    const { data } = await supabase
+      .from("users")
+      .select("id, full_name, email, rc_extension_id")
+      .eq("active", true);
+
+    const users = (data ?? []) as {
+      id: string;
+      full_name: string;
+      email: string | null;
+      rc_extension_id: string | null;
+    }[];
+
+    const byExtension = new Map(
+      users.filter((u) => u.rc_extension_id).map((u) => [u.rc_extension_id as string, u]),
+    );
+    const byEmail = new Map(
+      users.filter((u) => u.email).map((u) => [u.email!.toLowerCase(), u]),
+    );
+
+    const rows: ExtensionRow[] = extensions
+      // Departments, announcements and voicemail-only extensions cannot make a
+      // prospecting call, so listing them is noise in a list read for names.
+      .filter((e) => e.type === "User" && e.extensionNumber)
+      .map((e) => {
+        const matched = byExtension.get(e.extensionNumber);
+        const byMail = e.email ? byEmail.get(e.email.toLowerCase()) : undefined;
+        return {
+          extensionNumber: e.extensionNumber,
+          name: e.name,
+          email: e.email,
+          type: e.type,
+          matchedUser: matched?.full_name ?? null,
+          suggestedUser:
+            !matched && byMail && !byMail.rc_extension_id
+              ? { id: byMail.id, name: byMail.full_name }
+              : null,
+        };
+      })
+      .sort((a, b) => a.extensionNumber.localeCompare(b.extensionNumber, undefined, { numeric: true }));
+
+    return { ok: true, extensions: rows, numbers };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
 /** Work through the backlog now rather than waiting for tonight's sweep. */
 export async function sweepNow(): Promise<ActionResult> {
   const refused = await requireAdmin();

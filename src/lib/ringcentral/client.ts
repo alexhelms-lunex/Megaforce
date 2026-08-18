@@ -162,3 +162,113 @@ export async function ensureSubscription(): Promise<{ id: string; action: string
   log.info({ subscriptionId: sub.id, address }, "created RingCentral subscription");
   return { id: sub.id, action: "created" };
 }
+
+// ---------------------------------------------------------------------------
+// Reading the phone system: who has an extension, and what numbers exist
+// ---------------------------------------------------------------------------
+
+export interface RcExtension {
+  id: string;
+  /** The number people dial internally. This is what goes on a CRM user. */
+  extensionNumber: string;
+  name: string;
+  email: string | null;
+  /** 'User', 'Department', 'Announcement' and so on. Only User can make calls. */
+  type: string;
+  status: string;
+  /** Direct dial for this extension, when it has one. */
+  directNumber: string | null;
+}
+
+export interface RcPhoneNumber {
+  phoneNumber: string;
+  /** 'MainCompanyNumber', 'DirectNumber', 'CompanyNumber', 'ForwardedNumber'... */
+  usageType: string | null;
+  /** The extension it rings, when it rings one. */
+  extensionNumber: string | null;
+}
+
+/**
+ * Every extension on the account.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS WORTH AN API CALL RATHER THAN A DOCUMENTATION LINK
+ *
+ * A call is credited to whoever made it by looking up its extension number
+ * against users.rc_extension_id. Until that mapping is filled in, every call
+ * lands on the account owner instead -- which looks like working software and
+ * quietly corrupts every leaderboard and every commission argument.
+ *
+ * Filling it in means somebody reading extension numbers out of RingCentral's
+ * admin site and typing them into ours, forty times, without a typo. That is a
+ * job nobody does correctly and nobody enjoys, so the numbers come from the
+ * horse's mouth instead.
+ *
+ * It also answers the first question anybody setting this up asks, which is
+ * "what number do I actually call to test this".
+ * ---------------------------------------------------------------------------
+ */
+export async function listExtensions(): Promise<RcExtension[]> {
+  const token = await rcToken();
+  const res = await fetch(
+    `${env.RC_SERVER}/restapi/v1.0/account/~/extension?perPage=1000&status=Enabled`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
+  );
+  if (!res.ok) {
+    throw new Error(`could not read extensions (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  const json = (await res.json()) as {
+    records?: {
+      id?: number | string;
+      extensionNumber?: string;
+      name?: string;
+      type?: string;
+      status?: string;
+      contact?: { email?: string; firstName?: string; lastName?: string };
+    }[];
+  };
+
+  return (json.records ?? []).map((r) => ({
+    id: String(r.id ?? ""),
+    extensionNumber: String(r.extensionNumber ?? ""),
+    // Some extension types carry no name at all; falling back to the number
+    // beats rendering an empty row somebody cannot identify.
+    name:
+      r.name ||
+      [r.contact?.firstName, r.contact?.lastName].filter(Boolean).join(" ") ||
+      `Extension ${r.extensionNumber ?? "?"}`,
+    email: r.contact?.email ?? null,
+    type: String(r.type ?? ""),
+    status: String(r.status ?? ""),
+    directNumber: null,
+  }));
+}
+
+/** Every number on the account, and which extension each one rings. */
+export async function listPhoneNumbers(): Promise<RcPhoneNumber[]> {
+  const token = await rcToken();
+  const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/phone-number?perPage=1000`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`could not read numbers (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
+  const json = (await res.json()) as {
+    records?: {
+      phoneNumber?: string;
+      usageType?: string;
+      extension?: { extensionNumber?: string };
+    }[];
+  };
+
+  return (json.records ?? [])
+    .filter((r) => r.phoneNumber)
+    .map((r) => ({
+      phoneNumber: String(r.phoneNumber),
+      usageType: r.usageType ?? null,
+      extensionNumber: r.extension?.extensionNumber ?? null,
+    }));
+}

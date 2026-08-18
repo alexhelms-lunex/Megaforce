@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { runAction } from "@/lib/run-action";
 import {
   clearTestCalls,
+  loadExtensions,
   renewNow,
   sendTestCall,
   sweepNow,
   testConnection,
   type ActionResult,
+  type ExtensionsResult,
 } from "./actions";
 
 /**
@@ -186,6 +188,133 @@ export function TestCallButtons() {
             </Link>
           ) : null}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Who can make calls, and whether the CRM would know it was them.
+ *
+ * ---------------------------------------------------------------------------
+ * Answers the question everybody asks first -- "what number do I call to test
+ * this" -- and the one that matters at rollout: which extensions the CRM does
+ * not yet recognise. An unrecognised extension is not an error anywhere; the
+ * call simply gets credited to whoever owns the account, which looks correct
+ * and is not.
+ *
+ * Loaded on a button press rather than with the page. It is two round trips to
+ * RingCentral, and most visits to this screen are not about extensions.
+ * ---------------------------------------------------------------------------
+ */
+export function ExtensionList() {
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<ExtensionsResult | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const answer = await runAction(loadExtensions, {
+              label: "Could not read the extensions",
+              quiet: true,
+            });
+            setResult(answer ?? { error: "That did not reach the server." });
+          })
+        }
+      >
+        {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+        {result ? "Refresh" : "Show me the numbers and extensions"}
+      </Button>
+
+      {result?.error ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {result.error}
+        </p>
+      ) : null}
+
+      {result?.ok ? (
+        <div className="space-y-4">
+          {result.numbers && result.numbers.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Numbers on this account
+              </p>
+              <ul className="mt-1 space-y-0.5 text-sm">
+                {result.numbers.map((n) => (
+                  <li key={n.phoneNumber} className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-mono">{n.phoneNumber}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {n.usageType ?? "number"}
+                      {n.extensionNumber ? ` · rings extension ${n.extensionNumber}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              People with an extension
+            </p>
+            {result.extensions && result.extensions.length > 0 ? (
+              <div className="mt-1 overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Ext</th>
+                      <th className="px-3 py-2 font-medium">Name in RingCentral</th>
+                      <th className="px-3 py-2 font-medium">Recognised by the CRM?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.extensions.map((e) => (
+                      <tr key={e.extensionNumber} className="border-b last:border-b-0">
+                        <td className="px-3 py-2 font-mono">{e.extensionNumber}</td>
+                        <td className="px-3 py-2">
+                          {e.name}
+                          {e.email ? (
+                            <span className="block text-xs text-muted-foreground">{e.email}</span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2">
+                          {e.matchedUser ? (
+                            <span className="text-brand-600">Yes — {e.matchedUser}</span>
+                          ) : e.suggestedUser ? (
+                            <span className="text-amber-700 dark:text-amber-300">
+                              No. Same email as{" "}
+                              <Link
+                                href={`/admin/users/${e.suggestedUser.id}`}
+                                className="font-medium underline"
+                              >
+                                {e.suggestedUser.name}
+                              </Link>{" "}
+                              — put {e.extensionNumber} on them
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              No, and nobody obvious to match. Their calls will be credited to
+                              whoever owns the account.
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">
+                No user extensions on this account. Nothing can make a call that would reach here.
+              </p>
+            )}
+          </div>
+        </div>
       ) : null}
     </div>
   );
