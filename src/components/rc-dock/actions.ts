@@ -93,6 +93,28 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
   const user = await currentUser();
   if (!user) return [];
 
+  try {
+    return await readRecentCalls(db, user.id, limit);
+  } catch (err) {
+    /*
+     * The comment above was a statement of intent with nothing enforcing it.
+     *
+     * This reads unmatched_activities.user_id, a column a migration added. If
+     * the database is behind the deployment -- a real state, because migrations
+     * are applied by visiting a page rather than by deploying -- the query
+     * throws, and it throws on every screen, because the dock is on every
+     * screen. Returning nothing is a quiet dock; throwing is a broken site.
+     */
+    log.error({ err }, "could not read recent calls");
+    return [];
+  }
+}
+
+async function readRecentCalls(
+  db: NonNullable<ReturnType<typeof tryGetDb>>,
+  userId: string,
+  limit: number,
+): Promise<DockCall[]> {
   const rows = await db
     .select({
       id: schema.activities.id,
@@ -113,7 +135,7 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     .from(schema.activities)
     .leftJoin(schema.accounts, eq(schema.accounts.id, schema.activities.accountId))
     .leftJoin(schema.contacts, eq(schema.contacts.id, schema.activities.contactId))
-    .where(and(eq(schema.activities.type, "call"), eq(schema.activities.userId, user.id)))
+    .where(and(eq(schema.activities.type, "call"), eq(schema.activities.userId, userId)))
     .orderBy(sql`(${schema.activities.loggedAt} is not null)`, desc(schema.activities.occurredAt))
     .limit(limit);
 
@@ -164,7 +186,7 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     .from(schema.unmatchedActivities)
     .where(
       and(
-        eq(schema.unmatchedActivities.userId, user.id),
+        eq(schema.unmatchedActivities.userId, userId),
         isNull(schema.unmatchedActivities.resolvedAt),
       ),
     )
@@ -246,6 +268,28 @@ export async function liveCalls(): Promise<LiveCall[]> {
   const user = await currentUser();
   if (!user) return [];
 
+  try {
+    return await readLiveCalls(db, user.id);
+  } catch (err) {
+    /*
+     * The dock is on every screen, and this runs every four seconds.
+     *
+     * If live_calls does not exist yet -- the database is behind the code, which
+     * is a state this application can genuinely be in, because migrations are
+     * applied by visiting a page rather than by deploying -- then every one of
+     * those calls throws. An empty list is a dock with no live call in it, which
+     * is true and harmless. A rejection is an unhandled error on every page,
+     * every four seconds.
+     */
+    log.error({ err }, "could not read live calls");
+    return [];
+  }
+}
+
+async function readLiveCalls(
+  db: NonNullable<ReturnType<typeof tryGetDb>>,
+  userId: string,
+): Promise<LiveCall[]> {
   const rows = await db
     .select({
       id: schema.liveCalls.telephonySessionId,
@@ -266,7 +310,7 @@ export async function liveCalls(): Promise<LiveCall[]> {
     .leftJoin(schema.contacts, eq(schema.contacts.id, schema.liveCalls.contactId))
     .where(
       and(
-        eq(schema.liveCalls.userId, user.id),
+        eq(schema.liveCalls.userId, userId),
         // Still going, or only just over.
         sql`(${schema.liveCalls.endedAt} is null or ${schema.liveCalls.endedAt} > now() - interval '3 minutes')`,
       ),
@@ -318,10 +362,25 @@ export async function dockHealth(): Promise<DockHealth> {
   const user = await currentUser();
   if (!db || !user) return { extension: null, unclaimed: 0, canFix: false };
 
+  try {
+    return await readDockHealth(db, user.id, user.role);
+  } catch (err) {
+    // Same reasoning as liveCalls: a diagnostic that throws takes down the
+    // thing it was meant to explain.
+    log.error({ err }, "could not read dock health");
+    return { extension: null, unclaimed: 0, canFix: false };
+  }
+}
+
+async function readDockHealth(
+  db: NonNullable<ReturnType<typeof tryGetDb>>,
+  userId: string,
+  role: string,
+): Promise<DockHealth> {
   const [me] = await db
     .select({ extension: schema.users.rcExtensionId })
     .from(schema.users)
-    .where(eq(schema.users.id, user.id))
+    .where(eq(schema.users.id, userId))
     .limit(1);
 
   if (me?.extension) return { extension: me.extension, unclaimed: 0, canFix: false };
@@ -342,7 +401,7 @@ export async function dockHealth(): Promise<DockHealth> {
   return {
     extension: null,
     unclaimed: orphaned.length,
-    canFix: user.role === "admin",
+    canFix: role === "admin",
   };
 }
 
@@ -760,6 +819,10 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
     const token = await rcToken();
     const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/extension/~/ring-out`, {
       method: "POST",
+      // Bounded like every other call to RingCentral. Node's fetch waits
+      // forever by default, and a dialler that hangs is worse than one that
+      // fails: the broker keeps pressing it.
+      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: { phoneNumber: mine.directNumber },

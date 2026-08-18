@@ -205,9 +205,13 @@ async function subscriptionState(): Promise<SubscriptionState> {
     const { rcToken } = await import("./client");
     const token = await rcToken();
 
+    // Bounded, because this runs while the page renders. An unanswered request
+    // here is not a slow screen -- it is a screen that never appears at all,
+    // with no error and no way to tell it apart from a hung browser.
     const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) {
       return {

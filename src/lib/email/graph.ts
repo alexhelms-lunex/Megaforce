@@ -53,6 +53,11 @@ export async function graphToken(): Promise<string | GraphError> {
   try {
     const res = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
       method: "POST",
+      // Bounded, like every outbound call. fetch waits forever by default, and
+      // this one runs inside a cron invocation -- a hang here pins the whole
+      // scheduled run, so the digest and the sweep behind it never happen
+      // either, with nothing anywhere to say why.
+      signal: AbortSignal.timeout(10_000),
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: clientId,
@@ -117,6 +122,7 @@ export async function sendMail(opts: SendOptions): Promise<{ ok: true } | GraphE
   try {
     const res = await fetch(`${GRAPH}/users/${encodeURIComponent(from)}/sendMail`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         message: {
@@ -180,7 +186,12 @@ export async function listMessages(
     `&$orderby=${encodeURIComponent("receivedDateTime desc")}`;
 
   try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    // Twenty seconds: this reads a page of messages and legitimately takes
+    // longer than a token request.
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    });
     if (!res.ok) {
       const message = `Graph refused the read (${res.status}). ${firstLine(await res.text())}`;
       await recordHealth("microsoft", false, message);

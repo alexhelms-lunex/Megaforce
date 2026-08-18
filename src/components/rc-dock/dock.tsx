@@ -53,6 +53,7 @@ export function RcDock() {
   const [health, setHealth] = useState<DockHealth | null>(null);
   const [selected, setSelected] = useState<DockCall | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   /*
    * How far back the list currently reaches.
    *
@@ -65,10 +66,22 @@ export function RcDock() {
    */
   const [limit, setLimit] = useState(PAGE);
 
+  /*
+   * Loading, then either calls or a reason. Never "Loading…" forever.
+   *
+   * A server action that rejects, or one that never resolves because the
+   * request behind it hung, used to leave this on the loading line
+   * indefinitely. The dock looked identical to a phone system with nothing in
+   * it, on every page, with no way to tell the two apart -- which is precisely
+   * the confusion this dock exists to remove.
+   */
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setCalls(await recentCalls(limit));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read your calls.");
     } finally {
       setLoading(false);
     }
@@ -84,7 +97,14 @@ export function RcDock() {
    * between the dock feeling connected to the phone and feeling like a report.
    */
   const refreshLive = useCallback(async () => {
-    setLive(await liveCalls());
+    try {
+      setLive(await liveCalls());
+    } catch {
+      // Every four seconds, on every page. A live-call query that fails is a
+      // dock with no live call in it, which is what it would show anyway --
+      // not something worth an unhandled rejection four hundred times an hour.
+      setLive([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -94,7 +114,9 @@ export function RcDock() {
   useEffect(() => {
     if (!open) return;
     void refreshLive();
-    void dockHealth().then(setHealth);
+    // Catches, like everything else here. This one exists to EXPLAIN a broken
+    // dock, so it is the last thing that should be able to break one.
+    void dockHealth().then(setHealth).catch(() => setHealth(null));
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshLive();
     }, 4_000);
@@ -110,7 +132,9 @@ export function RcDock() {
   const previousLiveCount = usePrevious(liveCount);
   useEffect(() => {
     if (previousLiveCount !== undefined && liveCount < previousLiveCount) {
-      void syncRecentCalls().then(() => refresh());
+      void syncRecentCalls()
+        .then(() => refresh())
+        .catch(() => refresh());
     }
   }, [liveCount, previousLiveCount, refresh]);
 
@@ -133,9 +157,13 @@ export function RcDock() {
   useEffect(() => {
     if (!open) return;
     let live = true;
-    void syncRecentCalls().then((r) => {
-      if (live && r.imported > 0) void refresh();
-    });
+    void syncRecentCalls()
+      .then((r) => {
+        if (live && r.imported > 0) void refresh();
+      })
+      // A failed pull is not worth telling anybody about: the list still shows
+      // everything already in the database, which is the common case anyway.
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -243,6 +271,11 @@ export function RcDock() {
         <>
           <LiveStrip calls={live} />
           <HealthNote health={health} />
+          {error ? (
+            <p className="border-b border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {error}
+            </p>
+          ) : null}
           <CallList
             calls={calls}
             loading={loading}

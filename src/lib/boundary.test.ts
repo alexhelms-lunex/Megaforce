@@ -440,3 +440,79 @@ describe("loading boundaries", () => {
     ).toEqual([]);
   });
 });
+
+// ===========================================================================
+describe("every outbound call has a deadline", () => {
+  /*
+   * WHY A STRUCTURAL RULE RATHER THAN A UNIT TEST
+   *
+   * Node's fetch waits forever by default. A request that is accepted and then
+   * never answered does not fail, it hangs -- and a hang in a server component
+   * is a page that never renders: no error, no error boundary, just the loading
+   * skeleton, permanently. Alex hit exactly that on two screens at once.
+   *
+   * Worse, it is not contained. The phone dock is on every page and fetches
+   * when it opens, so each hung request pins a serverless invocation until the
+   * platform kills it. Enough of them and the whole site stops answering. One
+   * unanswered request upstream took out everything.
+   *
+   * A unit test cannot catch this -- you would have to simulate a black hole.
+   * What CAN be checked is the thing that actually went wrong: a fetch written
+   * without a deadline. So every fetch to an outside service is required to
+   * carry one, and adding a new one without a timeout fails here rather than in
+   * front of somebody a week later.
+   */
+  const OUTBOUND = [
+    path.join(SRC, "lib", "ringcentral"),
+    path.join(SRC, "lib", "email"),
+  ].filter((d) => existsSync(d));
+
+  it("passes a signal or goes through a wrapper that does", () => {
+    const offenders: string[] = [];
+
+    for (const dir of OUTBOUND) {
+      for (const file of walk(dir)) {
+        const source = readFileSync(file, "utf8");
+
+        // Each `await fetch(` plus the following few hundred characters, so an
+        // options object spanning several lines is still seen. A fixed window
+        // rather than trying to find the closing brace: the clever version got
+        // its own arithmetic wrong and reported the wrapper as an offender.
+        for (const match of source.matchAll(/await fetch\(/g)) {
+          const window = source.slice(match.index, match.index + 600);
+          if (!/signal:/.test(window)) {
+            const line = source.slice(0, match.index).split("\n").length;
+            offenders.push(`${path.relative(process.cwd(), file)}:${line}`);
+          }
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      "these fetches can hang forever; pass AbortSignal.timeout(...) or use rcFetch",
+    ).toEqual([]);
+  });
+
+  it("bounds the fetches inside server actions too", () => {
+    // Server actions are not exempt: the dialler runs in one, and a dialler
+    // that hangs is worse than one that fails, because the broker keeps
+    // pressing it.
+    const offenders: string[] = [];
+
+    for (const file of walk(SRC)) {
+      const source = readFileSync(file, "utf8");
+      if (!/^\s*["']use server["']/m.test(source.slice(0, 200))) continue;
+
+      for (const match of source.matchAll(/await fetch\(/g)) {
+        const window = source.slice(match.index, match.index + 600);
+        if (!/signal:/.test(window)) {
+          const line = source.slice(0, match.index).split("\n").length;
+          offenders.push(`${path.relative(process.cwd(), file)}:${line}`);
+        }
+      }
+    }
+
+    expect(offenders, "these server-action fetches can hang forever").toEqual([]);
+  });
+});

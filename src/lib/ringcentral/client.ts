@@ -15,6 +15,51 @@ import { logger } from "@/lib/logger";
 
 const log = logger.child({ component: "ringcentral" });
 
+/**
+ * Every request to RingCentral, with a deadline.
+ *
+ * ===========================================================================
+ * WHY A PAGE STOPPED LOADING ALTOGETHER
+ *
+ * Node's fetch has no default timeout. A request that is accepted and then
+ * never answered -- an upstream stall, a rate limit that holds the connection,
+ * a network path that black-holes -- waits forever.
+ *
+ * The Phone connection screen reads the subscription while it renders, so a
+ * hung request there is a page that never finishes: no error, no error
+ * boundary, just the loading skeleton, permanently. That is what Alex saw.
+ *
+ * And it did not stop at that one screen. The dock, which is on EVERY page,
+ * fetches the call log when it opens. Each hung fetch pins a serverless
+ * invocation until the platform kills it, so enough of them make every page in
+ * the application slow, then unavailable. One unanswered request upstream took
+ * out the whole site.
+ *
+ * Ten seconds is far longer than RingCentral takes when it is working and far
+ * shorter than anybody will sit staring at a blank screen. The call log gets
+ * longer, because it genuinely returns more.
+ *
+ * A timeout is not an inconvenience to be worked around here -- it is the
+ * difference between one broken feature and one broken application.
+ * ===========================================================================
+ */
+async function rcFetch(url: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    // A timeout arrives as a bare "The operation was aborted", which tells
+    // nobody anything. Named here, with the address, because "RingCentral did
+    // not answer" and "RingCentral refused us" need different responses.
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error(
+        `RingCentral did not answer within ${timeoutMs / 1000}s (${new URL(url).pathname}). ` +
+          "Nothing was changed.",
+      );
+    }
+    throw err;
+  }
+}
+
 interface CachedToken {
   token: string;
   /** Epoch milliseconds after which the token must not be reused. */
@@ -47,7 +92,7 @@ export async function rcToken(): Promise<string> {
 
   const basic = Buffer.from(`${env.RC_CLIENT_ID}:${env.RC_CLIENT_SECRET}`).toString("base64");
 
-  const res = await fetch(`${env.RC_SERVER}/restapi/oauth/token`, {
+  const res = await rcFetch(`${env.RC_SERVER}/restapi/oauth/token`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basic}`,
@@ -172,7 +217,7 @@ export const EVENT_FILTER_CANDIDATES = [
 ] as const;
 
 async function listSubscriptions(token: string): Promise<Subscription[]> {
-  const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
+  const res = await rcFetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`failed to list subscriptions (${res.status})`);
@@ -202,7 +247,7 @@ export async function ensureSubscription(): Promise<{
   );
 
   if (existing) {
-    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription/${existing.id}/renew`, {
+    const res = await rcFetch(`${env.RC_SERVER}/restapi/v1.0/subscription/${existing.id}/renew`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -230,7 +275,7 @@ export async function ensureSubscription(): Promise<{
   const failures: string[] = [];
 
   for (const filters of EVENT_FILTER_CANDIDATES) {
-    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
+    const res = await rcFetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -305,7 +350,7 @@ export interface RcPhoneNumber {
  */
 export async function listExtensions(): Promise<RcExtension[]> {
   const token = await rcToken();
-  const res = await fetch(
+  const res = await rcFetch(
     `${env.RC_SERVER}/restapi/v1.0/account/~/extension?perPage=1000&status=Enabled`,
     { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
   );
@@ -343,7 +388,7 @@ export async function listExtensions(): Promise<RcExtension[]> {
 /** Every number on the account, and which extension each one rings. */
 export async function listPhoneNumbers(): Promise<RcPhoneNumber[]> {
   const token = await rcToken();
-  const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/phone-number?perPage=1000`, {
+  const res = await rcFetch(`${env.RC_SERVER}/restapi/v1.0/account/~/phone-number?perPage=1000`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -429,10 +474,10 @@ export async function fetchCallLog(options: {
     `?view=Detailed&type=Voice&dateFrom=${encodeURIComponent(dateFrom)}` +
     `&perPage=${Math.max(1, Math.min(limit, 1000))}`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
+  // Twenty seconds rather than ten: this genuinely returns hundreds of
+  // records, and a slow honest answer is worth waiting for where a slow
+  // subscription check is not.
+  const res = await rcFetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 20_000);
   if (!res.ok) {
     throw new Error(`could not read the call log (${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
