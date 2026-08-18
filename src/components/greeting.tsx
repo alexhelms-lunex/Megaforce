@@ -31,7 +31,27 @@ import { greetingFor } from "@/lib/greeting";
  * ===========================================================================
  */
 export function Greeting({ name }: { name: string }) {
-  const [text, setText] = useState(() => greetingFor(new Date()));
+  /*
+   * Starts as null, deliberately, and that is the whole fix.
+   *
+   * ---------------------------------------------------------------------------
+   * This used to seed the state with greetingFor(new Date()) and then set the
+   * same value again in the effect. It looked correct and it did nothing.
+   *
+   * suppressHydrationWarning does more than silence a warning: it tells React to
+   * KEEP THE SERVER'S HTML where the two disagree. The server, running in UTC,
+   * had written "Good evening". The client's initialiser computed "Good
+   * afternoon" -- correctly -- but the DOM kept the server's text. Then the
+   * effect called setText with the value the state already held, React compared
+   * them, found them equal, and skipped the re-render. Nothing ever replaced the
+   * wrong word. Half past four in the afternoon, and the screen said evening.
+   *
+   * Starting at null guarantees the effect CHANGES the state, which guarantees a
+   * re-render, which is what actually replaces the server's text. The fallback
+   * below is only ever on screen for the frame before hydration.
+   * ---------------------------------------------------------------------------
+   */
+  const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
     const update = () => setText(greetingFor(new Date()));
@@ -40,5 +60,7 @@ export function Greeting({ name }: { name: string }) {
     return () => window.clearInterval(id);
   }, []);
 
-  return <span suppressHydrationWarning>{`${text}, ${name}`}</span>;
+  return (
+    <span suppressHydrationWarning>{`${text ?? greetingFor(new Date())}, ${name}`}</span>
+  );
 }

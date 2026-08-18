@@ -344,6 +344,16 @@ export interface DockHealth {
   unclaimed: number;
   /** True when this person may go and fix that. */
   canFix: boolean;
+  /**
+   * Whether RingCentral is pushing calls here, or we are only asking.
+   *
+   * The difference is what somebody feels: with delivery live, a call appears
+   * while the phone is still ringing. Without it, calls arrive only when the
+   * log is next pulled, and RingCentral takes a few minutes to publish a call
+   * to that log anyway. That is the gap between "I hung up and nothing
+   * happened" and "the phone is broken", and the dock should say which.
+   */
+  deliveryLive: boolean;
 }
 
 /**
@@ -363,7 +373,7 @@ export interface DockHealth {
 export async function dockHealth(): Promise<DockHealth> {
   const db = tryGetDb();
   const user = await currentUser();
-  if (!db || !user) return { extension: null, unclaimed: 0, canFix: false };
+  if (!db || !user) return { extension: null, unclaimed: 0, canFix: false, deliveryLive: false };
 
   try {
     return await withDeadline(readDockHealth(db, user.id, user.role), {
@@ -374,7 +384,7 @@ export async function dockHealth(): Promise<DockHealth> {
     // Same reasoning as liveCalls: a diagnostic that throws takes down the
     // thing it was meant to explain.
     log.error({ err }, "could not read dock health");
-    return { extension: null, unclaimed: 0, canFix: false };
+    return { extension: null, unclaimed: 0, canFix: false, deliveryLive: false };
   }
 }
 
@@ -383,13 +393,33 @@ async function readDockHealth(
   userId: string,
   role: string,
 ): Promise<DockHealth> {
+  /*
+   * Read from job_runs rather than by asking RingCentral.
+   *
+   * This runs on every screen. A round trip to RingCentral to render a phone
+   * dock would be a second network call on every page load, to answer a
+   * question that changes about once a week. The renewal job records its own
+   * result; a successful run in the last day is the evidence.
+   */
+  const delivery = await db.execute<{ ok: boolean | null }>(sql`
+    select ok from job_runs
+     where job = 'renew-call-subscription'
+       and started_at > now() - interval '1 day'
+     order by started_at desc
+     limit 1
+  `);
+  const deliveryRows = Array.isArray(delivery)
+    ? delivery
+    : ((delivery as { rows?: { ok: boolean | null }[] })?.rows ?? []);
+  const deliveryLive = deliveryRows[0]?.ok === true;
+
   const [me] = await db
     .select({ extension: schema.users.rcExtensionId })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .limit(1);
 
-  if (me?.extension) return { extension: me.extension, unclaimed: 0, canFix: false };
+  if (me?.extension) return { extension: me.extension, unclaimed: 0, canFix: false, deliveryLive };
 
   // Only worth counting when they have no extension: that is the only state in
   // which this number explains anything.
@@ -408,6 +438,7 @@ async function readDockHealth(
     extension: null,
     unclaimed: orphaned.length,
     canFix: role === "admin",
+    deliveryLive,
   };
 }
 
@@ -439,7 +470,18 @@ async function readDockHealth(
  * returns imported: 0 and the dock simply carries on with what it has.
  * ---------------------------------------------------------------------------
  */
-export async function syncRecentCalls(): Promise<{ imported: number; error?: string }> {
+export async function syncRecentCalls(
+  /**
+   * Skip the throttle.
+   *
+   * The minute-long gate is right for something that fires on every app open.
+   * It is wrong for somebody who has just put the phone down and pressed a
+   * button: they know a call happened, and "wait, it will turn up" is not an
+   * answer. A person asking is a better reason to spend a RingCentral request
+   * than a page load is.
+   */
+  force = false,
+): Promise<{ imported: number; error?: string }> {
   try {
     const user = await currentUser();
     if (!user) return { imported: 0 };
@@ -452,7 +494,7 @@ export async function syncRecentCalls(): Promise<{ imported: number; error?: str
     const age = await secondsSinceLastPull(db);
     // Sixty seconds. Short enough that a call made a minute ago turns up on the
     // next open, long enough that a floor of brokers is one request a minute.
-    if (age !== null && age < 60) return { imported: 0 };
+    if (!force && age !== null && age < 60) return { imported: 0 };
 
     const { findJob, runJob } = await import("@/lib/jobs/registry");
     const job = findJob("pull-recent-calls");
@@ -502,20 +544,38 @@ export async function ensureDelivery(): Promise<{ ok: boolean; error?: string }>
     if (!db) return { ok: false };
 
     const { asRows } = await import("@/lib/jobs/registry");
-    const age = asRows<{ age: string | null }>(
+    const last = asRows<{ age: string | null; ok: boolean | null }>(
       await withDeadline(
         db.execute(sql`
-          select extract(epoch from (now() - max(started_at)))::text as age
+          select extract(epoch from (now() - started_at))::text as age, ok
             from job_runs
            where job = 'renew-call-subscription'
+           order by started_at desc
+           limit 1
         `),
         { ms: 5_000, label: "The database" },
       ),
-    )[0]?.age;
+    )[0];
 
-    // Once an hour is plenty against a seven-day expiry, and it means a lapse
-    // is repaired within the hour rather than whenever somebody notices.
-    if (age !== null && age !== undefined && Number(age) < 3_600) return { ok: true };
+    /*
+     * How long to wait depends on whether the last attempt WORKED.
+     *
+     * A flat hourly throttle looked reasonable and was a trap: every failed
+     * attempt wrote a job_runs row, so an hour of failures locked out the
+     * retry that would have succeeded the moment the underlying problem was
+     * fixed. Somebody corrects a setting, redeploys, opens the application --
+     * and is told nothing has changed, because the CRM decided it had already
+     * checked recently.
+     *
+     * A success is worth trusting for an hour against a seven-day expiry. A
+     * failure is worth retrying in five minutes, because the thing that fixes
+     * it is usually somebody changing something right now.
+     */
+    if (last?.age !== null && last?.age !== undefined) {
+      const seconds = Number(last.age);
+      const wait = last.ok === true ? 3_600 : 300;
+      if (seconds < wait) return { ok: last.ok === true };
+    }
 
     const { findJob, runJob } = await import("@/lib/jobs/registry");
     const job = findJob("renew-call-subscription");

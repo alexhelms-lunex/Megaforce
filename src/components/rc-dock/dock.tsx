@@ -66,6 +66,7 @@ export function RcDock() {
    * scrolls back a fortnight, is the wrong trade in the other direction.
    */
   const [limit, setLimit] = useState(PAGE);
+  const [checking, setChecking] = useState(false);
 
   /*
    * Loading, then either calls or a reason. Never "Loading…" forever.
@@ -87,6 +88,25 @@ export function RcDock() {
       setLoading(false);
     }
   }, [limit]);
+
+  /**
+   * Ask RingCentral right now, ignoring the throttle.
+   *
+   * The gate that stops every page load hammering the API is wrong for a person
+   * who has just put the phone down. They know a call happened; "it will turn
+   * up" is not an answer to give them.
+   */
+  const checkNow = useCallback(async () => {
+    setChecking(true);
+    try {
+      await syncRecentCalls(true);
+      await refresh();
+    } catch {
+      // refresh() sets its own error line; nothing to add here.
+    } finally {
+      setChecking(false);
+    }
+  }, [refresh]);
 
   /*
    * Live calls, on their own clock.
@@ -304,7 +324,7 @@ export function RcDock() {
       ) : (
         <>
           <LiveStrip calls={live} />
-          <HealthNote health={health} />
+          <HealthNote health={health} onCheck={checkNow} checking={checking} />
           {error ? (
             <p className="border-b border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
               {error}
@@ -406,7 +426,47 @@ function LiveStrip({ calls }: { calls: LiveCall[] }) {
  * today was credited to somebody else" look identical -- an empty list. They
  * need opposite actions, so the one that is fixable says so.
  */
-function HealthNote({ health }: { health: DockHealth | null }) {
+function HealthNote({
+  health,
+  onCheck,
+  checking,
+}: {
+  health: DockHealth | null;
+  onCheck: () => void;
+  checking: boolean;
+}) {
+  /*
+   * Why a call you just made is not here yet.
+   *
+   * Without a live subscription, calls arrive only when the log is next pulled
+   * -- and RingCentral takes a few minutes to publish a finished call to that
+   * log at all. Somebody who has just hung up and sees nothing concludes the
+   * phone is broken. It is not; it is a delay, and saying so with a button that
+   * shortens it is the honest version.
+   */
+  if (health && !health.deliveryLive) {
+    return (
+      <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-900 dark:bg-amber-950/40">
+        <div className="min-w-0 flex-1">
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            Calls are not being pushed here yet.
+          </p>
+          <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+            They arrive when the log is checked, and RingCentral takes a few minutes to publish a
+            finished call. Live calls will not appear at all until delivery is switched on.
+          </p>
+        </div>
+        <button
+          onClick={onCheck}
+          disabled={checking}
+          className="shrink-0 rounded-md border border-amber-400 px-2 py-1 font-medium text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:text-amber-200 dark:hover:bg-amber-900/40"
+        >
+          {checking ? "Checking…" : "Check now"}
+        </button>
+      </div>
+    );
+  }
+
   if (!health || health.extension) return null;
 
   return (
