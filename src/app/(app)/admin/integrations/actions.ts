@@ -7,6 +7,8 @@ export interface ActionResult {
   ok?: boolean;
   message?: string;
   error?: string;
+  /** Where to go and look at what just happened, when there is somewhere. */
+  href?: string;
 }
 
 /**
@@ -92,6 +94,59 @@ export async function testConnection(): Promise<ActionResult> {
 
     revalidatePath("/admin/integrations");
     return { ok: true, message: "Signed in to RingCentral successfully." };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
+/**
+ * Push a call through the pipeline without a phone system.
+ *
+ * Touches nothing outside this deployment -- no RingCentral account, no
+ * credentials, no network. It builds the payload RingCentral would have sent
+ * and feeds it through the identical front door, so everything after that point
+ * is the real thing being demonstrated rather than a mock of it.
+ *
+ * Admin only, like everything else here, because it writes activity rows.
+ */
+export async function sendTestCall(kind: "connected" | "brief" | "unknown"): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    const lookup = await loadCurrentUser();
+    const { simulateCall } = await import("@/lib/demo-call");
+    const result = await simulateCall(kind, lookup.user?.id ?? null);
+
+    revalidatePath("/admin/integrations");
+    revalidatePath("/activity");
+    revalidatePath("/review");
+
+    return result.ok
+      ? { ok: true, message: result.message, href: result.href }
+      : { error: result.message };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
+/** Take the simulated calls back out, so demo data does not become real data. */
+export async function clearTestCalls(): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    const { clearSimulatedCalls } = await import("@/lib/demo-call");
+    const removed = await clearSimulatedCalls();
+
+    revalidatePath("/admin/integrations");
+    revalidatePath("/activity");
+    revalidatePath("/review");
+
+    return {
+      ok: true,
+      message: removed === 0 ? "There were none to remove." : `Removed ${removed}.`,
+    };
   } catch (err) {
     return { error: explain(err) };
   }

@@ -6,7 +6,7 @@ import { InfoTip } from "@/components/info-tip";
 import { currentUser } from "@/lib/supabase/server";
 import { ringCentralStatus, type RingCentralStatus } from "@/lib/ringcentral/status";
 import { formatDateTime } from "@/lib/format";
-import { IntegrationButtons } from "./buttons";
+import { IntegrationButtons, TestCallButtons } from "./buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +54,25 @@ export default async function IntegrationsPage() {
       </header>
 
       <Headline status={status} />
+
+      {/* ---- 0. the part that works with no phone system at all ----
+          First on the page deliberately. Until RingCentral is connected this is
+          the only section anybody can act on, and burying it under three
+          sections about credentials they do not have yet is how somebody
+          concludes there is nothing here to see. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Try it without a phone system</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            These send a call through the real pipeline — the same matching, the same rules, the
+            same review queue a live call goes through. Nothing here touches RingCentral, needs
+            an account, or leaves this deployment.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <TestCallButtons />
+        </CardContent>
+      </Card>
 
       {/* ---- 1. credentials ---- */}
       <Card>
