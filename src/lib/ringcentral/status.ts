@@ -452,7 +452,11 @@ async function pipelineState(): Promise<PipelineState> {
             from unmatched_activities m
             left join users u on u.id = m.user_id
            where m.resolved_at is null
-        ) both
+        -- Named "arrived" rather than "both". BOTH is a reserved word in
+        -- Postgres (it belongs to TRIM(BOTH ...)), so the obvious name for a
+        -- union of two sources is a syntax error -- one no test could reach,
+        -- because this query was only ever executed in production.
+        ) arrived
         order by at desc nulls last
         limit 20
       `), { label: "The database" }),
