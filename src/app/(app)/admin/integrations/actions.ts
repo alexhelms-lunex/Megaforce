@@ -168,6 +168,8 @@ export interface ExtensionRow {
   type: string;
   /** The CRM user this extension is already recorded against, if any. */
   matchedUser: string | null;
+  /** So the screen can offer to move it when the mapping is wrong. */
+  matchedUserId: string | null;
   /** A CRM user with the same email who has no extension recorded yet. */
   suggestedUser: { id: string; name: string } | null;
 }
@@ -260,6 +262,7 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
           email: e.email,
           type: e.type,
           matchedUser: matched?.full_name ?? null,
+          matchedUserId: matched?.id ?? null,
           suggestedUser:
             !matched && byMail && !byMail.rc_extension_id
               ? { id: byMail.id, name: byMail.full_name }

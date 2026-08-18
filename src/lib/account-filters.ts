@@ -181,29 +181,64 @@ export function parseFilters(raw: Raw): AccountFilters {
   };
 }
 
-/** Back to a query string, dropping everything at its default. */
+/**
+ * Back to a query string, dropping everything at its default.
+ *
+ * ===========================================================================
+ * EXCEPT WHAT THE PRESET WOULD PUT BACK.
+ *
+ * This is where the ✕ on a filter chip stopped working, and the failure was
+ * completely silent: press it, the page navigates, the chip is still there.
+ *
+ * A preset is applied first and then overridden by explicit parameters, so
+ * `preset=expiring` means "mine: true, state: expiring" unless the URL says
+ * otherwise. Dropping a value because it is empty therefore does not clear it
+ * -- it hands the decision back to the preset, which supplies the same value
+ * again. Clearing "Only mine" on the Expiring preset produced
+ * `?preset=expiring`, and parseFilters read that as mine: true. Round and
+ * round.
+ *
+ * So a filter the preset supplies and the caller has cleared is written
+ * EXPLICITLY EMPTY -- `status=` rather than nothing at all. parseFilters keys
+ * off `"status" in raw`, so an empty string is a real answer and the preset
+ * does not get to override it.
+ *
+ * Only for keys the current preset actually sets. Everything else still falls
+ * out of the URL when it is empty, because a query string carrying a dozen
+ * empty parameters is unreadable and unshareable.
+ * ===========================================================================
+ */
 export function toQueryString(f: Partial<AccountFilters>): string {
   const p = new URLSearchParams();
-  const put = (k: string, v: string | undefined) => {
+  const preset: Partial<AccountFilters> = f.preset
+    ? (PRESETS.find((x) => x.key === f.preset)?.filters ?? {})
+    : {};
+
+  const put = (k: string, v: string | undefined, field: keyof AccountFilters) => {
     if (v) p.set(k, v);
+    else if (preset[field]) p.set(k, "");
   };
-  if (f.preset) put("preset", f.preset);
-  put("q", f.q);
-  put("status", f.status);
-  put("state", f.state);
-  put("stage", f.stage);
-  put("industry", f.industry);
-  put("st", f.billingState);
-  put("city", f.city);
-  put("owner", f.owner);
-  put("loc", f.ownerLocation);
-  put("credit", f.creditStatus);
-  put("national", f.national);
-  put("tree", f.hierarchy);
-  put("idle", f.idle);
-  put("contacts", f.hasContacts);
+
+  if (f.preset) p.set("preset", f.preset);
+  put("q", f.q, "q");
+  put("status", f.status, "status");
+  put("state", f.state, "state");
+  put("stage", f.stage, "stage");
+  put("industry", f.industry, "industry");
+  put("st", f.billingState, "billingState");
+  put("city", f.city, "city");
+  put("owner", f.owner, "owner");
+  put("loc", f.ownerLocation, "ownerLocation");
+  put("credit", f.creditStatus, "creditStatus");
+  put("national", f.national, "national");
+  put("tree", f.hierarchy, "hierarchy");
+  put("idle", f.idle, "idle");
+  put("contacts", f.hasContacts, "hasContacts");
+  // The two booleans, same rule: "0" is how you say no to a preset that says yes.
   if (f.mine) p.set("mine", "1");
+  else if (preset.mine) p.set("mine", "0");
   if (f.unowned) p.set("unowned", "1");
+  else if (preset.unowned) p.set("unowned", "0");
   if (f.sort && f.sort !== "urgency") p.set("sort", f.sort);
   if (f.page && f.page > 1) p.set("page", String(f.page));
   return p.toString();

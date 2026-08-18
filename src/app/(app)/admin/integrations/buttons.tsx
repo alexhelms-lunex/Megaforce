@@ -343,27 +343,24 @@ export function ExtensionList() {
                           ) : null}
                         </td>
                         <td className="px-3 py-2">
-                          {e.matchedUser ? (
-                            <span className="text-brand-600">Yes — {e.matchedUser}</span>
-                          ) : (
-                            /*
-                             * Fixed here, in one click, rather than described.
-                             *
-                             * This used to be a sentence pointing at another
-                             * screen. Forty extensions, forty round trips to a
-                             * user record and back, each one an opportunity to
-                             * type the wrong number and credit one broker's
-                             * calls to another. The whole reason the list is
-                             * read is to close this gap, so the control that
-                             * closes it belongs on the row.
-                             */
-                            <AttachExtension
-                              extension={e.extensionNumber}
-                              people={result.people ?? []}
-                              suggested={e.suggestedUser}
-                              onDone={reload}
-                            />
-                          )}
+                          {/*
+                            Always editable, including when it already matches.
+                            A wrong mapping is worse than a missing one and it is
+                            the one the screen used to refuse to fix: the demo
+                            data ships with extension 101 on a seeded user, so a
+                            real person's calls were credited to somebody who
+                            does not exist, the row read a confident green "Yes",
+                            and there was no control anywhere to correct it.
+                          */}
+                          <AttachExtension
+                            extension={e.extensionNumber}
+                            people={result.people ?? []}
+                            suggested={e.suggestedUser}
+                            matched={e.matchedUser}
+                            matchedId={e.matchedUserId}
+                            ringCentralName={e.name}
+                            onDone={reload}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -399,19 +396,48 @@ function AttachExtension({
   extension,
   people,
   suggested,
+  matched,
+  matchedId,
+  ringCentralName,
   onDone,
 }: {
   extension: string;
   people: { id: string; name: string }[];
   suggested: { id: string; name: string } | null;
+  matched: string | null;
+  matchedId: string | null;
+  ringCentralName: string;
   onDone: () => void;
 }) {
-  const [who, setWho] = useState(suggested?.id ?? "");
+  const [who, setWho] = useState(matchedId ?? suggested?.id ?? "");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  /*
+   * The check nobody thinks to make, and the one that caught this.
+   *
+   * RingCentral knows the handset belongs to Alex Helmsworth. The CRM had it
+   * recorded against Leta Schimmel, because the demo seed hands extension 101
+   * to a fictional broker. Every real call was filed against a person who does
+   * not exist -- and the screen said "Yes", in green, because a mapping existed.
+   *
+   * Comparing the two names is what turns a confident wrong answer into a
+   * visible question. Loose comparison on purpose: "Alex Helmsworth" and "Alex
+   * Helmsworth (Sales)" are the same person and a strict match would cry wolf on
+   * half the floor.
+   */
+  const looksWrong =
+    Boolean(matched) && !sameName(matched as string, ringCentralName);
+  const changed = who !== (matchedId ?? "");
+
   return (
     <div className="space-y-1.5">
+      {matched ? (
+        <p className={looksWrong ? "text-amber-700 dark:text-amber-300" : "text-brand-600"}>
+          {looksWrong ? `Recorded as ${matched} — RingCentral says ${ringCentralName}` : `Yes — ${matched}`}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-1.5">
         <select
           value={who}
@@ -419,7 +445,7 @@ function AttachExtension({
           className="h-8 max-w-[14rem] rounded-md border bg-transparent px-2 text-xs"
           aria-label={`Who uses extension ${extension}`}
         >
-          <option value="">Nobody yet — pick a person</option>
+          <option value="">Nobody — pick a person</option>
           {people.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -428,9 +454,9 @@ function AttachExtension({
         </select>
         <Button
           size="sm"
-          variant="outline"
+          variant={looksWrong ? "default" : "outline"}
           className="h-8"
-          disabled={pending || !who}
+          disabled={pending || !who || !changed}
           onClick={() =>
             start(async () => {
               setError(null);
@@ -444,15 +470,20 @@ function AttachExtension({
             })
           }
         >
-          {pending ? "Attaching…" : "Attach"}
+          {pending ? "Attaching…" : matched ? "Move it" : "Attach"}
         </Button>
       </div>
-      {suggested && who === suggested.id ? (
+
+      {looksWrong ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Calls from {extension} are being credited to {matched}. Move it and every call it has
+          already produced moves with it.
+        </p>
+      ) : suggested && who === suggested.id && !matched ? (
         <p className="text-xs text-muted-foreground">
           Suggested — same email address, and no extension on them yet.
         </p>
-      ) : null}
-      {!suggested && people.length > 0 ? (
+      ) : !matched && !suggested ? (
         <p className="text-xs text-muted-foreground">
           Nobody obvious to match. Until this is set, calls from {extension} are credited to
           whoever owns the account.
@@ -461,6 +492,25 @@ function AttachExtension({
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
+}
+
+/** Same person, allowing for titles, middle names and how RingCentral spells it. */
+function sameName(a: string, b: string): boolean {
+  const words = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 1),
+    );
+  const left = words(a);
+  const right = words(b);
+  if (left.size === 0 || right.size === 0) return true;
+  // One word in common is not enough -- half the floor shares a first name.
+  let shared = 0;
+  for (const w of left) if (right.has(w)) shared += 1;
+  return shared >= Math.min(2, Math.min(left.size, right.size));
 }
 
 /**

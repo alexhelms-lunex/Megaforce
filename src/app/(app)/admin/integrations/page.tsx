@@ -4,7 +4,11 @@ import { AlertTriangle, Check, PhoneCall, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
 import { currentUser } from "@/lib/supabase/server";
-import { ringCentralStatus, type RingCentralStatus } from "@/lib/ringcentral/status";
+import {
+  ringCentralStatus,
+  type ArrivedCall,
+  type RingCentralStatus,
+} from "@/lib/ringcentral/status";
 import { formatDateTime } from "@/lib/format";
 import { ExtensionList, IntegrationButtons, TestCallButtons } from "./buttons";
 
@@ -201,6 +205,82 @@ export default async function IntegrationsPage() {
           />
         </CardContent>
       </Card>
+
+      {/* ---- 4. the calls themselves ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">4. The calls themselves</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Every call that has arrived, <strong>whoever it was credited to</strong>. The phone
+            dock only ever shows your own calls, so a call credited to the wrong person is
+            invisible everywhere else — and &ldquo;nothing arrived&rdquo; and &ldquo;everything
+            arrived and went to somebody else&rdquo; look identical from every other screen. Check
+            the <em>Credited to</em> column against who actually made the call.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ArrivedCalls calls={status.pipeline.recent} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ArrivedCalls({ calls }: { calls: ArrivedCall[] }) {
+  if (calls.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Nothing has arrived yet. Press <strong>Load recent calls now</strong> above — it asks
+        RingCentral for the last 48 hours, so a call made this morning will appear even though
+        delivery has never been switched on.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="px-3 py-2 font-medium">When</th>
+            <th className="px-3 py-2 font-medium">Number</th>
+            <th className="px-3 py-2 font-medium">Ext</th>
+            <th className="px-3 py-2 font-medium">Credited to</th>
+            <th className="px-3 py-2 font-medium">Where it went</th>
+          </tr>
+        </thead>
+        <tbody>
+          {calls.map((c, i) => (
+            <tr key={`${c.at}-${i}`} className="border-b last:border-b-0">
+              <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
+                {c.at ? formatDateTime(c.at) : "—"}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                {c.phone ?? "—"}
+                <span className="ml-1.5 text-muted-foreground">
+                  {c.direction ?? ""}
+                  {c.durationSeconds != null ? ` ${c.durationSeconds}s` : ""}
+                </span>
+              </td>
+              <td className="px-3 py-2 font-mono text-xs">{c.extension ?? "—"}</td>
+              <td className="px-3 py-2">
+                {c.creditedTo ?? (
+                  <span className="text-amber-700 dark:text-amber-300">nobody</span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-xs">
+                {c.landed === "filed" ? (
+                  <span className="text-muted-foreground">{c.company ?? "an account"}</span>
+                ) : (
+                  <Link href="/review" className="text-amber-700 underline dark:text-amber-300">
+                    review queue
+                  </Link>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

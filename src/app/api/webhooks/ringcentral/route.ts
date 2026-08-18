@@ -1,9 +1,9 @@
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { extractExternalId, storeRawEvent } from "@/lib/ingest";
 import { webhookLog } from "@/lib/logger";
 import { enqueueProcessing } from "@/lib/queue";
 import { isTelephonyEvent, parseTelephonyEvent, recordLiveCall } from "@/lib/ringcentral/live";
+import { webhookToken } from "@/lib/ringcentral/client";
 
 // postgres.js needs a real Node runtime, not the edge one.
 export const runtime = "nodejs";
@@ -46,7 +46,12 @@ export async function POST(req: Request) {
   // The verification token is chosen by us when the subscription is created and
   // echoed on every delivery. Without this check the endpoint accepts a call
   // record from anyone who finds the URL.
-  const expected = env.RC_WEBHOOK_SECRET;
+  //
+  // Derived through webhookToken(), NOT read raw from the environment, because
+  // that is what was registered with RingCentral -- it refuses a token with
+  // punctuation or length, so the secret is hashed before being sent. Comparing
+  // against the raw secret here would reject every genuine call as a forgery.
+  const expected = webhookToken();
   if (expected) {
     const presented = req.headers.get("verification-token");
     if (presented !== expected) {

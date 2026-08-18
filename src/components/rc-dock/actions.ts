@@ -710,22 +710,79 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
     };
   }
 
+  /*
+   * RingOut, not telephony/call-out.
+   *
+   * ---------------------------------------------------------------------------
+   * This used to POST to /telephony/call-out with `from: { deviceId: user.id }`
+   * -- a CRM UUID passed off as a RingCentral device id. There is no such
+   * device, so RingCentral answered 400 every time, and the dialler had never
+   * placed a single call.
+   *
+   * RingOut is the right endpoint anyway: it rings the caller's own number
+   * first, then dials the customer once they pick up, which is exactly what the
+   * screen has always promised. It also needs no device id -- two phone numbers
+   * are enough.
+   *
+   * The `from` number is the caller's own direct line, found from the extension
+   * recorded against them. Getting it wrong is not cosmetic: `from` is the
+   * handset that rings, so a stale number rings somebody else's desk.
+   * ---------------------------------------------------------------------------
+   */
   try {
-    const { rcToken } = await import("@/lib/ringcentral/client");
+    const db = tryGetDb();
+    const [me] = db
+      ? await db
+          .select({ extension: schema.users.rcExtensionId })
+          .from(schema.users)
+          .where(eq(schema.users.id, user.id))
+          .limit(1)
+      : [];
+
+    if (!me?.extension) {
+      return {
+        error:
+          "No RingCentral extension is recorded against you, so there is no handset to ring. " +
+          "An administrator can attach one on the Phone connection screen.",
+      };
+    }
+
+    const { rcToken, listExtensions } = await import("@/lib/ringcentral/client");
+    const extensions = await listExtensions();
+    const mine = extensions.find((e) => e.extensionNumber === me.extension);
+
+    if (!mine?.directNumber) {
+      return {
+        error: `Extension ${me.extension} has no direct number in RingCentral, so there is nothing to ring back.`,
+      };
+    }
+
     const token = await rcToken();
-    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/telephony/call-out`, {
+    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/account/~/extension/~/ring-out`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: { deviceId: user.id },
+        from: { phoneNumber: mine.directNumber },
         to: { phoneNumber: phone },
+        // No "press 1 to connect". The broker asked for the call; making them
+        // confirm it on the handset is a step that exists to prevent misdials
+        // from an autodialler, which this is not.
+        playPrompt: false,
       }),
     });
-    if (!res.ok) return { error: `RingCentral refused the call (${res.status}).` };
+
+    if (!res.ok) {
+      // The body says which parameter, which is the difference between a
+      // fixable problem and a shrug.
+      const detail = (await res.text()).slice(0, 300);
+      return { error: `RingCentral refused the call (${res.status}). ${detail}` };
+    }
     return { ok: true };
   } catch (err) {
     log.error({ err }, "click-to-call failed");
-    return { error: "Could not reach RingCentral." };
+    return {
+      error: `Could not reach RingCentral: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }
 

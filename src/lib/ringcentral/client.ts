@@ -9,6 +9,7 @@
  * Verify scope names and endpoint paths against RingCentral's current
  * documentation before going live; they move.
  */
+import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
@@ -89,6 +90,39 @@ interface Subscription {
 }
 
 const WEBHOOK_PATH = "/api/webhooks/ringcentral";
+
+/**
+ * The verification token, in a shape RingCentral will actually accept.
+ *
+ * ===========================================================================
+ * WHY THE RAW SECRET COULD NOT BE SENT
+ *
+ * RingCentral answered every subscription attempt with
+ *
+ *   400 CMN-101: Parameter [deliveryMode.verificationToken] value is invalid
+ *
+ * It does not document what a valid one looks like. What it rejects in
+ * practice is anything with punctuation or much length -- which is exactly what
+ * a well-chosen secret is: base64, hex with dashes, a long random string with
+ * `+` and `/` in it. The better the secret, the more certainly it is refused.
+ *
+ * So the raw secret is never sent. A SHA-256 of it is, truncated to 32 hex
+ * characters: always alphanumeric, always the same length, and derived from the
+ * secret rather than replacing it. RingCentral echoes this back on every
+ * delivery and the receiver derives the same value to compare against, so the
+ * check is unchanged in strength -- an attacker who does not know the secret
+ * cannot produce the hash either.
+ *
+ * Both sides MUST go through this function. A subscription created with one
+ * value and a receiver comparing another rejects every real call as a forgery,
+ * which looks precisely like a phone system that has stopped working.
+ * ===========================================================================
+ */
+export function webhookToken(): string | undefined {
+  const secret = env.RC_WEBHOOK_SECRET;
+  if (!secret) return undefined;
+  return createHash("sha256").update(secret).digest("hex").slice(0, 32);
+}
 
 /**
  * The events worth subscribing to, best first.
@@ -205,7 +239,8 @@ export async function ensureSubscription(): Promise<{
           transportType: "WebHook",
           address,
           // Echoed back on every delivery so the receiver can reject forgeries.
-          verificationToken: env.RC_WEBHOOK_SECRET || undefined,
+          // Hashed, not raw -- see webhookToken above for why.
+          verificationToken: webhookToken(),
         },
         expiresIn: 604800, // seven days, the maximum
       }),

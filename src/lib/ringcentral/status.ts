@@ -51,6 +51,21 @@ export interface SubscriptionState {
   detail: string | null;
 }
 
+export interface ArrivedCall {
+  at: string;
+  phone: string | null;
+  direction: string | null;
+  durationSeconds: number | null;
+  result: string | null;
+  /** 'filed' when it became an activity, 'queued' when nobody could be matched. */
+  landed: "filed" | "queued";
+  company: string | null;
+  /** Who it was credited to. The column this whole screen exists to check. */
+  creditedTo: string | null;
+  /** The handset RingCentral said it came from. */
+  extension: string | null;
+}
+
 export interface PipelineState {
   lastCallAt: string | null;
   callsLast7Days: number;
@@ -63,6 +78,22 @@ export interface PipelineState {
   /** People who can make calls but have no extension number recorded. */
   usersWithoutExtension: number;
   totalCallers: number;
+  /**
+   * The calls themselves, newest first, whoever they were credited to.
+   *
+   * -------------------------------------------------------------------------
+   * The counts above answer "how many"; this answers "where did MINE go", which
+   * is the question somebody setting this up actually has. The dock shows only
+   * your own calls -- so a call credited to the wrong person is invisible
+   * everywhere, and "nothing arrived" and "everything arrived and went to
+   * somebody else" look exactly the same from every screen in the application.
+   *
+   * That is not hypothetical. It is what happened here: the demo seed put
+   * extension 101 on a fictional broker, so every real call was filed against
+   * her, and the only way to discover it was to notice a name on this list.
+   * -------------------------------------------------------------------------
+   */
+  recent: ArrivedCall[];
 }
 
 export interface RingCentralStatus {
@@ -230,6 +261,7 @@ async function pipelineState(): Promise<PipelineState> {
     unmatchedOpen: 0,
     usersWithoutExtension: 0,
     totalCallers: 0,
+    recent: [],
   };
 
   try {
@@ -255,6 +287,62 @@ async function pipelineState(): Promise<PipelineState> {
 
     if (!rows) return empty;
     const n = (v: string | null | undefined) => Number(v ?? 0);
+
+    /*
+     * Both roads in one list.
+     *
+     * A call either became an activity or went to the review queue, and which
+     * of the two it was is itself diagnostic -- so a UNION rather than two
+     * lists somebody has to cross-reference by timestamp. Sorted together,
+     * newest first, because "the call I made ten minutes ago" is the row being
+     * looked for and it should be at the top whichever road it took.
+     */
+    const recent = asRows<Record<string, string | null>>(
+      await db.execute(sql`
+        select * from (
+          select a.occurred_at            as at,
+                 c.phone_e164             as phone,
+                 a.direction              as direction,
+                 a.duration_seconds::text as duration_seconds,
+                 a.result                 as result,
+                 'filed'                  as landed,
+                 acc.name                 as company,
+                 u.full_name              as credited_to,
+                 a.extension_id           as extension
+            from activities a
+            left join contacts c  on c.id = a.contact_id
+            left join accounts acc on acc.id = a.account_id
+            left join users u      on u.id = a.user_id
+           where a.type = 'call' and a.source = 'ringcentral'
+          union all
+          select m.occurred_at            as at,
+                 m.phone_e164             as phone,
+                 m.direction              as direction,
+                 m.duration_seconds::text as duration_seconds,
+                 m.result                 as result,
+                 'queued'                 as landed,
+                 null                     as company,
+                 u.full_name              as credited_to,
+                 m.extension_id           as extension
+            from unmatched_activities m
+            left join users u on u.id = m.user_id
+           where m.resolved_at is null
+        ) both
+        order by at desc nulls last
+        limit 20
+      `),
+    ).map((r) => ({
+      at: String(r.at ?? ""),
+      phone: r.phone ?? null,
+      direction: r.direction ?? null,
+      durationSeconds: r.duration_seconds == null ? null : Number(r.duration_seconds),
+      result: r.result ?? null,
+      landed: (r.landed === "queued" ? "queued" : "filed") as "filed" | "queued",
+      company: r.company ?? null,
+      creditedTo: r.credited_to ?? null,
+      extension: r.extension ?? null,
+    }));
+
     return {
       lastCallAt: rows.last_call_at ?? null,
       callsLast7Days: n(rows.calls_7d),
@@ -263,6 +351,7 @@ async function pipelineState(): Promise<PipelineState> {
       unmatchedOpen: n(rows.unmatched_open),
       usersWithoutExtension: n(rows.no_extension),
       totalCallers: n(rows.callers),
+      recent,
     };
   } catch {
     // A status page that cannot read the database still has useful things to
