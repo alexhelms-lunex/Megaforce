@@ -14,6 +14,7 @@ import { InfoTip } from "@/components/info-tip";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { CreditDashboard } from "./dashboards/credit";
 import { AdminDashboard } from "./dashboards/admin";
+import { Greeting } from "@/components/greeting";
 import { daysSince } from "@/lib/format";
 import type { LifecycleState } from "@/lib/lifecycle";
 
@@ -159,7 +160,7 @@ export default async function DashboardPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {greeting()}, {me.full_name.split(" ")[0]}
+            <Greeting name={me.full_name.split(" ")[0]} />
           </h1>
           <p className="text-sm text-muted-foreground">
             {managerish
@@ -514,9 +515,3 @@ function TeamTable({ rows }: { rows: TeamRow[] }) {
   );
 }
 
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}

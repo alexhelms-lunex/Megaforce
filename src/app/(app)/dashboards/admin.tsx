@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/info-tip";
+import { Greeting } from "@/components/greeting";
 import { createClient } from "@/lib/supabase/server";
 import { formatMoney } from "@/lib/format";
 import type { CurrentUser } from "@/lib/supabase/server";
@@ -96,7 +97,7 @@ export async function AdminDashboard({ me }: { me: CurrentUser }) {
     <div className="mx-auto max-w-[1400px] space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {greeting()}, {me.full_name.split(" ")[0]}
+          <Greeting name={me.full_name.split(" ")[0]} />
         </h1>
         <p className="text-sm text-muted-foreground">
           The whole company: what is queued, what is drifting, and whether the rules are running.
@@ -302,9 +303,3 @@ function Shortcut({ href, label, detail }: { href: string; label: string; detail
   );
 }
 
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
