@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 
+// Nothing to cache here, but stated anyway: every page in this group carries it,
+// and a mechanical rule with one exception is a rule people stop trusting.
+export const dynamic = "force-dynamic";
+
 /**
  * The company directory, which is now the Prospects tab.
  *

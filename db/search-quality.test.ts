@@ -2,7 +2,7 @@ import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { createLocalDrizzle, type LocalDrizzle } from "./drizzle-local";
 import { becomeUser, becomeService, type LocalDb } from "./local";
 import { seed } from "./seed";
-import type { Db } from "../src/lib/db";
+import type { Db } from "../src/lib/matcher";
 
 /**
  * Does the search actually find things?

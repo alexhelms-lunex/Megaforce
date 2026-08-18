@@ -382,3 +382,61 @@ describe("migrations are safe to re-run", () => {
     });
   }
 });
+
+/**
+ * Every screen has something to show while it is loading.
+ *
+ * ---------------------------------------------------------------------------
+ * Every page in this application is `export const dynamic = "force-dynamic"`,
+ * because every one of them reads rows that depend on who is asking. In the App
+ * Router a dynamic route with no loading boundary renders NOTHING until the
+ * server has finished: the browser stays on the old page, the click looks like
+ * it did nothing, and people click again.
+ *
+ * There was no loading.tsx anywhere in this project, which is most of why "load
+ * times are long between pages" was the complaint rather than "pages take half
+ * a second". A route group boundary at (app)/loading.tsx covers everything, so
+ * this only has to check that the catch-all is there -- but it checks the
+ * per-screen ones too, because a boundary shaped like the page it stands in for
+ * is the difference between a page arriving and a page jumping.
+ * ---------------------------------------------------------------------------
+ */
+describe("loading boundaries", () => {
+  const group = path.join(SRC, "app", "(app)");
+
+  it("has a catch-all boundary for the whole application", () => {
+    // The one that matters most: a screen added next month inherits this
+    // rather than inheriting the old dead-click behaviour.
+    expect(existsSync(path.join(group, "loading.tsx"))).toBe(true);
+  });
+
+  it("gives the screens people move between most their own", () => {
+    // Not every route -- an admin form does not need a table skeleton. These
+    // are the ones in the main navigation, which is where the movement is.
+    for (const route of ["prospects", "customers", "accounts", "available", "contacts", "activity", "reports"]) {
+      expect(
+        existsSync(path.join(group, route, "loading.tsx")),
+        `${route} has no loading.tsx, so clicking it leaves the old page on screen`,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps every page in the group dynamic, which is why the boundaries matter", () => {
+    // If a page ever stops being force-dynamic this reasoning changes, and the
+    // reasoning is what the comment above is made of.
+    const pages = walk(group).filter((f) => path.basename(f) === "page.tsx");
+    expect(pages.length).toBeGreaterThan(10);
+
+    const notDynamic = pages.filter((f) => {
+      const source = readFileSync(f, "utf8");
+      // A page that re-exports another screen inherits its parent's setting.
+      if (/export \{[^}]*\} from/.test(source)) return false;
+      return !/export const dynamic = "force-dynamic"/.test(source);
+    });
+
+    expect(
+      notDynamic.map((f) => path.relative(group, f)),
+      "these pages are not force-dynamic; check they are meant to be cached",
+    ).toEqual([]);
+  });
+});

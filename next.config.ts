@@ -38,6 +38,40 @@ const nextConfig: NextConfig = {
    * ---------------------------------------------------------------------------
    */
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA,
+
+  experimental: {
+    /**
+     * How long the browser may reuse a page it has already fetched.
+     *
+     * -----------------------------------------------------------------------
+     * Next 15 ships this at ZERO for dynamic routes, and every page here is
+     * dynamic because every page reads rows that depend on who is asking. Zero
+     * means the client router keeps nothing: going back, or returning to a tab
+     * you were on ten seconds ago, re-runs the whole server render. Alex: "load
+     * times are long between pages. how can we make this website feel very
+     * responsive."
+     *
+     * Twenty seconds is chosen to cover the movement people actually complain
+     * about -- flicking between Prospects and an account and back, or pressing
+     * Back after opening something -- without ever being long enough to show a
+     * figure somebody would act on as if it were current.
+     *
+     * IT IS NOT A CACHE OF WRITES. Every action in this application calls
+     * revalidatePath and router.refresh() on success, both of which clear this
+     * entirely. So claiming an account, saving a contact or deciding a request
+     * shows the new state immediately; only untouched pages are reused.
+     *
+     * The risk this leaves is narrow and worth naming: somebody else claims an
+     * account while you are looking at a stale copy of the pool. That was
+     * already true -- the page was rendered at some point in the past either
+     * way -- and the claim itself is decided in Postgres, which refuses the
+     * second person by name rather than by what their screen said.
+     */
+    staleTimes: {
+      dynamic: 20,
+      static: 180,
+    },
+  },
 };
 
 export default nextConfig;

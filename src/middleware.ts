@@ -3,15 +3,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SUPABASE_CLIENT_KEY, SUPABASE_URL, isSupabaseConfigured } from "@/lib/supabase/keys";
 
 /**
- * Keeps the auth session fresh.
+ * Keeps the auth session fresh, and sends signed-out visitors to the login page.
  *
  * Supabase access tokens are short-lived. Without a refresh on each navigation
  * a user is signed out mid-session, seemingly at random, and the bug reproduces
  * only after sitting idle for an hour -- which makes it expensive to find.
  *
- * getUser() is called deliberately rather than getSession(): it validates the
- * token against the auth server instead of trusting the cookie, and the cookie
- * is attacker-controllable.
+ * This file is NOT the security boundary and must not be mistaken for one. It
+ * decides where to send a browser; row level security in Postgres decides what
+ * anybody may read, and the layout refuses to render without a real profile.
+ * The comment on the session check below explains what follows from that.
  */
 export async function middleware(request: NextRequest) {
   // Without credentials there is no session to refresh, and the app renders a
@@ -43,11 +44,10 @@ export async function middleware(request: NextRequest) {
   /*
    * Guarded, and it fails OPEN rather than closed.
    *
-   * getUser() is an HTTP call, and supabase-js re-throws network failures
-   * instead of returning them. Unguarded, a dropped connection between Vercel
-   * and Supabase turned into a 500 for the whole request -- including the POST
-   * that carries a server action, so a button press vanished into an error
-   * with no message.
+   * These are HTTP calls, and supabase-js re-throws network failures instead of
+   * returning them. Unguarded, a dropped connection between Vercel and Supabase
+   * turned into a 500 for the whole request -- including the POST that carries
+   * a server action, so a button press vanished into an error with no message.
    *
    * Failing open is safe here because this check is a convenience, not the
    * security boundary. The layout refuses to render without a profile, and
@@ -56,10 +56,45 @@ export async function middleware(request: NextRequest) {
    * through is that somebody signed out sees the layout's own sign-in notice
    * instead of being redirected to it.
    */
-  let user: { id: string } | null = null;
+
+  /*
+   * WHY getSession() FIRST, AND getUser() ONLY AS A FALLBACK
+   *
+   * This used to call getUser() unconditionally. getUser() asks the Supabase
+   * auth server to validate the token -- a real network round trip, on EVERY
+   * request this matcher covers, before Next has even begun rendering. Measured
+   * at about forty milliseconds against the production project, and it is
+   * serial: nothing else starts until it comes back. Alex, twice: "Response
+   * times switching tabs ... are super slow" and "load times are long between
+   * pages."
+   *
+   * getSession() reads the cookie and only reaches the network when the token
+   * actually needs refreshing, which is once an hour rather than once a click.
+   * So the common case -- a valid, unexpired session -- becomes free.
+   *
+   * The usual objection to getSession() in middleware is that a cookie is
+   * attacker-controllable, so session.user cannot be trusted. That is true and
+   * it is why session.user is NOT read here. The only question this file asks
+   * is "is there a session at all", and the only thing it does with the answer
+   * is decide whether to redirect to the login page. A forged cookie buys
+   * exactly one thing: not being redirected. The layout then calls getUser()
+   * for real, finds nothing, and shows the sign-in notice -- and every query
+   * beneath it is refused by row level security in Postgres, which has never
+   * heard of this file.
+   *
+   * When there is NO session, getUser() runs after all. Wrongly bouncing
+   * somebody to /login mid-session is the failure people notice and cannot
+   * explain, so it is worth one round trip to be sure before doing it.
+   */
+  let hasSession = false;
   try {
-    const result = await supabase.auth.getUser();
-    user = result.data.user;
+    const { data } = await supabase.auth.getSession();
+    hasSession = data.session !== null;
+
+    if (!hasSession) {
+      const result = await supabase.auth.getUser();
+      hasSession = result.data.user !== null;
+    }
   } catch (err) {
     console.error("[middleware] could not verify the session", err);
     return response;
@@ -80,7 +115,7 @@ export async function middleware(request: NextRequest) {
     // impossible to set up. It has its own key check.
     path.startsWith("/api/setup");
 
-  if (!user && !isPublic) {
+  if (!hasSession && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
