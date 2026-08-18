@@ -49,19 +49,33 @@
 -- ===========================================================================
 
 /**
- * Is anybody there?
+ * Is a KNOWN USER of this application there?
  *
- * A named helper rather than `(select auth.uid()) is not null` written out
- * eight times. The point is not brevity -- it is that a future policy author
- * reads `signed_in()` in the list of conditions and notices when it is missing,
- * which is not true of a bare null check buried in a boolean expression.
+ * ---------------------------------------------------------------------------
+ * Deliberately `current_user_id() is not null` rather than `auth.uid() is not
+ * null`, and the difference is the whole point.
+ *
+ * auth.uid() is "somebody holds a valid token for this Supabase project".
+ * Supabase projects ship with email signup ENABLED, so that can be anybody who
+ * filled in a form -- they get a real JWT, and every policy testing only for a
+ * session lets them straight through to the available pool. Being able to sign
+ * yourself up is not the same as being a member of staff.
+ *
+ * current_user_id() adds the second half: there is a row in OUR users table
+ * with that auth id, which only setup or an administrator can create. This is
+ * the same test account_directory has used since 0024; the two now agree.
+ *
+ * A named helper rather than the check written out eight times. The point is
+ * not brevity -- it is that a future policy author reads `signed_in()` in a
+ * list of conditions and notices when it is missing, which nobody does with a
+ * bare null check buried in a boolean expression.
  *
  * STABLE and wrapped in (select ...) at every call site, so Postgres evaluates
  * it once per query as an InitPlan rather than once per row. On the activities
  * table that is the difference between a fast page and a hung one.
  */
 create or replace function signed_in() returns boolean as $$
-  select (select auth.uid()) is not null
+  select (select current_user_id()) is not null
 $$ language sql stable security definer set search_path = public, auth;
 
 -- ---------------------------------------------------------------------------

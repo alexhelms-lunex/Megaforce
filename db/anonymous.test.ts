@@ -151,6 +151,36 @@ describe("a caller with no session", () => {
     }
   });
 
+  it("is not fooled by a valid token belonging to nobody", async () => {
+    /*
+     * The likeliest real version of this attack, and the one a plain
+     * `auth.uid() is not null` check would wave through.
+     *
+     * Supabase projects ship with email signup enabled. Anybody who fills in
+     * that form gets a genuine JWT for this project -- no invitation, no
+     * administrator, no row in our users table. If holding a token were enough,
+     * signing yourself up would hand you the entire available pool.
+     */
+    await becomeService(pg);
+    await pg.query(
+      `select set_config('request.jwt.claim.sub', '99999999-9999-9999-9999-999999999999', false)`,
+    );
+    await pg.exec("set role app_user;");
+    try {
+      const { rows: accounts } = await pg.query(`select id from accounts`);
+      const { rows: contacts } = await pg.query(`select id from contacts`);
+      const { rows: listed } = await pg.query(
+        `select * from prospect_list('', 'all', '', '', '', 'relevance', 50, 0)`,
+      );
+      expect(accounts).toHaveLength(0);
+      expect(contacts).toHaveLength(0);
+      expect(listed).toHaveLength(0);
+    } finally {
+      await pg.exec("reset role;");
+      await becomeService(pg);
+    }
+  });
+
   it("gets zeroes rather than counts from the tab counters", async () => {
     // These return one row whatever happens, so the assertion is on the
     // numbers in it rather than on the row count.

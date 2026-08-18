@@ -358,10 +358,26 @@ export async function seed(
     })
     .returning({ id: schema.users.id });
 
-  const directorCount = 2;
-  const managerCount = 7;
-  const creditCount = 3;
-  const repCount = volumes.users - 1 - directorCount - managerCount - creditCount;
+  /*
+   * The leadership layer scales down; the brokers never disappear.
+   *
+   * These were four fixed numbers and a subtraction: 2 directors, 7 managers,
+   * 3 credit, and "everyone else" as brokers. For any volumes.users under
+   * fourteen that subtraction went NEGATIVE, the broker loop did not run once,
+   * and the seed produced a freight brokerage with no brokers in it -- silently,
+   * since a for loop with a negative bound is not an error. A prospecting CRM
+   * whose demo data has nobody prospecting looks broken in a way that has
+   * nothing to do with the code being demonstrated.
+   *
+   * At the volumes actually used -- 40 users for both the browser and the full
+   * run -- these produce exactly the numbers they always did: 2, 7, 3 and 27.
+   * The proportions were chosen to be identical there and sane below it.
+   */
+  const staff = Math.max(4, volumes.users);
+  const directorCount = Math.min(2, Math.max(1, Math.floor(staff * 0.05)));
+  const managerCount = Math.min(7, Math.max(1, Math.floor(staff * 0.18)));
+  const creditCount = Math.min(3, Math.max(1, Math.floor(staff * 0.08)));
+  const repCount = Math.max(1, staff - 1 - directorCount - managerCount - creditCount);
 
   const directorIds: string[] = [];
   for (let i = 0; i < directorCount; i++) {
