@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createLocalDrizzle, type LocalDrizzle } from "../../db/drizzle-local";
 import type { LocalDb } from "../../db/local";
 import * as schema from "@/lib/db/schema";
@@ -256,7 +256,7 @@ describe("a backlog", () => {
 
   it("reports nothing to do without touching anything", async () => {
     const result = await sweepRawEvents(db);
-    expect(result).toEqual({ processed: 0, failed: 0, remaining: 0, rescued: 0 });
+    expect(result).toEqual({ processed: 0, failed: 0, remaining: 0, rescued: 0, recredited: 0 });
   });
 });
 
@@ -322,5 +322,101 @@ describe("events marked done that produced nothing", () => {
 
     expect(second.rescued).toBe(0);
     expect(await activityCount()).toBe(1);
+  });
+});
+
+// ===========================================================================
+describe("putting calls with the person whose handset made them", () => {
+  /**
+   * Attribution is DERIVED, not decided once.
+   *
+   * A call is credited by matching its extension against users.rc_extension_id,
+   * and that match used to happen only at the instant the call arrived. So a
+   * call that landed before anybody mapped the extensions stayed credited to
+   * the wrong person forever -- which is the state every deployment is in on the
+   * day the phone system is first connected, and the reason a real call sat in
+   * the database, correctly filed, and appeared in nobody's dock.
+   */
+  it("moves an unlogged call to whoever now owns the extension", async () => {
+    await storeUnprocessed("late-1");
+    await sweepRawEvents(db);
+
+    // The extension arrives on a person AFTER the call did.
+    const [late] = await db
+      .insert(schema.users)
+      .values({ email: "late@megaforce.test", fullName: "Late Arrival", role: "broker" })
+      .returning({ id: schema.users.id });
+    await pg.exec(`update users set rc_extension_id = null where rc_extension_id = '101'`);
+    await db
+      .update(schema.users)
+      .set({ rcExtensionId: "101" })
+      .where(eq(schema.users.id, late.id));
+
+    const result = await sweepRawEvents(db);
+    expect(result.recredited).toBeGreaterThan(0);
+
+    const { rows } = await pg.query<{ user_id: string }>(
+      `select user_id from activities where extension_id = '101'`,
+    );
+    expect(rows[0].user_id).toBe(late.id);
+  });
+
+  it("does nothing on a second run", async () => {
+    // Idempotent by construction: it only touches rows whose credit disagrees
+    // with the mapping. A number that keeps climbing would mean this is fighting
+    // something else for the same column.
+    await storeUnprocessed("late-2");
+    await sweepRawEvents(db);
+    expect((await sweepRawEvents(db)).recredited).toBe(0);
+  });
+
+  it("leaves a call somebody has already written up alone", async () => {
+    /*
+     * The line this must not cross. A logged call carries a person's judgement
+     * about who it was with and what was said. Moving it would silently
+     * reassign their work -- an extension mapped wrongly for a week is a
+     * conversation for a manager, not something a background job settles.
+     */
+    await storeUnprocessed("logged-1");
+    await sweepRawEvents(db);
+
+    const [owner] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.rcExtensionId, "101"))
+      .limit(1);
+
+    const [other] = await db
+      .insert(schema.users)
+      .values({ email: "other@megaforce.test", fullName: "Other Person", role: "broker" })
+      .returning({ id: schema.users.id });
+
+    /*
+     * Written up PROPERLY, and deliberately credited to somebody the extension
+     * does not point at.
+     *
+     * The stage, the notes and the logger are not padding: activities_log_complete
+     * refuses a row with logged_at set and no write-up behind it, which is the
+     * database enforcing the same rule the policy states -- a call does not count
+     * until somebody says what was said. A test that set logged_at alone was
+     * rejected, correctly.
+     */
+    await pg.exec(
+      `update activities
+          set logged_at = now(),
+              logged_by = '${other.id}',
+              user_id = '${other.id}',
+              stage_outcome = 'Contact',
+              notes = 'Spoke to the buyer about lanes.'
+        where extension_id = '101'`,
+    );
+
+    await sweepRawEvents(db);
+
+    const { rows } = await pg.query<{ user_id: string }>(
+      `select user_id from activities where extension_id = '101'`,
+    );
+    expect(rows[0].user_id).toBe(other.id);
+    expect(rows[0].user_id).not.toBe(owner?.id);
   });
 });

@@ -107,19 +107,40 @@ export function RcDock() {
     }
   }, []);
 
+  /*
+   * Loaded on MOUNT, not on open.
+   *
+   * ---------------------------------------------------------------------------
+   * Alex: "Upon app open all ring central info needs to be live."
+   *
+   * Everything here used to wait for somebody to click the dock. That made the
+   * collapsed tab a lie: its badge counts calls still to write up, and the
+   * calls were never fetched, so the badge was empty however many were
+   * outstanding. The one thing the collapsed dock exists to tell you was the
+   * one thing it could not.
+   *
+   * It also meant a call arriving while the dock was shut was invisible until
+   * somebody happened to open it, which is the wrong way round -- the point of
+   * a phone on every screen is that it tells you, not that you check it.
+   * ---------------------------------------------------------------------------
+   */
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    if (!open) return;
     void refreshLive();
     // Catches, like everything else here. This one exists to EXPLAIN a broken
     // dock, so it is the last thing that should be able to break one.
     void dockHealth().then(setHealth).catch(() => setHealth(null));
+
+    // Faster while somebody is looking at it, but never stopped: a ringing
+    // phone has to reach the collapsed tab too, or "live" means "live once you
+    // click". Both are cheap indexed reads on one row per call.
+    const every = open ? 4_000 : 10_000;
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshLive();
-    }, 4_000);
+    }, every);
     return () => window.clearInterval(id);
   }, [open, refreshLive]);
 
@@ -155,7 +176,6 @@ export function RcDock() {
    * one. The server throttles this to once a minute across everybody.
    */
   useEffect(() => {
-    if (!open) return;
     let live = true;
     void syncRecentCalls()
       .then((r) => {
@@ -167,7 +187,7 @@ export function RcDock() {
     return () => {
       live = false;
     };
-  }, [open, refresh]);
+  }, [refresh]);
 
   /*
    * Live, while the dock is open.
@@ -182,11 +202,12 @@ export function RcDock() {
    * a laptop full of background tabs doing it is worse.
    */
   useEffect(() => {
-    if (!open) return;
     const tick = () => {
       if (document.visibilityState === "visible") void refresh();
     };
-    const id = window.setInterval(tick, 15_000);
+    // Half a minute while collapsed. The badge has to stay honest without
+    // anybody clicking, and a dock nobody has open does not need it sooner.
+    const id = window.setInterval(tick, open ? 15_000 : 30_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(id);

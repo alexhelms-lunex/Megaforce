@@ -187,6 +187,24 @@ export async function importRecentCalls(
     }
   }
 
+  /*
+   * Put every call with the right person before returning.
+   *
+   * Cheap and idempotent -- it only touches rows whose credit disagrees with
+   * the extension mapping. It belongs here because this is the moment new calls
+   * land AND the moment somebody is most likely to have just mapped an
+   * extension: the pull now fires when the application opens, so the repair
+   * happens without anybody knowing there was something to repair.
+   */
+  try {
+    const { reattributeByExtension } = await import("@/lib/sweep");
+    const moved = await reattributeByExtension(db);
+    if (moved > 0) log.info({ moved }, "re-credited calls after the pull");
+  } catch (err) {
+    // A failed repair must not lose the import that just succeeded.
+    log.warn({ err }, "could not re-credit calls after the pull");
+  }
+
   log.info(summary, "pulled the call log");
   return summary;
 }

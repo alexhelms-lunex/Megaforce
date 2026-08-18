@@ -415,7 +415,8 @@ export async function sweepNow(): Promise<ActionResult> {
     const summary = await runJob(job, { trigger: "manual", utcHour: new Date().getUTCHours() });
     if (!summary.ok) return { error: summary.error ?? "The sweep failed." };
 
-    const { processed = 0, failed = 0, remaining = 0, rescued = 0 } = summary.result ?? {};
+    const { processed = 0, failed = 0, remaining = 0, rescued = 0, recredited = 0 } =
+      summary.result ?? {};
     revalidatePath("/admin/integrations");
     revalidatePath("/activity");
     revalidatePath("/review");
@@ -432,6 +433,10 @@ export async function sweepNow(): Promise<ActionResult> {
             `Filed ${processed}.${
               Number(rescued) > 0
                 ? ` Rescued ${rescued} that had been stored but never filed.`
+                : ""
+            }${
+              Number(recredited) > 0
+                ? ` Moved ${recredited} to the person whose extension made them.`
                 : ""
             } ${failed} could not be read. ${remaining} still waiting.`,
       href: filed > 0 ? "/activity" : undefined,

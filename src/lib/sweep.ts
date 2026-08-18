@@ -43,6 +43,14 @@ export interface SweepResult {
   remaining: number;
   /** Marked done, but nothing was ever produced. Re-filed by this pass. */
   rescued: number;
+  /**
+   * Credited to the wrong person, and moved to the right one.
+   *
+   * Non-zero the first time somebody maps an extension, and zero every run
+   * after that. A number that keeps climbing means extensions are being
+   * reassigned, or that two people are recorded against the same one.
+   */
+  recredited: number;
 }
 
 export interface SweepOptions {
@@ -132,11 +140,108 @@ export async function sweepRawEvents(
   );
 
   const rescued = await refileOrphans(db, batch);
+  const recredited = await reattributeByExtension(db);
 
-  if (processed > 0 || failed > 0 || rescued > 0) {
-    log.info({ processed, failed, remaining, rescued }, "swept pending events");
+  if (processed > 0 || failed > 0 || rescued > 0 || recredited > 0) {
+    log.info({ processed, failed, remaining, rescued, recredited }, "swept pending events");
   }
-  return { processed, failed, remaining, rescued };
+  return { processed, failed, remaining, rescued, recredited };
+}
+
+/**
+ * Put calls with the person whose handset made them.
+ *
+ * ===========================================================================
+ * ATTRIBUTION IS DERIVED, NOT DECIDED ONCE
+ *
+ * A call is credited to whoever made it by matching its extension against
+ * users.rc_extension_id. That match was only ever performed at the instant the
+ * call arrived -- so a call that landed before anybody mapped the extensions
+ * stayed credited to the wrong person forever, and mapping the extension
+ * afterwards fixed only what the mapping button happened to walk back over.
+ *
+ * That is the wrong shape. The extension is a FACT about the call, recorded on
+ * the row; who that extension belongs to is a fact about the CRM, and it
+ * changes -- somebody joins, a handset is reassigned, an extension is typed in
+ * a week after the phone system was connected. Deriving the credit from those
+ * two facts, repeatedly, is the only arrangement where the answer stays right.
+ *
+ * So this runs on every sweep and after every pull, which now includes the one
+ * that fires when somebody opens the application. Idempotent by construction:
+ * it only touches rows whose credit disagrees with the extension mapping, so a
+ * second run does nothing.
+ *
+ * WHAT IT WILL NOT TOUCH
+ *
+ * A call somebody has already written up. That row carries a person's judgement
+ * about what was said and who it was with, and moving it would quietly reassign
+ * their work. An extension mapped wrongly for a week is fixed here for
+ * everything still outstanding; anything already logged is a conversation for a
+ * manager, not a background job.
+ * ===========================================================================
+ */
+export async function reattributeByExtension(db: Db): Promise<number> {
+  /*
+   * Counted through a CTE rather than from the driver's row count.
+   *
+   * Drizzle's execute() hands back whatever the underlying driver returns, and
+   * the shape differs between postgres.js and PGlite -- so `result.count` was
+   * undefined in the tests and would have been unreliable in production too.
+   * A count over the RETURNING rows is the same number on every driver.
+   */
+  const counted = async (statement: ReturnType<typeof sql>) => {
+    const rows = await db.execute<{ n: string }>(statement);
+    const list = rowsOf<{ n: string }>(rows);
+    return Number(list[0]?.n ?? 0);
+  };
+
+  // Not yet written up, so nobody has claimed the work.
+  const activities = await counted(sql`
+    with moved as (
+      update activities a
+         set user_id = u.id
+        from users u
+       where u.rc_extension_id = a.extension_id
+         and a.extension_id is not null
+         and a.logged_at is null
+         and a.user_id is distinct from u.id
+      returning a.id
+    )
+    select count(*)::text as n from moved
+  `);
+
+  // Still in the review queue: nobody has said who it was with either.
+  const queued = await counted(sql`
+    with moved as (
+      update unmatched_activities m
+         set user_id = u.id
+        from users u
+       where u.rc_extension_id = m.extension_id
+         and m.extension_id is not null
+         and m.resolved_at is null
+         and m.user_id is distinct from u.id
+      returning m.id
+    )
+    select count(*)::text as n from moved
+  `);
+
+  // A call in progress, on a handset nobody had claimed when it started.
+  const live = await counted(sql`
+    with moved as (
+      update live_calls l
+         set user_id = u.id
+        from users u
+       where u.rc_extension_id = l.extension_id
+         and l.extension_id is not null
+         and l.user_id is distinct from u.id
+      returning l.telephony_session_id
+    )
+    select count(*)::text as n from moved
+  `);
+
+  const moved = activities + queued + live;
+  if (moved > 0) log.info({ moved }, "re-credited calls to the right extension");
+  return moved;
 }
 
 /**
