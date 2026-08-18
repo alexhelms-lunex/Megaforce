@@ -161,7 +161,19 @@ export const sweepPendingEvents: JobDef = {
     // Spread rather than returned directly: JobResult is an index signature and
     // a named interface does not satisfy one, even when every field matches.
     const { processed, failed, remaining } = await sweepRawEvents(db);
-    return { processed, failed, remaining };
+
+    /*
+     * Clear out live calls at the same time.
+     *
+     * Same job because it is the same failure: something arrived and nothing
+     * finished it. A call whose Disconnected event never came shows as in
+     * progress forever, and the person staring at a phantom call on their
+     * screen has no way to dismiss it.
+     */
+    const { pruneLiveCalls } = await import("@/lib/ringcentral/live");
+    const staleCalls = await pruneLiveCalls(db);
+
+    return { processed, failed, remaining, staleCalls };
   },
 };
 
@@ -192,8 +204,10 @@ export const renewCallSubscription: JobDef = {
   },
   async run() {
     const { ensureSubscription } = await import("@/lib/ringcentral/client");
-    const { id, action } = await ensureSubscription();
-    return { subscriptionId: id, action };
+    const { id, action, filters } = await ensureSubscription();
+    // Joined rather than nested: a JobResult holds flat values, and which
+    // filters were accepted is the answer to "why can I only see my own calls".
+    return { subscriptionId: id, action, filters: filters.join(", ") };
   },
 };
 

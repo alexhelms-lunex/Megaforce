@@ -84,23 +84,58 @@ interface Subscription {
   id: string;
   status: string;
   expirationTime: string;
+  eventFilters?: string[];
   deliveryMode?: { address?: string };
 }
 
 const WEBHOOK_PATH = "/api/webhooks/ringcentral";
 
 /**
- * The events worth subscribing to.
+ * The events worth subscribing to, best first.
  *
- * Call Log Sync is the one that carries duration and result, which is what
- * qualification needs. Telephony Sessions fires earlier and is useful for live
- * call state, but a session event alone cannot answer "did this call count".
+ * ===========================================================================
+ * THE FILTER THAT WAS HERE DOES NOT EXIST
+ *
+ * It was:
+ *
+ *   /restapi/v1.0/account/~/extension/~/call-log-sync?direction=Inbound&...
+ *
+ * and RingCentral answered every attempt to create it with
+ *
+ *   400 CMN-101: Parameter [eventFilters] value is invalid
+ *
+ * because there is no call-log-sync subscription event. Call log sync is a
+ * READ API you poll -- which is what lib/ringcentral/pull.ts does -- not
+ * something you can be notified about. The supported event index lists
+ * telephony sessions, message store, presence and account events, and no call
+ * log event at all.
+ *
+ * TELEPHONY SESSIONS IS ALSO THE ONE ALEX ASKED FOR
+ *
+ * "If I make a call right now it needs to show there even if the person has
+ * not even picked up. with a live second counter."
+ *
+ * A completed-call notification could never do that -- by definition it arrives
+ * after the call. Telephony sessions fire on every state change: the phone
+ * starts ringing, somebody answers, somebody hangs up. That is the live call.
+ *
+ * The account-level filter covers every extension; the extension-level one
+ * covers only the handset the JWT belongs to. Account level is tried first
+ * because a CRM has to see the whole floor, and the fallback exists because an
+ * app without the account-level permission would otherwise get nothing at all
+ * rather than something useful.
+ *
+ * The completed record, with duration and result, still comes from the call log
+ * pull. Two sources, each doing the half it can: sessions say what is happening
+ * now, the log says what happened and for how long.
+ * ===========================================================================
  */
-function eventFilters(): string[] {
-  return [
-    "/restapi/v1.0/account/~/extension/~/call-log-sync?direction=Inbound&direction=Outbound&type=Voice",
-  ];
-}
+export const EVENT_FILTER_CANDIDATES = [
+  // Every call on the account, live.
+  ["/restapi/v1.0/account/~/telephony/sessions"],
+  // Fallback: only the extension this JWT belongs to.
+  ["/restapi/v1.0/account/~/extension/~/telephony/sessions"],
+] as const;
 
 async function listSubscriptions(token: string): Promise<Subscription[]> {
   const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
@@ -119,7 +154,12 @@ async function listSubscriptions(token: string): Promise<Subscription[]> {
  * stop arriving -- no error, no failed request, nothing in a log. The first
  * symptom is a rep asking why nothing has logged since Tuesday.
  */
-export async function ensureSubscription(): Promise<{ id: string; action: string }> {
+export async function ensureSubscription(): Promise<{
+  id: string;
+  action: string;
+  /** Which filters RingCentral actually accepted, so the screen can say. */
+  filters: string[];
+}> {
   const token = await rcToken();
   const address = `${env.APP_URL.replace(/\/$/, "")}${WEBHOOK_PATH}`;
 
@@ -134,33 +174,53 @@ export async function ensureSubscription(): Promise<{ id: string; action: string
     });
     if (res.ok) {
       log.info({ subscriptionId: existing.id }, "renewed RingCentral subscription");
-      return { id: existing.id, action: "renewed" };
+      return { id: existing.id, action: "renewed", filters: existing.eventFilters ?? [] };
     }
     log.warn({ status: res.status }, "renewal failed; creating a fresh subscription");
   }
 
-  const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      eventFilters: eventFilters(),
-      deliveryMode: {
-        transportType: "WebHook",
-        address,
-        // Echoed back on every delivery so the receiver can reject forgeries.
-        verificationToken: env.RC_WEBHOOK_SECRET || undefined,
-      },
-      expiresIn: 604800, // seven days, the maximum
-    }),
-  });
+  /*
+   * Try each candidate, keep the first RingCentral accepts.
+   *
+   * Not cleverness for its own sake. Whether an app may subscribe at account
+   * level depends on permissions granted in the RingCentral console, and the
+   * refusal comes back as the same "eventFilters value is invalid" 400 as a
+   * genuinely wrong filter. Falling back means an app with only extension-level
+   * permission gets working call delivery for the person who set it up rather
+   * than a red box and no calls -- and the screen says which one it got, so
+   * "why can I only see my own calls" has an answer on the page.
+   *
+   * Every failure is kept and reported together. One attempt's error alone
+   * would hide the fact that the others were tried at all.
+   */
+  const failures: string[] = [];
 
-  if (!res.ok) {
-    throw new Error(`failed to create subscription (${res.status}): ${await res.text()}`);
+  for (const filters of EVENT_FILTER_CANDIDATES) {
+    const res = await fetch(`${env.RC_SERVER}/restapi/v1.0/subscription`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventFilters: filters,
+        deliveryMode: {
+          transportType: "WebHook",
+          address,
+          // Echoed back on every delivery so the receiver can reject forgeries.
+          verificationToken: env.RC_WEBHOOK_SECRET || undefined,
+        },
+        expiresIn: 604800, // seven days, the maximum
+      }),
+    });
+
+    if (res.ok) {
+      const sub = (await res.json()) as Subscription;
+      log.info({ subscriptionId: sub.id, address, filters }, "created RingCentral subscription");
+      return { id: sub.id, action: "created", filters: [...filters] };
+    }
+
+    failures.push(`${filters[0]} → ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
 
-  const sub = (await res.json()) as Subscription;
-  log.info({ subscriptionId: sub.id, address }, "created RingCentral subscription");
-  return { id: sub.id, action: "created" };
+  throw new Error(`RingCentral refused every event filter. ${failures.join("  |  ")}`);
 }
 
 // ---------------------------------------------------------------------------

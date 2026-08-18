@@ -51,15 +51,24 @@ export async function renewNow(): Promise<ActionResult> {
     }
 
     const { ensureSubscription } = await import("@/lib/ringcentral/client");
-    const { id, action } = await ensureSubscription();
+    const { id, action, filters } = await ensureSubscription();
+
+    // Which filter was accepted decides whether the whole floor's calls arrive
+    // or only this JWT's extension, and that is the difference somebody notices
+    // a week later as "why can I only see my own calls".
+    const scope = filters.some((f) => !f.includes("/extension/"))
+      ? "Every call on the account will be delivered live."
+      : filters.length > 0
+        ? "Only calls on this JWT's own extension will be delivered — RingCentral refused the account-wide filter."
+        : "";
 
     revalidatePath("/admin/integrations");
     return {
       ok: true,
       message:
         action === "created"
-          ? `Subscription created. RingCentral will start delivering calls here. (${id})`
-          : `Subscription renewed for another seven days. (${id})`,
+          ? `Subscription created. ${scope} (${id})`
+          : `Subscription renewed for another seven days. ${scope} (${id})`,
     };
   } catch (err) {
     return { error: explain(err) };
@@ -168,6 +177,8 @@ export interface ExtensionsResult {
   error?: string;
   numbers?: { phoneNumber: string; usageType: string | null; extensionNumber: string | null }[];
   extensions?: ExtensionRow[];
+  /** Everybody an extension can be attached to, so the fix is on this screen. */
+  people?: { id: string; name: string }[];
 }
 
 /**
@@ -257,7 +268,14 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
       })
       .sort((a, b) => a.extensionNumber.localeCompare(b.extensionNumber, undefined, { numeric: true }));
 
-    return { ok: true, extensions: rows, numbers };
+    return {
+      ok: true,
+      extensions: rows,
+      numbers,
+      people: users
+        .map((u) => ({ id: u.id, name: u.full_name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
   } catch (err) {
     return { error: explain(err) };
   }
@@ -316,6 +334,65 @@ export async function pullCallsNow(): Promise<ActionResult> {
         failed: Number(counts.failed ?? 0),
       }),
       href: Number(counts.imported ?? 0) > 0 ? "/activity" : undefined,
+    };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
+/**
+ * Attach a RingCentral extension to a person, and hand back their calls.
+ *
+ * ---------------------------------------------------------------------------
+ * The step everybody skips, because nothing breaks visibly when they do. Calls
+ * still arrive; they are just credited to whoever owns the account rather than
+ * whoever made the call, which looks correct on every screen and quietly
+ * corrupts every leaderboard and every commission argument. And since the dock
+ * only shows your own calls, the person who made them sees an empty phone.
+ *
+ * The backfill is the point. Connecting the phone on Friday and mapping the
+ * extensions on Monday would otherwise leave three days of calls attributed to
+ * the wrong people for good. claim_extension walks back through the live calls,
+ * the review queue and any activity NOBODY HAS WRITTEN UP YET and re-credits
+ * them. A call somebody has already logged is left alone -- it carries a human
+ * being's judgement about what was said, and moving it would erase that.
+ * ---------------------------------------------------------------------------
+ */
+export async function claimExtension(userId: string, extension: string): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    if (!userId || !extension.trim()) return { error: "Pick a person and an extension." };
+
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+
+    // Through the caller's own client, so the admin check inside the function
+    // sees a real role rather than the service connection's.
+    const { data, error } = await supabase.rpc("claim_extension", {
+      p_user_id: userId,
+      p_extension: extension.trim(),
+    });
+    if (error) return { error: error.message };
+
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { live?: number; queued?: number; logged?: number }
+      | null;
+    const moved = Number(row?.queued ?? 0) + Number(row?.logged ?? 0) + Number(row?.live ?? 0);
+
+    revalidatePath("/admin/integrations");
+    revalidatePath("/activity");
+    revalidatePath("/review");
+
+    return {
+      ok: true,
+      message:
+        moved === 0
+          ? `Extension ${extension.trim()} attached. Calls from it will be credited from now on.`
+          : `Extension ${extension.trim()} attached, and ${moved} earlier ${
+              moved === 1 ? "call was" : "calls were"
+            } handed back.`,
     };
   } catch (err) {
     return { error: explain(err) };

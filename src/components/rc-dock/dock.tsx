@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
+import { useActionState, useCallback, useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { runAction } from "@/lib/run-action";
@@ -14,14 +15,22 @@ import {
   matchOptions,
   placeCall,
   attachCall,
+  dockHealth,
+  liveCalls,
   recentCalls,
   searchCompanies,
   syncRecentCalls,
   type DockCall,
+  type DockHealth,
+  type LiveCall,
   type LogResult,
   type MatchOptions,
 } from "./actions";
 import { STAGES } from "./stages";
+
+/** How many calls the list starts with, and how many each "show more" adds. */
+const PAGE = 40;
+const MAX_PAGE = 400;
 
 /**
  * The RingCentral dock.
@@ -40,21 +49,70 @@ export function RcDock() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"calls" | "dialer">("calls");
   const [calls, setCalls] = useState<DockCall[]>([]);
+  const [live, setLive] = useState<LiveCall[]>([]);
+  const [health, setHealth] = useState<DockHealth | null>(null);
   const [selected, setSelected] = useState<DockCall | null>(null);
   const [loading, setLoading] = useState(false);
+  /*
+   * How far back the list currently reaches.
+   *
+   * Alex: "we dont need to auto load calls from 150 calls a go however, it
+   * would be useful to have the ability to scroll that far down."
+   *
+   * So it starts small and grows only when somebody asks. Loading four hundred
+   * calls for everybody, on every open, to serve the rare occasion somebody
+   * scrolls back a fortnight, is the wrong trade in the other direction.
+   */
+  const [limit, setLimit] = useState(PAGE);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setCalls(await recentCalls());
+      setCalls(await recentCalls(limit));
     } finally {
       setLoading(false);
     }
+  }, [limit]);
+
+  /*
+   * Live calls, on their own clock.
+   *
+   * Separate from the list because it answers a different question at a
+   * different speed. The list is history and fifteen seconds is fine; a phone
+   * that started ringing fifteen seconds ago has already been answered. This is
+   * one small indexed query, so four seconds costs little and is the difference
+   * between the dock feeling connected to the phone and feeling like a report.
+   */
+  const refreshLive = useCallback(async () => {
+    setLive(await liveCalls());
   }, []);
 
   useEffect(() => {
     if (open) void refresh();
   }, [open, refresh]);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshLive();
+    void dockHealth().then(setHealth);
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshLive();
+    }, 4_000);
+    return () => window.clearInterval(id);
+  }, [open, refreshLive]);
+
+  /*
+   * A call that has just ended becomes a row in the list -- but only after the
+   * call log has been pulled, which takes a moment. Refreshing the list when a
+   * live call disappears is what makes the hand-off invisible.
+   */
+  const liveCount = live.filter((c) => c.state !== "ended").length;
+  const previousLiveCount = usePrevious(liveCount);
+  useEffect(() => {
+    if (previousLiveCount !== undefined && liveCount < previousLiveCount) {
+      void syncRecentCalls().then(() => refresh());
+    }
+  }, [liveCount, previousLiveCount, refresh]);
 
   /*
    * Ask RingCentral for anything that happened while this was closed.
@@ -122,7 +180,15 @@ export function RcDock() {
       >
         <PhoneIcon />
         RingCentral
-        {outstanding > 0 ? (
+        {/* A call in progress outranks a backlog. Somebody on a call wants the
+            dock open now; somebody with four to write up can finish reading the
+            sentence they are on. */}
+        {liveCount > 0 ? (
+          <span className="flex items-center gap-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+            <span className="size-1.5 animate-pulse rounded-full bg-white" aria-hidden />
+            On a call
+          </span>
+        ) : outstanding > 0 ? (
           <span className="rounded-full bg-destructive px-1.5 py-0.5 text-xs font-semibold text-destructive-foreground">
             {outstanding}
           </span>
@@ -174,10 +240,135 @@ export function RcDock() {
           onCancel={() => setSelected(null)}
         />
       ) : (
-        <CallList calls={calls} loading={loading} onPick={setSelected} />
+        <>
+          <LiveStrip calls={live} />
+          <HealthNote health={health} />
+          <CallList
+            calls={calls}
+            loading={loading}
+            onPick={setSelected}
+            canLoadMore={calls.length >= limit && limit < MAX_PAGE}
+            onLoadMore={() => setLimit((n) => Math.min(n + PAGE, MAX_PAGE))}
+          />
+        </>
       )}
     </div>
   );
+}
+
+/**
+ * The call happening right now, with a second counter that actually counts.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "If I make a call right now it needs to show there even if the person
+ * has not even picked up. with a live second counter."
+ *
+ * The counter ticks in the browser rather than being polled. A number that
+ * jumped forward four seconds at a time would look broken, and asking the
+ * server what time it is every second to render a clock is absurd -- the
+ * database knows when the call was answered, and the elapsed time is arithmetic
+ * from there.
+ *
+ * It runs from ANSWERED, not from ringing. Ring time is not talk time, and the
+ * policy that decides whether a call counts turns on sixty seconds of it --
+ * showing a broker 1:05 when they have been talking for forty seconds would be
+ * telling them they are past a threshold they have not reached.
+ * ---------------------------------------------------------------------------
+ */
+function LiveStrip({ calls }: { calls: LiveCall[] }) {
+  const [, tick] = useState(0);
+
+  // One timer for the strip, not one per call. Only runs while there is
+  // something to count.
+  useEffect(() => {
+    if (calls.length === 0) return;
+    const id = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [calls.length]);
+
+  if (calls.length === 0) return null;
+
+  return (
+    <div className="border-b bg-emerald-50/60 dark:bg-emerald-950/30">
+      {calls.map((call) => {
+        const ringing = call.state === "ringing";
+        const ended = call.state === "ended";
+        const since = call.answeredAt ?? call.startedAt;
+        const seconds = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+
+        return (
+          <div key={call.id} className="flex items-center gap-3 px-3 py-2.5">
+            <span
+              className={`size-2 shrink-0 rounded-full ${
+                ended ? "bg-muted-foreground" : ringing ? "animate-pulse bg-amber-500" : "animate-pulse bg-emerald-500"
+              }`}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {call.accountName ?? call.contactName ?? call.phone ?? "Unknown number"}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {ended
+                  ? "Just ended — writing it up in a moment"
+                  : ringing
+                    ? call.direction === "inbound"
+                      ? "Ringing you now"
+                      : "Ringing them now"
+                    : (call.contactName ?? call.phone ?? "connected")}
+              </p>
+            </div>
+            <span
+              className={`shrink-0 text-sm font-semibold tabular-nums ${
+                ended ? "text-muted-foreground" : "text-emerald-700 dark:text-emerald-300"
+              }`}
+            >
+              {ringing && !call.answeredAt ? "—" : formatClock(seconds)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Why the dock is empty when the phone has been ringing all morning.
+ *
+ * Because the dock shows only your own calls, "no calls today" and "every call
+ * today was credited to somebody else" look identical -- an empty list. They
+ * need opposite actions, so the one that is fixable says so.
+ */
+function HealthNote({ health }: { health: DockHealth | null }) {
+  if (!health || health.extension) return null;
+
+  return (
+    <div className="border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-900 dark:bg-amber-950/40">
+      <p className="font-medium text-amber-900 dark:text-amber-200">
+        No RingCentral extension is recorded against you.
+      </p>
+      <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+        Calls you make cannot be recognised as yours, so this list will stay empty
+        {health.unclaimed > 0 ? ` — ${health.unclaimed} already waiting` : ""}.{" "}
+        {health.canFix ? (
+          <Link href="/admin/integrations" className="font-medium underline">
+            Attach your extension →
+          </Link>
+        ) : (
+          "Ask an administrator to attach it."
+        )}
+      </p>
+    </div>
+  );
+}
+
+/** Remembers the previous render's value. Used to notice a live call ending. */
+function usePrevious<T>(value: T): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref.current;
 }
 
 function TabButton({
@@ -205,12 +396,18 @@ function CallList({
   calls,
   loading,
   onPick,
+  canLoadMore,
+  onLoadMore,
 }: {
   calls: DockCall[];
   loading: boolean;
   onPick: (c: DockCall) => void;
+  canLoadMore: boolean;
+  onLoadMore: () => void;
 }) {
-  if (loading) {
+  // Only on the FIRST load. Replacing the list with "Loading…" every fifteen
+  // seconds would make a dock somebody is reading flicker on a timer.
+  if (loading && calls.length === 0) {
     return <p className="p-4 text-sm text-muted-foreground">Loading…</p>;
   }
   if (calls.length === 0) {
@@ -278,6 +475,21 @@ function CallList({
           </span>
         </button>
       ))}
+
+      {/* Deeper history on request. Nothing is ever removed from this list --
+          a written-up call sinks below the outstanding ones and stays there. */}
+      {canLoadMore ? (
+        <button
+          onClick={onLoadMore}
+          className="w-full px-3 py-2.5 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+        >
+          Show older calls
+        </button>
+      ) : (
+        <p className="px-3 py-2.5 text-center text-xs text-muted-foreground">
+          That is every call on your extension.
+        </p>
+      )}
     </div>
   );
 }
@@ -511,6 +723,13 @@ function PhoneIcon() {
       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.68 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.32 1.85.55 2.81.68A2 2 0 0 1 22 16.92z" />
     </svg>
   );
+}
+
+/** m:ss, like a phone. Zero-padded so the width does not jump every ten seconds. */
+function formatClock(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatDuration(seconds: number | null): string {

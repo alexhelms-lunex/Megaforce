@@ -419,6 +419,11 @@ async function processCallEvent(
       result: call.result,
       source: raw.source,
       externalId: call.externalId,
+      // Kept even when it matches nobody. Without it, a call credited to the
+      // account owner because its extension was unrecognised cannot afterwards
+      // be told apart from one the owner genuinely made -- so mapping the
+      // extension later could never put it right.
+      extensionId: call.extensionId,
       qualifies: verdict.qualifies,
       qualificationReason: verdict.reason,
       rawEventId: raw.id,
@@ -642,8 +647,40 @@ export async function resolveUnmatched(
     contactId = candidates.find((c) => c.accountId === accountId)?.id ?? null;
   }
 
+  /*
+   * Who gets the credit for a call rescued from the queue.
+   *
+   * ---------------------------------------------------------------------------
+   * This used to be resolveUserId(extension, account), which falls back to the
+   * ACCOUNT OWNER when the extension matches nobody. On a system where the
+   * extensions have not been mapped yet -- every system, on day one -- that
+   * meant a broker attached their own call and watched it vanish: the activity
+   * was created against somebody else, and the dock only shows your own.
+   *
+   * Alex, having done exactly that: "logged it and it disappeared. The call
+   * never needs to dissapear."
+   *
+   * So the order is now specific to general:
+   *
+   *   1. The extension, when the CRM recognises it. A fact.
+   *   2. Whose call the queue said it was -- 0033 records that on the row.
+   *   3. The person attaching it. They were there; they are saying so.
+   *   4. The account owner, as before, for a queue item resolved by somebody
+   *      who was not on the call and whose extension is unknown.
+   *
+   * Every step is a weaker claim than the one above it, and the previous code
+   * jumped straight from the strongest to the weakest.
+   * ---------------------------------------------------------------------------
+   */
   const parsed = raw ? (isEmail ? null : parseCall(raw.payload)) : null;
-  const userId = await resolveUserId(db, parsed?.extensionId ?? null, accountId);
+  const byExtension = parsed?.extensionId
+    ? await userForExtension(db, parsed.extensionId)
+    : null;
+  const userId =
+    byExtension ??
+    row.userId ??
+    resolvedBy ??
+    (await resolveUserId(db, null, accountId));
 
   const [activity] = await db
     .insert(schema.activities)
@@ -662,6 +699,7 @@ export async function resolveUnmatched(
       // already sit on a different activity; reusing it here would trip the
       // idempotency index and silently drop the resolution.
       externalId: null,
+      extensionId: row.extensionId,
       qualifies: verdict.qualifies,
       qualificationReason: `${verdict.reason} (resolved from review queue)`,
       rawEventId: row.rawEventId,

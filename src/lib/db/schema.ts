@@ -263,12 +263,52 @@ export const activities = pgTable(
      */
     qualificationReason: text("qualification_reason").notNull().default(""),
     rawEventId: uuid("raw_event_id").references(() => rawEvents.id),
+    /**
+     * Which handset made it, when a phone system reported one.
+     *
+     * Kept even when it matches no CRM user. Without it, a call credited to the
+     * account owner because its extension was unrecognised is indistinguishable
+     * from one the owner genuinely made -- so mapping the extension afterwards
+     * could never put it right.
+     */
+    extensionId: text("extension_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
   },
   (t) => [
     index("activities_account_occurred_idx").on(t.accountId, t.occurredAt),
     index("activities_user_occurred_idx").on(t.userId, t.occurredAt),
   ],
+);
+
+/**
+ * A call that is happening right now.
+ *
+ * Separate from activities on purpose: an activity is a thing that HAPPENED,
+ * with a duration and a verdict, and a ringing phone has neither. The reasoning
+ * in full is in db/migrations/0034_live_calls.sql.
+ */
+export const liveCalls = pgTable(
+  "live_calls",
+  {
+    telephonySessionId: text("telephony_session_id").primaryKey(),
+    extensionId: text("extension_id"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    counterpartyNumber: text("counterparty_number"),
+    counterpartyName: text("counterparty_name"),
+    ourNumber: text("our_number"),
+    direction: text("direction"),
+    /** 'ringing' | 'answered' | 'ended' */
+    state: text("state").notNull().default("ringing"),
+    result: text("result"),
+    accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().default(now),
+    /** When they picked up. The second counter runs from here, not from ringing. */
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(now),
+  },
+  (t) => [index("live_calls_user_idx").on(t.userId, t.startedAt)],
 );
 
 export const unmatchedActivities = pgTable(

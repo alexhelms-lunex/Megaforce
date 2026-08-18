@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { runAction } from "@/lib/run-action";
 import {
+  claimExtension,
   clearTestCalls,
   loadExtensions,
   pullCallsNow,
@@ -274,22 +275,18 @@ export function ExtensionList() {
   const [pending, start] = useTransition();
   const [result, setResult] = useState<ExtensionsResult | null>(null);
 
+  const reload = () =>
+    start(async () => {
+      const answer = await runAction(loadExtensions, {
+        label: "Could not read the extensions",
+        quiet: true,
+      });
+      setResult(answer ?? { error: "That did not reach the server." });
+    });
+
   return (
     <div className="space-y-3">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            const answer = await runAction(loadExtensions, {
-              label: "Could not read the extensions",
-              quiet: true,
-            });
-            setResult(answer ?? { error: "That did not reach the server." });
-          })
-        }
-      >
+      <Button variant="outline" size="sm" disabled={pending} onClick={reload}>
         {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
         {result ? "Refresh" : "Show me the numbers and extensions"}
       </Button>
@@ -348,22 +345,24 @@ export function ExtensionList() {
                         <td className="px-3 py-2">
                           {e.matchedUser ? (
                             <span className="text-brand-600">Yes — {e.matchedUser}</span>
-                          ) : e.suggestedUser ? (
-                            <span className="text-amber-700 dark:text-amber-300">
-                              No. Same email as{" "}
-                              <Link
-                                href={`/admin/users/${e.suggestedUser.id}`}
-                                className="font-medium underline"
-                              >
-                                {e.suggestedUser.name}
-                              </Link>{" "}
-                              — put {e.extensionNumber} on them
-                            </span>
                           ) : (
-                            <span className="text-muted-foreground">
-                              No, and nobody obvious to match. Their calls will be credited to
-                              whoever owns the account.
-                            </span>
+                            /*
+                             * Fixed here, in one click, rather than described.
+                             *
+                             * This used to be a sentence pointing at another
+                             * screen. Forty extensions, forty round trips to a
+                             * user record and back, each one an opportunity to
+                             * type the wrong number and credit one broker's
+                             * calls to another. The whole reason the list is
+                             * read is to close this gap, so the control that
+                             * closes it belongs on the row.
+                             */
+                            <AttachExtension
+                              extension={e.extensionNumber}
+                              people={result.people ?? []}
+                              suggested={e.suggestedUser}
+                              onDone={reload}
+                            />
                           )}
                         </td>
                       </tr>
@@ -383,6 +382,86 @@ export function ExtensionList() {
   );
 }
 
+
+/**
+ * Put an extension on a person, from the row that shows it is missing.
+ *
+ * ---------------------------------------------------------------------------
+ * Pre-selected to the suggested match when there is one -- somebody with the
+ * same email address and no extension yet -- but never applied on its own. An
+ * email address is a good guess, not a fact, and putting the wrong extension on
+ * somebody credits their colleague's calls to them from that moment on. One
+ * click to accept a guess is quick; a guess applied silently is a data problem
+ * discovered in a commission meeting.
+ * ---------------------------------------------------------------------------
+ */
+function AttachExtension({
+  extension,
+  people,
+  suggested,
+  onDone,
+}: {
+  extension: string;
+  people: { id: string; name: string }[];
+  suggested: { id: string; name: string } | null;
+  onDone: () => void;
+}) {
+  const [who, setWho] = useState(suggested?.id ?? "");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <select
+          value={who}
+          onChange={(event) => setWho(event.target.value)}
+          className="h-8 max-w-[14rem] rounded-md border bg-transparent px-2 text-xs"
+          aria-label={`Who uses extension ${extension}`}
+        >
+          <option value="">Nobody yet — pick a person</option>
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          disabled={pending || !who}
+          onClick={() =>
+            start(async () => {
+              setError(null);
+              try {
+                const answer = await claimExtension(who, extension);
+                if (answer.error) setError(answer.error);
+                else onDone();
+              } catch (err) {
+                setError(describe(err));
+              }
+            })
+          }
+        >
+          {pending ? "Attaching…" : "Attach"}
+        </Button>
+      </div>
+      {suggested && who === suggested.id ? (
+        <p className="text-xs text-muted-foreground">
+          Suggested — same email address, and no extension on them yet.
+        </p>
+      ) : null}
+      {!suggested && people.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Nobody obvious to match. Until this is set, calls from {extension} are credited to
+          whoever owns the account.
+        </p>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
 
 /**
  * The whole chain of causes, not just the outermost one.

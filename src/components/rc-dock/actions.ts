@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { DB_UNCONFIGURED, schema, tryGetDb } from "@/lib/db";
 import { qualify, toRule } from "@/lib/qualify";
 import { toE164 } from "@/lib/phone";
@@ -140,19 +140,16 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
    * Scoped by user_id, which 0033 added -- before that these rows did not know
    * whose call they were and could only ever be shown to a manager.
    *
-   * Plus, for the people who triage, the ones that belong to NOBODY. An
-   * extension the CRM does not recognise leaves user_id null, and that is not a
-   * rare edge -- it is the state every account is in until somebody maps the
-   * extensions, which is to say it is the state on the day this is first
-   * switched on. Those calls would otherwise appear in no dock at all, and the
-   * person setting it up would conclude nothing is arriving when everything is.
+   * Own calls only, managers included. Asked and answered: "Every person only
+   * ever sees calls from their own extension. Managers included -- they would
+   * use Reports for oversight instead of the dock."
    *
-   * Deliberately NOT "a manager sees everybody's calls". An unclaimed call is
-   * unowned work; a colleague's call is theirs. The first belongs in the dock
-   * of whoever can sort it out, the second does not.
+   * So a call from an extension nobody has claimed appears in NO dock. That is
+   * a real gap and it is handled by saying so rather than by leaking: the dock
+   * reports how many such calls exist and points at the screen where an
+   * extension is attached to a person, and attaching it hands every one of
+   * those calls back to whoever made them.
    */
-  const triages = ["manager", "credit", "admin"].includes(user.role);
-
   const orphans = await db
     .select({
       id: schema.unmatchedActivities.id,
@@ -163,18 +160,11 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
       result: schema.unmatchedActivities.result,
       occurredAt: schema.unmatchedActivities.occurredAt,
       createdAt: schema.unmatchedActivities.createdAt,
-      userId: schema.unmatchedActivities.userId,
-      extensionId: schema.unmatchedActivities.extensionId,
     })
     .from(schema.unmatchedActivities)
     .where(
       and(
-        triages
-          ? or(
-              eq(schema.unmatchedActivities.userId, user.id),
-              isNull(schema.unmatchedActivities.userId),
-            )
-          : eq(schema.unmatchedActivities.userId, user.id),
+        eq(schema.unmatchedActivities.userId, user.id),
         isNull(schema.unmatchedActivities.resolvedAt),
       ),
     )
@@ -197,14 +187,7 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     loggedAt: null,
     stageOutcome: null,
     qualifies: false,
-    qualificationReason:
-      (EXPLAIN_UNMATCHED[r.reason] ?? r.reason) +
-      // Named, because an unclaimed call is not the same problem as an
-      // unrecognised number and the fix is different: this one is somebody's
-      // extension missing from their user record, not a contact missing a phone.
-      (r.userId === null && r.extensionId
-        ? ` Nobody is recorded against extension ${r.extensionId}, so this is not credited to anyone yet.`
-        : ""),
+    qualificationReason: EXPLAIN_UNMATCHED[r.reason] ?? r.reason,
     reason: r.reason,
   }));
 
@@ -223,6 +206,144 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
       return b.occurredAt.localeCompare(a.occurredAt);
     })
     .slice(0, limit);
+}
+
+export interface LiveCall {
+  id: string;
+  accountId: string | null;
+  accountName: string | null;
+  contactName: string | null;
+  phone: string | null;
+  direction: string | null;
+  /** 'ringing' | 'answered' | 'ended' */
+  state: string;
+  /** ISO. The second counter runs from here once they have picked up. */
+  answeredAt: string | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+/**
+ * The calls happening right now, on this person's own handset.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "If I make a call right now it needs to show there even if the person
+ * has not even picked up. with a live second counter."
+ *
+ * Their own only, and that was asked about rather than assumed: "Every person
+ * only ever sees calls from their own extension. Managers included." A dock
+ * showing a manager who each of their brokers is talking to at this second is
+ * surveillance; Reports are where oversight belongs.
+ *
+ * Ended calls are included for a few minutes rather than disappearing the
+ * instant somebody hangs up. A call that vanishes at the exact moment it
+ * finishes is the moment somebody looks down to write it up.
+ * ---------------------------------------------------------------------------
+ */
+export async function liveCalls(): Promise<LiveCall[]> {
+  const db = tryGetDb();
+  if (!db) return [];
+  const user = await currentUser();
+  if (!user) return [];
+
+  const rows = await db
+    .select({
+      id: schema.liveCalls.telephonySessionId,
+      accountId: schema.liveCalls.accountId,
+      accountName: schema.accounts.name,
+      contactFirst: schema.contacts.firstName,
+      contactLast: schema.contacts.lastName,
+      counterpartyName: schema.liveCalls.counterpartyName,
+      phone: schema.liveCalls.counterpartyNumber,
+      direction: schema.liveCalls.direction,
+      state: schema.liveCalls.state,
+      startedAt: schema.liveCalls.startedAt,
+      answeredAt: schema.liveCalls.answeredAt,
+      endedAt: schema.liveCalls.endedAt,
+    })
+    .from(schema.liveCalls)
+    .leftJoin(schema.accounts, eq(schema.accounts.id, schema.liveCalls.accountId))
+    .leftJoin(schema.contacts, eq(schema.contacts.id, schema.liveCalls.contactId))
+    .where(
+      and(
+        eq(schema.liveCalls.userId, user.id),
+        // Still going, or only just over.
+        sql`(${schema.liveCalls.endedAt} is null or ${schema.liveCalls.endedAt} > now() - interval '3 minutes')`,
+      ),
+    )
+    .orderBy(desc(schema.liveCalls.startedAt))
+    .limit(5);
+
+  return rows.map((r) => ({
+    id: r.id,
+    accountId: r.accountId,
+    accountName: r.accountName,
+    contactName: r.contactFirst
+      ? `${r.contactFirst} ${r.contactLast}`.trim()
+      : (r.counterpartyName ?? null),
+    phone: r.phone,
+    direction: r.direction,
+    state: r.state,
+    startedAt: r.startedAt.toISOString(),
+    answeredAt: r.answeredAt?.toISOString() ?? null,
+    endedAt: r.endedAt?.toISOString() ?? null,
+  }));
+}
+
+export interface DockHealth {
+  /** The signed-in person's RingCentral extension, when one is recorded. */
+  extension: string | null;
+  /** Calls sitting unattributed because their extension matches nobody. */
+  unclaimed: number;
+  /** True when this person may go and fix that. */
+  canFix: boolean;
+}
+
+/**
+ * Why the dock might be empty when the phone has been ringing all morning.
+ *
+ * ---------------------------------------------------------------------------
+ * A call is credited to whoever made it by matching its extension against
+ * users.rc_extension_id. Until that mapping exists nothing matches, so a person
+ * with no extension recorded sees an empty dock forever -- and everything else
+ * on every screen looks perfectly healthy, because the calls DID arrive.
+ *
+ * Since the dock shows only your own calls, this is the difference between "no
+ * calls today" and "every call today went somewhere you cannot see". Those need
+ * completely different actions and they look identical, so the dock says which.
+ * ---------------------------------------------------------------------------
+ */
+export async function dockHealth(): Promise<DockHealth> {
+  const db = tryGetDb();
+  const user = await currentUser();
+  if (!db || !user) return { extension: null, unclaimed: 0, canFix: false };
+
+  const [me] = await db
+    .select({ extension: schema.users.rcExtensionId })
+    .from(schema.users)
+    .where(eq(schema.users.id, user.id))
+    .limit(1);
+
+  if (me?.extension) return { extension: me.extension, unclaimed: 0, canFix: false };
+
+  // Only worth counting when they have no extension: that is the only state in
+  // which this number explains anything.
+  const orphaned = await db
+    .select({ id: schema.unmatchedActivities.id })
+    .from(schema.unmatchedActivities)
+    .where(
+      and(
+        isNull(schema.unmatchedActivities.userId),
+        isNull(schema.unmatchedActivities.resolvedAt),
+      ),
+    )
+    .limit(200);
+
+  return {
+    extension: null,
+    unclaimed: orphaned.length,
+    canFix: user.role === "admin",
+  };
 }
 
 /**

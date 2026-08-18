@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { extractExternalId, storeRawEvent } from "@/lib/ingest";
 import { webhookLog } from "@/lib/logger";
 import { enqueueProcessing } from "@/lib/queue";
+import { isTelephonyEvent, parseTelephonyEvent, recordLiveCall } from "@/lib/ringcentral/live";
 
 // postgres.js needs a real Node runtime, not the edge one.
 export const runtime = "nodejs";
@@ -66,7 +67,30 @@ export async function POST(req: Request) {
   }
 
   try {
-    // --- 2. Store first, interpret later ---------------------------------
+    /*
+     * --- 2a. A call in progress takes a different road ---------------------
+     *
+     * Telephony session events describe ONE call repeatedly -- ringing, then
+     * answered, then ended -- every event carrying the same session id. Sent
+     * through storeRawEvent they would collide on the (source, external_id)
+     * unique index, so only the first would survive and the call would show as
+     * ringing forever. They upsert a single row instead, keyed on the session.
+     *
+     * No activity is created here and the qualifier is not consulted. The
+     * completed record arrives separately from RingCentral's call log, with the
+     * duration and result that a ringing phone does not have yet.
+     */
+    if (isTelephonyEvent(payload)) {
+      const event = parseTelephonyEvent(payload);
+      if (event) {
+        await recordLiveCall(db, event);
+        return new Response("ok", { status: 200 });
+      }
+      webhookLog.warn("received a telephony event with no readable session");
+      return new Response("ok", { status: 200 });
+    }
+
+    // --- 2b. Store first, interpret later ---------------------------------
     const externalId = extractExternalId(payload, "ringcentral");
     const { id, isNew } = await storeRawEvent(db, "ringcentral", externalId, payload);
 
