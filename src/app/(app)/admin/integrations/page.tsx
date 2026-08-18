@@ -149,11 +149,38 @@ export default async function IntegrationsPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Check <code className="rounded bg-muted px-1 py-0.5 text-xs">DATABASE_URL</code> in
             the deployment&apos;s environment variables. If the database was reset or its password
-            rotated, this is the setting that goes stale.
+            rotated, this is the setting that goes stale. For a straight answer on which
+            dependency is failing, open{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">/api/health?key=…</code>.
           </p>
           {status.databaseError ? (
             <p className="mt-2 font-mono text-xs text-destructive">{status.databaseError}</p>
           ) : null}
+        </div>
+      ) : null}
+
+      {/*
+        A query that failed for a reason we could not name.
+
+        Only when the schema check below found nothing, so this is the residual
+        case rather than a second copy of the same news. Shown at all because
+        the alternative -- a silently short list and no explanation -- is the
+        failure mode this whole screen exists to remove.
+      */}
+      {status.databaseReachable && status.databaseError && status.schemaGaps.length === 0 ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            The database answered, but one of these reads failed.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Some of what is shown below may be incomplete. This is usually a database change that
+            has not been applied yet — open{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">/api/setup?key=…</code> and
+            press <strong>Apply database changes</strong>.
+          </p>
+          <p className="mt-2 font-mono text-xs text-amber-900 dark:text-amber-200">
+            {status.databaseError}
+          </p>
         </div>
       ) : null}
 

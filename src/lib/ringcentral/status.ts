@@ -109,6 +109,14 @@ export interface PipelineState {
   /** Set when these numbers could not be read at all. They are then not facts. */
   unreachable?: string;
   /**
+   * Set when the counts read fine but the call list did not.
+   *
+   * Almost always a column a migration has not applied yet, which is a
+   * completely different problem from an unreachable database and has a
+   * completely different fix.
+   */
+  recentError?: string;
+  /**
    * The calls themselves, newest first, whoever they were credited to.
    *
    * -------------------------------------------------------------------------
@@ -299,6 +307,63 @@ async function subscriptionState(): Promise<SubscriptionState> {
  * when they already suspect something is wrong, and a status page that takes
  * four seconds to say "everything is fine" gets read as part of the problem.
  */
+
+/**
+ * What actually went wrong, rather than the query that went wrong.
+ *
+ * ===========================================================================
+ * Drizzle wraps every database failure in a DrizzleQueryError whose message is
+ * the literal SQL. So a missing column arrived on screen as four hundred
+ * characters of SELECT with the reason nowhere in it -- and the page, seeing
+ * only that something failed, reported the database as unreachable and sent
+ * somebody to check DATABASE_URL. It was reachable. One column was missing.
+ *
+ * Postgres' own message sits on `.cause`, sometimes two deep. It is a sentence:
+ * "column a.extension_id does not exist". That is the whole diagnosis, and it
+ * was being thrown away in favour of the thing that is never the answer.
+ * ===========================================================================
+ */
+export interface DbFailure {
+  /** Postgres' own sentence, when there is one. */
+  message: string;
+  /** SQLSTATE, which is how the KIND of failure is decided rather than guessed. */
+  code: string | null;
+}
+
+export function describeDbError(err: unknown): DbFailure {
+  let current: unknown = err;
+  let best: string | null = null;
+  let code: string | null = null;
+
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const e = current as { message?: string; code?: string; cause?: unknown };
+    if (e?.code && !code) code = String(e.code);
+    // The innermost message that is not Drizzle quoting the query back at us.
+    if (e?.message && !/^Failed query:/.test(e.message)) best = e.message;
+    current = e?.cause;
+  }
+
+  return {
+    message: best ?? (err instanceof Error ? err.message : String(err)),
+    code,
+  };
+}
+
+/**
+ * Is this a database we cannot REACH, or one that answered and said no?
+ *
+ * The two need opposite actions -- check DATABASE_URL versus apply the pending
+ * migrations -- and telling somebody the wrong one costs them an afternoon.
+ * Decided on SQLSTATE rather than on the wording, because wording changes.
+ */
+export function isUnreachable(failure: DbFailure): boolean {
+  // 42P01 undefined_table, 42703 undefined_column, 42883 undefined_function:
+  // the connection is fine, the schema is behind.
+  if (failure.code && ["42P01", "42703", "42883"].includes(failure.code)) return false;
+  if (/does not exist/i.test(failure.message)) return false;
+  return true;
+}
+
 async function pipelineState(): Promise<PipelineState> {
   const empty: PipelineState = {
     lastCallAt: null,
@@ -344,7 +409,20 @@ async function pipelineState(): Promise<PipelineState> {
      * newest first, because "the call I made ten minutes ago" is the row being
      * looked for and it should be at the top whichever road it took.
      */
-    const recent = asRows<Record<string, string | null>>(
+    /*
+     * Its own try, separate from the counts above.
+     *
+     * These two reads fail for different reasons and one must not take the
+     * other down. The list touches activities.extension_id, a column a recent
+     * migration added -- so on a database that is behind the deployment it
+     * fails while the counts are perfectly readable. Sharing a try meant one
+     * missing column blanked the entire screen and reported the database as
+     * unreachable, which is a different problem with a different fix.
+     */
+    let recent: ArrivedCall[] = [];
+    let recentError: string | undefined;
+    try {
+      recent = asRows<Record<string, string | null>>(
       await withDeadline(db.execute(sql`
         select * from (
           select a.occurred_at            as at,
@@ -378,17 +456,20 @@ async function pipelineState(): Promise<PipelineState> {
         order by at desc nulls last
         limit 20
       `), { label: "The database" }),
-    ).map((r) => ({
-      at: String(r.at ?? ""),
-      phone: r.phone ?? null,
-      direction: r.direction ?? null,
-      durationSeconds: r.duration_seconds == null ? null : Number(r.duration_seconds),
-      result: r.result ?? null,
-      landed: (r.landed === "queued" ? "queued" : "filed") as "filed" | "queued",
-      company: r.company ?? null,
-      creditedTo: r.credited_to ?? null,
-      extension: r.extension ?? null,
-    }));
+      ).map((r) => ({
+        at: String(r.at ?? ""),
+        phone: r.phone ?? null,
+        direction: r.direction ?? null,
+        durationSeconds: r.duration_seconds == null ? null : Number(r.duration_seconds),
+        result: r.result ?? null,
+        landed: (r.landed === "queued" ? "queued" : "filed") as "filed" | "queued",
+        company: r.company ?? null,
+        creditedTo: r.credited_to ?? null,
+        extension: r.extension ?? null,
+      }));
+    } catch (err) {
+      recentError = describeDbError(err).message;
+    }
 
     return {
       lastCallAt: rows.last_call_at ?? null,
@@ -399,12 +480,19 @@ async function pipelineState(): Promise<PipelineState> {
       usersWithoutExtension: n(rows.no_extension),
       totalCallers: n(rows.callers),
       recent,
+      recentError,
     };
   } catch (err) {
     // A status page that cannot read the database still has useful things to
     // say about the credentials and the subscription -- but it must not report
-    // the zeros as facts. The reason travels with them.
-    return { ...empty, unreachable: err instanceof Error ? err.message : String(err) };
+    // the zeros as facts. The reason travels with them, and it is Postgres'
+    // reason rather than the query that provoked it.
+    const failure = describeDbError(err);
+    return {
+      ...empty,
+      unreachable: isUnreachable(failure) ? failure.message : undefined,
+      recentError: isUnreachable(failure) ? undefined : failure.message,
+    };
   }
 }
 
@@ -483,7 +571,7 @@ export async function ringCentralStatus(): Promise<RingCentralStatus> {
   return {
     schemaGaps: gaps,
     databaseReachable: !pipeline.unreachable,
-    databaseError: pipeline.unreachable ?? null,
+    databaseError: pipeline.unreachable ?? pipeline.recentError ?? null,
     configured: env.ringCentralConfigured,
     sandbox: /devtest|sandbox/i.test(server),
     server,

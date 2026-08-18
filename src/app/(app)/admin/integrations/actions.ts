@@ -453,8 +453,15 @@ function explain(err: unknown): string {
   let current: unknown = err;
   for (let depth = 0; depth < 4 && current; depth++) {
     const e = current as { message?: string; cause?: unknown };
-    if (e?.message && !parts.includes(e.message)) parts.push(e.message);
+    /*
+     * Drizzle's wrapper message is the literal SQL, four hundred characters of
+     * it, and it is never the answer -- Postgres' own sentence is one level
+     * further down on `.cause`. Leading with the query pushed the reason off
+     * the end of the box it was displayed in.
+     */
+    const useful = e?.message && !/^Failed query:/.test(e.message);
+    if (useful && !parts.includes(e.message!)) parts.push(e.message!);
     current = e?.cause;
   }
-  return parts.join(" — ") || String(err);
+  return parts.join(" — ") || (err instanceof Error ? err.message : String(err));
 }
