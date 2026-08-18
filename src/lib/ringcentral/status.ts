@@ -1,6 +1,6 @@
 import "server-only";
 import { sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { db, withDeadline } from "@/lib/db";
 import { env } from "@/lib/env";
 import { asRows } from "@/lib/jobs/registry";
 
@@ -106,6 +106,8 @@ export interface PipelineState {
   /** People who can make calls but have no extension number recorded. */
   usersWithoutExtension: number;
   totalCallers: number;
+  /** Set when these numbers could not be read at all. They are then not facts. */
+  unreachable?: string;
   /**
    * The calls themselves, newest first, whoever they were credited to.
    *
@@ -134,6 +136,17 @@ export interface RingCentralStatus {
   pipeline: PipelineState;
   /** Empty when the database is up to date. Anything here breaks call logging. */
   schemaGaps: SchemaGap[];
+  /**
+   * False when the direct Postgres connection did not answer.
+   *
+   * Without this the page lies. Every count below comes from that connection,
+   * and a failed read falls back to zero -- so an unreachable database renders
+   * as "no calls have ever arrived", which is the most alarming possible way to
+   * say "we could not check".
+   */
+  databaseReachable: boolean;
+  /** Why it was not reachable, when it was not. */
+  databaseError: string | null;
 }
 
 const WEBHOOK_PATH = "/api/webhooks/ringcentral";
@@ -300,7 +313,7 @@ async function pipelineState(): Promise<PipelineState> {
 
   try {
     const rows = asRows<Record<string, string | null>>(
-      await db.execute(sql`
+      await withDeadline(db.execute(sql`
         select
           (select max(received_at)::text from raw_events where source = 'ringcentral')     as last_call_at,
           (select count(*)::text from raw_events
@@ -316,7 +329,7 @@ async function pipelineState(): Promise<PipelineState> {
               and coalesce(rc_extension_id, '') = '')                                      as no_extension,
           (select count(*)::text from users
             where active and role in ('broker','manager','ad'))                            as callers
-      `),
+      `), { label: "The database" }),
     )[0];
 
     if (!rows) return empty;
@@ -332,7 +345,7 @@ async function pipelineState(): Promise<PipelineState> {
      * looked for and it should be at the top whichever road it took.
      */
     const recent = asRows<Record<string, string | null>>(
-      await db.execute(sql`
+      await withDeadline(db.execute(sql`
         select * from (
           select a.occurred_at            as at,
                  c.phone_e164             as phone,
@@ -364,7 +377,7 @@ async function pipelineState(): Promise<PipelineState> {
         ) both
         order by at desc nulls last
         limit 20
-      `),
+      `), { label: "The database" }),
     ).map((r) => ({
       at: String(r.at ?? ""),
       phone: r.phone ?? null,
@@ -387,10 +400,11 @@ async function pipelineState(): Promise<PipelineState> {
       totalCallers: n(rows.callers),
       recent,
     };
-  } catch {
+  } catch (err) {
     // A status page that cannot read the database still has useful things to
-    // say about the credentials and the subscription.
-    return empty;
+    // say about the credentials and the subscription -- but it must not report
+    // the zeros as facts. The reason travels with them.
+    return { ...empty, unreachable: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -436,7 +450,7 @@ async function schemaGaps(): Promise<SchemaGap[]> {
   try {
     const present = new Set(
       asRows<{ key: string }>(
-        await db.execute(sql`
+        await withDeadline(db.execute(sql`
           select table_name || '.' || column_name as key
             from information_schema.columns
            where table_schema = 'public'
@@ -444,7 +458,7 @@ async function schemaGaps(): Promise<SchemaGap[]> {
           select table_name
             from information_schema.tables
            where table_schema = 'public'
-        `),
+        `), { label: "The database" }),
       ).map((r) => r.key),
     );
 
@@ -468,6 +482,8 @@ export async function ringCentralStatus(): Promise<RingCentralStatus> {
 
   return {
     schemaGaps: gaps,
+    databaseReachable: !pipeline.unreachable,
+    databaseError: pipeline.unreachable ?? null,
     configured: env.ringCentralConfigured,
     sandbox: /devtest|sandbox/i.test(server),
     server,

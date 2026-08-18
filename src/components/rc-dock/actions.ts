@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { DB_UNCONFIGURED, schema, tryGetDb } from "@/lib/db";
+import { DB_UNCONFIGURED, schema, tryGetDb, withDeadline } from "@/lib/db";
 import { qualify, toRule } from "@/lib/qualify";
 import { toE164 } from "@/lib/phone";
 import { currentUser } from "@/lib/supabase/server";
@@ -94,7 +94,10 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
   if (!user) return [];
 
   try {
-    return await readRecentCalls(db, user.id, limit);
+    // Deadline, not just a catch. The direct Postgres connection can accept a
+    // query and never answer it, and this runs on every screen -- an await that
+    // never settles is a dock stuck on "Loading…" with nothing to click.
+    return await withDeadline(readRecentCalls(db, user.id, limit), { label: "Your calls" });
   } catch (err) {
     /*
      * The comment above was a statement of intent with nothing enforcing it.
@@ -269,7 +272,7 @@ export async function liveCalls(): Promise<LiveCall[]> {
   if (!user) return [];
 
   try {
-    return await readLiveCalls(db, user.id);
+    return await withDeadline(readLiveCalls(db, user.id), { ms: 5_000, label: "Live calls" });
   } catch (err) {
     /*
      * The dock is on every screen, and this runs every four seconds.
@@ -363,7 +366,10 @@ export async function dockHealth(): Promise<DockHealth> {
   if (!db || !user) return { extension: null, unclaimed: 0, canFix: false };
 
   try {
-    return await readDockHealth(db, user.id, user.role);
+    return await withDeadline(readDockHealth(db, user.id, user.role), {
+      ms: 5_000,
+      label: "The dock",
+    });
   } catch (err) {
     // Same reasoning as liveCalls: a diagnostic that throws takes down the
     // thing it was meant to explain.

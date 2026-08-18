@@ -42,14 +42,92 @@ declare global {
 export function getDb(): Db {
   if (!globalThis.__crmDb) {
     globalThis.__crmSql ??= postgres(env.DATABASE_URL, {
-      max: 1,
+      /*
+       * Three, not one.
+       *
+       * `max: 1` was chosen so a hundred serverless instances could not exhaust
+       * Postgres' connection limit, and against Supavisor that caution was
+       * already being applied on our behalf. What it actually bought was a
+       * single point of wedging: postgres.js queues queries behind the one
+       * connection, and a query that never returns blocks every later query on
+       * that instance FOREVER -- including the ones that would have rendered a
+       * page saying something was wrong.
+       *
+       * Three is still modest per instance and means one stuck query is a slow
+       * screen rather than a dead deployment.
+       */
+      max: 3,
       prepare: false,
       idle_timeout: 20,
       connect_timeout: 10,
+      /*
+       * Recycle connections rather than trusting them indefinitely. A pooled
+       * connection that has been silently dropped in the middle -- an idle
+       * timeout at the pooler, a failover, a network path that went away --
+       * looks perfectly healthy from this side and answers no query ever again.
+       */
+      max_lifetime: 60 * 30,
     });
     globalThis.__crmDb = drizzle(globalThis.__crmSql, { schema }) as unknown as Db;
   }
   return globalThis.__crmDb;
+}
+
+/**
+ * A query that is allowed to fail, but not allowed to hang.
+ *
+ * ===========================================================================
+ * WHY THIS EXISTS, AND WHY IT IS NOT PARANOIA
+ *
+ * The Phone connection screen rendered a loading skeleton and never anything
+ * else. Not a crash -- there are error boundaries and they never fired -- and
+ * not the RingCentral timeouts either, which were the first suspicion and were
+ * genuinely missing but were not this.
+ *
+ * It was the DATABASE. Every other screen in the application reads through
+ * Supabase's HTTP API, which fails fast and visibly. Exactly one page reads the
+ * direct Postgres connection while it renders, and the phone dock -- on every
+ * screen -- reads it too. Both hung; everything else was fine. That is the
+ * whole diagnosis, and it is only visible if you notice which of the two
+ * database clients each screen uses.
+ *
+ * postgres.js waits forever for an answer. connect_timeout covers only getting
+ * a connection in the first place; once connected, a query that is never
+ * answered is a promise that never settles, and a server component awaiting it
+ * is a page that never renders. No error, no boundary, no way to tell it apart
+ * from a slow network.
+ *
+ * So anything a person is waiting on gets a deadline. The failure then arrives
+ * as a sentence on a screen naming the database, which is a thing somebody can
+ * act on, instead of a skeleton that means nothing.
+ * ===========================================================================
+ */
+export async function withDeadline<T>(
+  work: Promise<T>,
+  { ms = 8_000, label = "the database" }: { ms?: number; label?: string } = {},
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `${label} did not answer within ${ms / 1000}s. The deployment may not be able ` +
+                  "to reach Postgres directly — check DATABASE_URL.",
+              ),
+            ),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    // The losing promise keeps running either way; this only stops the timer
+    // from holding the event loop open after a fast answer.
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**

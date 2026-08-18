@@ -179,6 +179,8 @@ const RC_BASE = {
     recent: [],
   },
   schemaGaps: [],
+  databaseReachable: true,
+  databaseError: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -706,6 +708,26 @@ describe("the phone connection screen, in every state it can be in", () => {
 
   it("renders before anything has been set up", async () => {
     rcStatus = RC_BASE;
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("says so when the direct database connection is not answering", async () => {
+    /*
+     * The failure that cost two rounds of guessing.
+     *
+     * Every other screen reads through Supabase's web API; this one, and the
+     * phone dock, read Postgres directly. When that connection stops answering
+     * the application looks entirely healthy -- sidebar, badges, every list --
+     * and this page hangs with no error. Worse, the counts here fall back to
+     * zero, so an unreachable database would otherwise render as "no calls have
+     * ever arrived", which is a confident wrong answer rather than a missing one.
+     */
+    rcStatus = {
+      ...RC_BASE,
+      configured: true,
+      databaseReachable: false,
+      databaseError: "The database did not answer within 8s.",
+    };
     await expect(render(screen(), {})).resolves.toBeUndefined();
   });
 

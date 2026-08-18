@@ -1,152 +1,178 @@
-import { headers } from "next/headers";
-import { NextResponse } from "next/server";
-import { createClient, loadCurrentUser } from "@/lib/supabase/server";
-import { SUPABASE_URL } from "@/lib/supabase/keys";
+import { timingSafeEqual } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { tryGetDb, withDeadline } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Where the time actually goes.
+ * Which of the four things this application depends on are actually answering.
  *
- * ---------------------------------------------------------------------------
- * "The screens are slow" is not something anybody can act on, and guessing at
- * it produces changes that feel like progress and are not. Nearly all of the
- * time in this application is spent waiting for Supabase, so the useful
- * question is a narrow one: how long does ONE round trip take from this server,
- * and how many is a screen making?
+ * ===========================================================================
+ * WHY THIS EARNED ITS PLACE
  *
- * This times each kind of call separately, from inside the deployment, so the
- * answer includes the network between Vercel and Supabase -- which is the part
- * that varies, and the part that no amount of local testing reveals.
+ * Two rounds were spent guessing at a screen that rendered a loading skeleton
+ * forever. The first guess -- RingCentral requests with no timeout -- was a real
+ * bug, was fixed, and was not the cause. Guessing is expensive and it is
+ * expensive in the worst place: somebody redeploys, waits, and reports back
+ * that it is still broken.
  *
- * The number that matters most is `regionsMatch`. A Vercel deployment in one
- * continent and a Supabase project in another turns every one of these into a
- * transatlantic round trip, and a screen making eight of them is then slow for
- * a reason no code change can fix.
- * ---------------------------------------------------------------------------
+ * The reason it was hard is that this application talks to Postgres in TWO
+ * WAYS, and they fail independently:
+ *
+ *   Supabase's web API -- every ordinary screen, every list, the sidebar.
+ *   A direct Postgres connection -- the phone pipeline, the webhook receiver,
+ *     the jobs, and exactly one page.
+ *
+ * When the direct connection stops answering, the application looks entirely
+ * healthy. The sidebar has its badges, every list loads, and the one screen
+ * that reads Postgres directly hangs with no error. Nothing on any screen
+ * distinguishes that from a slow network.
+ *
+ * WHY IT IS SAFE TO EXPOSE
+ *
+ * It is behind SETUP_SECRET, the same key the setup page uses, and it returns
+ * only whether each dependency answered and how long it took. No data, no
+ * credentials -- not even which credentials exist, which the admin screen does
+ * show, because that screen is behind a login and this is not.
+ *
+ * Every check is deadlined. A health check that can hang is not a health check.
+ * ===========================================================================
  */
-export async function GET() {
-  const lookup = await loadCurrentUser();
-  if (!lookup.user) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+
+function keyMatches(presented: string | null): boolean {
+  const expected = process.env.SETUP_SECRET;
+  if (!expected || !presented) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) {
+    timingSafeEqual(b, b);
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
+interface Check {
+  what: string;
+  ok: boolean;
+  ms: number;
+  detail: string;
+}
+
+async function timed(what: string, work: () => Promise<string>): Promise<Check> {
+  const started = Date.now();
+  try {
+    const detail = await work();
+    return { what, ok: true, ms: Date.now() - started, detail };
+  } catch (err) {
+    return {
+      what,
+      ok: false,
+      ms: Date.now() - started,
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function GET(req: Request) {
+  if (!keyMatches(new URL(req.url).searchParams.get("key"))) {
+    return Response.json({ error: "Add ?key= and your SETUP_SECRET." }, { status: 403 });
   }
 
-  const timings: Record<string, number | string> = {};
-  const time = async (name: string, run: () => PromiseLike<unknown>) => {
-    const started = performance.now();
-    try {
-      await run();
-      timings[name] = Math.round(performance.now() - started);
-    } catch (err) {
-      timings[name] = `failed after ${Math.round(performance.now() - started)}ms: ${
-        (err as Error)?.message ?? String(err)
-      }`;
-    }
-  };
+  const checks: Check[] = [];
 
-  const supabase = await createClient();
-
-  // Sequentially, deliberately. Run together they would report the latency of
-  // the slowest rather than the cost of each, and the cost of each is the
-  // thing being measured.
-  await time("authRoundTrip", () => supabase.auth.getUser());
-  await time("oneRowById", () =>
-    supabase.from("users").select("id").eq("id", lookup.user!.id).maybeSingle(),
-  );
-  await time("accountsPage", () =>
-    supabase.from("accounts").select("id, name").limit(50),
-  );
-  await time("lifecycleView", () =>
-    supabase.from("accounts_with_state").select("id, state, days_left").limit(50),
-  );
-  await time("reportWindow", () =>
-    supabase.rpc("report_window", {
-      p_from: new Date(Date.now() - 27 * 86_400_000).toISOString().slice(0, 10),
-      p_to: new Date().toISOString().slice(0, 10),
-      p_scope: "mine",
+  // 1. The direct connection. The one that was broken, and the one nothing
+  //    else on any screen tells you about.
+  checks.push(
+    await timed("Postgres, directly (DATABASE_URL)", async () => {
+      const db = tryGetDb();
+      if (!db) return "DATABASE_URL is not set at all";
+      const rows = await withDeadline(db.execute(sql`select 1 as ok`), {
+        ms: 8_000,
+        label: "Postgres",
+      });
+      const list = Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] })?.rows ?? []);
+      return list.length > 0 ? "answered" : "connected but returned nothing";
     }),
   );
 
-  /*
-   * The one setting the password reset flow needs, spelled out.
-   *
-   * Supabase refuses to send a recovery email whose link points anywhere not on
-   * its allow-list, and the refusal names nothing useful. This deployment is
-   * reached under several names -- production, per-branch, per-deployment -- so
-   * the right value cannot be guessed from a constant. It is printed here,
-   * ready to paste.
-   */
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
-  const proto = h.get("x-forwarded-proto") ?? "https";
-  const origin = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || (host ? `${proto}://${host}` : "");
-
-  const supabaseRegion = hostRegion(SUPABASE_URL);
-  const vercelRegion = process.env.VERCEL_REGION ?? null;
-
-  return NextResponse.json(
-    {
-      note:
-        "Milliseconds per round trip, measured from the server. Anything over about 150ms " +
-        "for a single row is network rather than database, and usually means the two halves " +
-        "are in different regions.",
-      timings,
-      passwordReset: {
-        note:
-          "Password reset emails only work if this exact URL is on Supabase's allow-list: " +
-          "Authentication → URL Configuration → Redirect URLs. Add the wildcard form to cover " +
-          "preview deployments as well.",
-        addThis: origin ? `${origin}/auth/callback` : "(could not determine this deployment's URL)",
-        orWildcard: host ? `${proto}://*.vercel.app/auth/callback` : null,
-        siteUrlOverride: process.env.NEXT_PUBLIC_SITE_URL ?? "(not set — the request host is used)",
-      },
-      where: {
-        vercelRegion,
-        supabaseHost: safeHost(SUPABASE_URL),
-        supabaseRegion,
-        regionsMatch:
-          vercelRegion && supabaseRegion
-            ? sameContinent(vercelRegion, supabaseRegion)
-            : "unknown — deploy on Vercel to see this",
-      },
-    },
-    { headers: { "cache-control": "no-store" } },
+  // 2. Whether the database has had the recent changes applied. A deploy ships
+  //    code; migrations are applied by visiting the setup page, and the gap
+  //    between the two breaks call logging silently.
+  checks.push(
+    await timed("Database schema is current", async () => {
+      const db = tryGetDb();
+      if (!db) return "cannot check without a database connection";
+      const rows = await withDeadline(
+        db.execute(sql`
+          select
+            (select count(*) from information_schema.tables
+              where table_schema = 'public' and table_name = 'live_calls')                as live_calls,
+            (select count(*) from information_schema.columns
+              where table_schema = 'public' and table_name = 'activities'
+                and column_name = 'extension_id')                                          as ext
+        `),
+        { ms: 8_000, label: "Postgres" },
+      );
+      const list = Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] })?.rows ?? []);
+      const row = (list[0] ?? {}) as { live_calls?: number | string; ext?: number | string };
+      const missing = [
+        Number(row.live_calls ?? 0) > 0 ? null : "live_calls",
+        Number(row.ext ?? 0) > 0 ? null : "activities.extension_id",
+      ].filter(Boolean);
+      if (missing.length > 0) {
+        throw new Error(
+          `missing ${missing.join(", ")} — open /api/setup?key=… and press "Apply database changes"`,
+        );
+      }
+      return "up to date";
+    }),
   );
-}
 
-function safeHost(url: string): string | null {
-  try {
-    return new URL(url).host;
-  } catch {
-    return null;
-  }
-}
+  // 3. Supabase's web API, which every ordinary screen uses. Checked separately
+  //    precisely because it can be healthy while the one above is not.
+  checks.push(
+    await timed("Supabase web API", async () => {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!url) return "NEXT_PUBLIC_SUPABASE_URL is not set";
+      // Either name: the publishable key replaced the anon key, and a
+      // deployment configured before that rename still uses the old one.
+      const apikey =
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+        "";
+      const res = await fetch(`${url}/auth/v1/health`, {
+        signal: AbortSignal.timeout(8_000),
+        headers: { apikey },
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`answered ${res.status}`);
+      return "answered";
+    }),
+  );
 
-/**
- * Supabase does not publish the region in the URL, so this is a best effort:
- * the project ref tells us nothing, but a self-hosted or pooled host often
- * carries it. Null simply means "could not tell", not "wrong".
- */
-function hostRegion(url: string): string | null {
-  const host = safeHost(url) ?? "";
-  const match = host.match(/\b(us|eu|ap|sa|ca)-(east|west|north|south|central|northeast|southeast)-\d\b/);
-  return match ? match[0] : null;
-}
+  // 4. RingCentral, last, because it is the only one the application can run
+  //    without.
+  checks.push(
+    await timed("RingCentral sign-in", async () => {
+      const { env } = await import("@/lib/env");
+      if (!env.ringCentralConfigured) return "not configured (calls will not be logged)";
+      const { rcToken, resetTokenCache } = await import("@/lib/ringcentral/client");
+      resetTokenCache();
+      await rcToken();
+      return "signed in";
+    }),
+  );
 
-function sameContinent(vercel: string, supabase: string): boolean | string {
-  const continent = (r: string) => r.slice(0, 2).toLowerCase();
-  const a = continent(vercel);
-  const b = continent(supabase);
-  // Vercel uses iad1/sfo1/fra1/etc rather than AWS names, so only a handful map
-  // cleanly. Anything unrecognised says so instead of guessing.
-  const vercelContinent: Record<string, string> = {
-    ia: "us", cl: "us", pd: "us", sf: "us", // iad1, cle1, pdx1, sfo1
-    fr: "eu", du: "eu", lh: "eu", cd: "eu", ar: "eu", // fra1, dub1, lhr1, cdg1, arn1
-    hn: "ap", ic: "ap", si: "ap", sy: "ap", bo: "ap", kix: "ap",
-    gr: "sa", // gru1
-  };
-  const mapped = vercelContinent[a];
-  if (!mapped) return `unknown Vercel region "${vercel}"`;
-  return mapped === b;
+  const ok = checks.every((c) => c.ok);
+  return Response.json(
+    {
+      ok,
+      // Ordered as the reader should act on them: the first failure is the one
+      // to fix, because the ones after it frequently depend on it.
+      firstProblem: checks.find((c) => !c.ok)?.what ?? null,
+      checks,
+    },
+    { status: ok ? 200 : 503 },
+  );
 }

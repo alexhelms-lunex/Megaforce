@@ -126,6 +126,37 @@ export default async function IntegrationsPage() {
         error, because from the application's point of view the call arrived
         perfectly well. It simply never becomes anything.
       */}
+      {/*
+        First, because when this is wrong nothing else on the page is true.
+
+        Every count below is read over the direct Postgres connection, and a
+        failed read falls back to zero -- so an unreachable database renders as
+        "no calls have ever arrived", which is the most alarming possible way to
+        say "we could not check". This screen exists to stop exactly that kind
+        of confident wrong answer.
+      */}
+      {!status.databaseReachable ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            The server cannot reach the database directly.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The rest of the application still works, because every other screen reads through
+            Supabase&apos;s web API. Calls do not: the phone pipeline writes over a direct
+            Postgres connection, so while this is broken no call can be recorded and the numbers
+            below are blank rather than zero.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Check <code className="rounded bg-muted px-1 py-0.5 text-xs">DATABASE_URL</code> in
+            the deployment&apos;s environment variables. If the database was reset or its password
+            rotated, this is the setting that goes stale.
+          </p>
+          {status.databaseError ? (
+            <p className="mt-2 font-mono text-xs text-destructive">{status.databaseError}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {status.schemaGaps.length > 0 ? (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
           <p className="font-medium text-destructive">
