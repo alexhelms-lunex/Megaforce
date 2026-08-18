@@ -251,6 +251,23 @@ async function activeRule(db: Db, type: ActivityType) {
 }
 
 /**
+ * The person behind an extension, or nobody.
+ *
+ * Separate from resolveUserId because that one falls back to the account owner,
+ * and an unmatched call has no account to fall back to. Here "nobody" is a real
+ * answer: an extension that has not been recorded against a person yet, which
+ * is the state every deployment is in on its first day.
+ */
+export async function userForExtension(db: Db, extensionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.rcExtensionId, extensionId))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * Which rep gets credit. The extension that handled the call, when we know it;
  * otherwise the account owner, because an unattributed call on an account is
  * still that account owner's business.
@@ -343,6 +360,7 @@ async function processCallEvent(
       direction: call.direction,
       durationSeconds: call.durationSeconds,
       result: call.result,
+      extensionId: call.extensionId,
     });
   }
 
@@ -354,6 +372,7 @@ async function processCallEvent(
       direction: call.direction,
       durationSeconds: call.durationSeconds,
       result: call.result,
+      extensionId: call.extensionId,
     });
   }
 
@@ -368,6 +387,7 @@ async function processCallEvent(
       durationSeconds: call.durationSeconds,
       result: call.result,
       candidateAccountIds: accountIds,
+      extensionId: call.extensionId,
     });
   }
 
@@ -521,6 +541,15 @@ interface UnmatchedDetails {
   result?: string | null;
   subject?: string | null;
   candidateAccountIds?: string[];
+  /**
+   * Which extension made the call.
+   *
+   * Recorded even when it belongs to nobody. A call that matched no contact is
+   * still somebody's call, and without this the row does not know whose -- so
+   * it can only ever appear in a manager's review queue, never in the dock of
+   * the one person who knows who it was with.
+   */
+  extensionId?: string | null;
 }
 
 /**
@@ -549,6 +578,11 @@ export async function recordUnmatched(
       subject: details.subject ?? null,
       occurredAt: details.occurredAt ?? null,
       candidateAccountIds: details.candidateAccountIds ?? null,
+      extensionId: details.extensionId ?? null,
+      // Looked up here rather than left for the reader. The extension-to-person
+      // mapping can change -- somebody leaves, a handset is reassigned -- and
+      // the call belongs to whoever held it at the time.
+      userId: details.extensionId ? await userForExtension(db, details.extensionId) : null,
     })
     .onConflictDoNothing()
     .returning({ id: schema.unmatchedActivities.id });

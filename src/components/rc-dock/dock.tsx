@@ -13,7 +13,9 @@ import {
   logCall,
   matchOptions,
   placeCall,
+  attachCall,
   recentCalls,
+  searchCompanies,
   type DockCall,
   type LogResult,
   type MatchOptions,
@@ -53,7 +55,35 @@ export function RcDock() {
     if (open) void refresh();
   }, [open, refresh]);
 
-  const unlogged = calls.filter((c) => !c.loggedAt).length;
+  /*
+   * Live, while the dock is open.
+   *
+   * Alex asked to see calls "live". A call arrives here through a webhook and a
+   * database write, so there is nothing to push to the browser -- polling is
+   * what makes it feel live, and fifteen seconds is comfortably faster than
+   * somebody finishes a call and looks down.
+   *
+   * Only while OPEN and only while the tab is VISIBLE. A dock nobody is looking
+   * at that queries every fifteen seconds all day is a cost with no reader, and
+   * a laptop full of background tabs doing it is worse.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const id = window.setInterval(tick, 15_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [open, refresh]);
+
+  // An unmatched call is outstanding work too -- more so, since nobody has even
+  // said who it was with. Counting only unlogged matched calls understated the
+  // badge by exactly the calls this change exists to surface.
+  const outstanding = calls.filter((c) => c.kind === "unmatched" || !c.loggedAt).length;
 
   if (!open) {
     return (
@@ -64,9 +94,9 @@ export function RcDock() {
       >
         <PhoneIcon />
         RingCentral
-        {unlogged > 0 ? (
+        {outstanding > 0 ? (
           <span className="rounded-full bg-destructive px-1.5 py-0.5 text-xs font-semibold text-destructive-foreground">
-            {unlogged}
+            {outstanding}
           </span>
         ) : null}
       </button>
@@ -80,7 +110,7 @@ export function RcDock() {
         <span className="text-sm font-semibold">RingCentral</span>
         <div className="ml-2 flex gap-1">
           <TabButton active={tab === "calls"} onClick={() => setTab("calls")}>
-            Calls{unlogged > 0 ? ` (${unlogged})` : ""}
+            Calls{outstanding > 0 ? ` (${outstanding})` : ""}
           </TabButton>
           <TabButton active={tab === "dialer"} onClick={() => setTab("dialer")}>
             Dial
@@ -97,6 +127,15 @@ export function RcDock() {
 
       {tab === "dialer" ? (
         <Dialer />
+      ) : selected?.kind === "unmatched" ? (
+        <AttachForm
+          call={selected}
+          onDone={() => {
+            setSelected(null);
+            void refresh();
+          }}
+          onCancel={() => setSelected(null)}
+        />
       ) : selected ? (
         <LogForm
           call={selected}
@@ -149,7 +188,8 @@ function CallList({
   if (calls.length === 0) {
     return (
       <p className="p-4 text-sm text-muted-foreground">
-        No calls yet. They appear here as soon as RingCentral sends them.
+        No calls yet. Every call on your extension appears here within seconds —
+        including ones to numbers nobody has on file.
       </p>
     );
   }
@@ -160,14 +200,23 @@ function CallList({
         <button
           key={call.id}
           onClick={() => onPick(call)}
-          className="flex w-full items-start gap-3 border-b px-3 py-2.5 text-left transition-colors hover:bg-muted"
+          /* An amber left edge on the calls that belong to nobody yet. The list
+             is scanned, not read, and "which of these has no company on it" is
+             the question it gets scanned for. */
+          className={`flex w-full items-start gap-3 border-b border-l-[3px] px-3 py-2.5 text-left transition-colors hover:bg-muted ${
+            call.kind === "unmatched" ? "border-l-amber-400" : "border-l-transparent"
+          }`}
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">
                 {call.accountName ?? call.phone ?? "Unknown number"}
               </span>
-              {!call.loggedAt ? (
+              {call.kind === "unmatched" ? (
+                <Badge variant="destructive" className="shrink-0 text-[10px]">
+                  Whose is this?
+                </Badge>
+              ) : !call.loggedAt ? (
                 <Badge variant="destructive" className="shrink-0 text-[10px]">
                   Needs logging
                 </Badge>
@@ -182,13 +231,15 @@ function CallList({
               )}
             </div>
             <p className="truncate text-xs text-muted-foreground">
-              {call.contactName ?? "no contact matched"} ·{" "}
-              {call.direction ?? "—"} · {formatDuration(call.durationSeconds)}
+              {call.kind === "unmatched"
+                ? "no company on file"
+                : (call.contactName ?? "no contact matched")}{" "}
+              · {call.direction ?? "—"} · {formatDuration(call.durationSeconds)}
               {call.result ? ` · ${call.result}` : ""}
             </p>
             {/* The reason, on the row. "Why didn't my call count" answered
                 where the question gets asked, rather than on another screen. */}
-            {call.loggedAt && !call.qualifies ? (
+            {call.kind === "unmatched" || (call.loggedAt && !call.qualifies) ? (
               <p className="truncate text-xs text-muted-foreground/80">
                 {call.qualificationReason}
               </p>
@@ -449,4 +500,135 @@ function formatWhen(iso: string): string {
   if (mins < 60) return `${mins}m`;
   if (mins < 1440) return `${Math.floor(mins / 60)}h`;
   return `${Math.floor(mins / 1440)}d`;
+}
+
+
+/**
+ * Saying which company an unmatched call was with.
+ *
+ * ---------------------------------------------------------------------------
+ * Deliberately NOT the log form. That form asks for a contact, notes and a
+ * stage, and none of them can be answered yet: there is no contact on file --
+ * that is the whole reason the call is here.
+ *
+ * So this asks the one question that unblocks everything else, and then the
+ * call becomes an ordinary unlogged call which gets written up in the usual
+ * way. Two small steps rather than one form that cannot be completed.
+ *
+ * The company list is every company the person can open, searched as they type,
+ * because by definition the number gives no clue which one it is.
+ * ---------------------------------------------------------------------------
+ */
+function AttachForm({
+  call,
+  onDone,
+  onCancel,
+}: {
+  call: DockCall;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ id: string; name: string; detail: string }[]>([]);
+  const [pending, start] = useTransition();
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setResults([]);
+      return;
+    }
+    /*
+     * Debounced, and the answer is thrown away if a newer keystroke has
+     * happened. Without the second half, a slow reply for "ta" can land after
+     * a fast one for "tanglewood" and the list flips back to the wrong results
+     * under the person's finger.
+     */
+    let live = true;
+    setSearching(true);
+    const id = window.setTimeout(() => {
+      void searchCompanies(query)
+        .then((r) => {
+          if (live) setResults(r);
+        })
+        .finally(() => {
+          if (live) setSearching(false);
+        });
+    }, 200);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+  }, [query]);
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="border-b px-3 py-2.5">
+        <p className="text-sm font-medium">{call.phone ?? "Unknown number"}</p>
+        <p className="text-xs text-muted-foreground">
+          {call.direction ?? "—"} · {formatDuration(call.durationSeconds)}
+          {call.result ? ` · ${call.result}` : ""} · {formatWhen(call.occurredAt)}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{call.qualificationReason}</p>
+      </div>
+
+      <div className="border-b p-3">
+        <label className="text-xs font-medium" htmlFor="attach-search">
+          Which company was this with?
+        </label>
+        <input
+          id="attach-search"
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Start typing a company name…"
+          className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm outline-none focus:border-ring"
+        />
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {query.trim().length < 2 ? (
+          <p className="p-3 text-xs text-muted-foreground">
+            Type at least two letters. Only companies you can open are listed.
+          </p>
+        ) : searching ? (
+          <p className="p-3 text-xs text-muted-foreground">Searching…</p>
+        ) : results.length === 0 ? (
+          <p className="p-3 text-xs text-muted-foreground">
+            Nothing matches. If this company is not in the CRM yet, add it from Prospects and the
+            call will still be here when you come back.
+          </p>
+        ) : (
+          results.map((r) => (
+            <button
+              key={r.id}
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const ok = await runAction(() => attachCall(call.id, r.id), {
+                    label: "Could not attach that call",
+                    quiet: true,
+                  });
+                  if (ok) onDone();
+                })
+              }
+              className="flex w-full flex-col items-start border-b px-3 py-2 text-left transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <span className="text-sm font-medium">{r.name}</span>
+              <span className="text-xs text-muted-foreground">{r.detail}</span>
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="border-t p-3">
+        <button
+          onClick={onCancel}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Back to the list
+        </button>
+      </div>
+    </div>
+  );
 }

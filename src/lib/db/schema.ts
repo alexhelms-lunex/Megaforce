@@ -288,6 +288,14 @@ export const unmatchedActivities = pgTable(
     result: text("result"),
     subject: text("subject"),
     occurredAt: timestamp("occurred_at", { withTimezone: true }),
+    /**
+     * The extension RingCentral said the call came from, kept even when it
+     * matches nobody -- an unrecognised extension is diagnosable later, and a
+     * discarded one is not.
+     */
+    extensionId: text("extension_id"),
+    /** The CRM user that extension belongs to, when there is one. */
+    userId: uuid("user_id").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(now),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedBy: uuid("resolved_by").references(() => users.id),

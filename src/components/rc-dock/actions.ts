@@ -44,6 +44,13 @@ const log = {
 
 export interface DockCall {
   id: string;
+  /**
+   * 'matched' -- the number was on a contact record, so it is already an
+   *   activity against a company and only needs writing up.
+   * 'unmatched' -- the phone system reported it and nobody on file has that
+   *   number. It is a real call that belongs to nobody yet.
+   */
+  kind: "matched" | "unmatched";
   accountId: string | null;
   accountName: string | null;
   contactName: string | null;
@@ -56,13 +63,27 @@ export interface DockCall {
   stageOutcome: string | null;
   qualifies: boolean;
   qualificationReason: string;
+  /** Unmatched only: why it did not land, in words. */
+  reason?: string;
 }
 
 /**
- * The caller's own recent calls.
+ * Every call the phone system reported for this person -- matched or not.
  *
- * Unlogged first regardless of time, because an unlogged call is the only thing
- * on this list that needs doing. A call that has been written up is history.
+ * ---------------------------------------------------------------------------
+ * Alex: "I want it to see all calls connected to the ring central account
+ * live, within our ring central tab. Even calls to number not in the CRM."
+ *
+ * A call whose number is on a contact record becomes an activity and shows up
+ * here. A call to a number nobody has on file used to go to a manager-only
+ * review queue and vanish from the broker's view completely -- which is exactly
+ * backwards, because the person who just made the call is the one person who
+ * knows who it was with.
+ *
+ * Both now come back in one list. Unlogged first regardless of time, because an
+ * unlogged call is the only thing here that needs doing; a call that has been
+ * written up is history.
+ * ---------------------------------------------------------------------------
  */
 export async function recentCalls(limit = 40): Promise<DockCall[]> {
   // The dock renders on every screen. An empty list is a dock with nothing in
@@ -96,8 +117,9 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     .orderBy(sql`(${schema.activities.loggedAt} is not null)`, desc(schema.activities.occurredAt))
     .limit(limit);
 
-  return rows.map((r) => ({
+  const matched: DockCall[] = rows.map((r) => ({
     id: r.id,
+    kind: "matched",
     accountId: r.accountId,
     accountName: r.accountName,
     contactName: r.contactFirst ? `${r.contactFirst} ${r.contactLast}`.trim() : null,
@@ -111,6 +133,204 @@ export async function recentCalls(limit = 40): Promise<DockCall[]> {
     qualifies: r.qualifies,
     qualificationReason: r.qualificationReason,
   }));
+
+  /*
+   * The calls that matched nothing.
+   *
+   * Scoped by user_id, which 0033 added -- before that these rows did not know
+   * whose call they were and could only ever be shown to a manager. An
+   * extension nobody has claimed still leaves user_id null, and those stay in
+   * the review queue rather than appearing in an arbitrary person's dock.
+   */
+  const orphans = await db
+    .select({
+      id: schema.unmatchedActivities.id,
+      reason: schema.unmatchedActivities.reason,
+      phone: schema.unmatchedActivities.phoneE164,
+      direction: schema.unmatchedActivities.direction,
+      durationSeconds: schema.unmatchedActivities.durationSeconds,
+      result: schema.unmatchedActivities.result,
+      occurredAt: schema.unmatchedActivities.occurredAt,
+      createdAt: schema.unmatchedActivities.createdAt,
+    })
+    .from(schema.unmatchedActivities)
+    .where(
+      and(
+        eq(schema.unmatchedActivities.userId, user.id),
+        isNull(schema.unmatchedActivities.resolvedAt),
+      ),
+    )
+    .orderBy(desc(schema.unmatchedActivities.occurredAt))
+    .limit(limit);
+
+  const unmatched: DockCall[] = orphans.map((r) => ({
+    id: r.id,
+    kind: "unmatched",
+    accountId: null,
+    accountName: null,
+    contactName: null,
+    phone: r.phone,
+    direction: r.direction,
+    durationSeconds: r.durationSeconds,
+    result: r.result,
+    // occurred_at is nullable on this table; the row was still created when the
+    // call arrived, so that is the honest fallback rather than the epoch.
+    occurredAt: (r.occurredAt ?? r.createdAt).toISOString(),
+    loggedAt: null,
+    stageOutcome: null,
+    qualifies: false,
+    qualificationReason: EXPLAIN_UNMATCHED[r.reason] ?? r.reason,
+    reason: r.reason,
+  }));
+
+  /*
+   * Merged and re-sorted, rather than appended.
+   *
+   * Two lists stacked would put every unmatched call below every matched one
+   * regardless of when they happened, and the call somebody just made is the
+   * one they are looking for. Outstanding work first, then newest.
+   */
+  return [...matched, ...unmatched]
+    .sort((a, b) => {
+      const aDone = a.kind === "matched" && a.loggedAt !== null;
+      const bDone = b.kind === "matched" && b.loggedAt !== null;
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return b.occurredAt.localeCompare(a.occurredAt);
+    })
+    .slice(0, limit);
+}
+
+/** Why a call did not land on a company, written for the person who made it. */
+const EXPLAIN_UNMATCHED: Record<string, string> = {
+  no_contact_match: "Nobody on file has this number. Say who it was with and it will count.",
+  multiple_accounts: "This number is on more than one company. Pick which one.",
+  unusable_phone_number: "The number came through unreadable — withheld, or malformed.",
+  unusable_email_address: "The address came through unreadable.",
+};
+
+/**
+ * Say which company an unmatched call was with.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY A BROKER MAY DO THIS AND WHY IT IS STILL SAFE
+ *
+ * Attaching a call creates an activity carrying the PROVIDER's source rather
+ * than 'manual', which the ordinary insert policy refuses -- that policy is
+ * what stops somebody forging a two hour phone call. So this runs on the
+ * service connection, with row level security bypassed, and every check has to
+ * be made here explicitly.
+ *
+ * Two of them, and both matter:
+ *
+ *   The call must be THEIRS. Read from their own Supabase client, so the policy
+ *     added in 0033 decides -- their own calls, or anything if they triage.
+ *   The account must be one they may OPEN, checked the same way. Without this a
+ *     broker could attach their call to a colleague's account, which would put
+ *     activity on a book they cannot see and quietly hold somebody else's clock.
+ *
+ * Neither check trusts the form. Both ask Postgres.
+ * ---------------------------------------------------------------------------
+ */
+export async function attachCall(
+  unmatchedId: string,
+  accountId: string,
+): Promise<{ ok?: true; error?: string }> {
+  try {
+    if (!unmatchedId || !accountId) return { error: "Pick a company first." };
+
+    const user = await currentUser();
+    if (!user) return { error: "Not signed in." };
+
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+
+    const [{ data: queued }, { data: account }] = await Promise.all([
+      supabase
+        .from("unmatched_activities")
+        .select("id")
+        .eq("id", unmatchedId)
+        .is("resolved_at", null)
+        .maybeSingle(),
+      supabase.from("accounts").select("id").eq("id", accountId).maybeSingle(),
+    ]);
+
+    if (!queued) {
+      return { error: "That call is not yours to attach, or somebody already has." };
+    }
+    if (!account) {
+      return { error: "You cannot open that company, so a call cannot be attached to it." };
+    }
+
+    const db = tryGetDb();
+    if (!db) return { error: DB_UNCONFIGURED };
+
+    const { resolveUnmatched } = await import("@/lib/matcher");
+    const result = await resolveUnmatched(db, unmatchedId, accountId, user.id);
+    if ("error" in result) return { error: result.error };
+
+    for (const path of ["/", "/activity", "/review", `/accounts/${accountId}`]) {
+      try {
+        revalidatePath(path);
+      } catch {
+        /* a stale cache entry is one refresh from being right */
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    return { error: `Could not attach that call: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Companies to attach an unmatched call to.
+ *
+ * Runs on the caller's own Supabase client, so row level security decides what
+ * comes back -- a broker is offered their own book and the available pool, and
+ * never a colleague's account. That is not a courtesy: attaching a call to
+ * somebody else's account would put activity on a book the person cannot see
+ * and quietly hold another broker's clock open.
+ *
+ * Searched through prospect_list rather than a LIKE over names, so it behaves
+ * exactly like the search box on Prospects -- punctuation flattened, every word
+ * required, city and industry included. Two search boxes that disagree about
+ * what "smith and sons" means is how somebody concludes a company is missing.
+ */
+export async function searchCompanies(
+  query: string,
+): Promise<{ id: string; name: string; detail: string }[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("prospect_list", {
+      p_search: term,
+      // Only what the caller may open. A held company cannot receive their call.
+      p_scope: "all",
+      p_state: "",
+      p_industry: "",
+      p_status: "",
+      p_sort: "relevance",
+      p_limit: 25,
+      p_offset: 0,
+    });
+
+    return ((data ?? []) as Record<string, unknown>[])
+      .filter((r) => r.can_open)
+      .slice(0, 12)
+      .map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        detail:
+          [r.billing_city, r.billing_state].filter(Boolean).join(", ") ||
+          String(r.industry ?? "no address on file"),
+      }));
+  } catch {
+    // The dock renders on every screen. An empty list is a search with no
+    // results; a throw is the page behind it replaced by an error.
+    return [];
+  }
 }
 
 export interface MatchOptions {
