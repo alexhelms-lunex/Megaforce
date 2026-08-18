@@ -105,9 +105,11 @@ export const ALERT_TYPES: {
 
 export const LANDING_OPTIONS = [
   { value: "/", label: "Dashboard" },
-  { value: "/accounts", label: "Accounts" },
+  { value: "/prospects", label: "Prospects" },
+  { value: "/customers", label: "Your customers" },
+  { value: "/accounts", label: "My book" },
   { value: "/activity", label: "Activity" },
-  { value: "/me", label: "My book" },
+  { value: "/me", label: "My figures" },
   { value: "/reports", label: "Reports" },
 ];
 

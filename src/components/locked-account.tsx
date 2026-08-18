@@ -66,8 +66,8 @@ export function LockedAccount({ entry }: { entry: DirectoryEntry }) {
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Link href="/accounts" className="hover:text-foreground hover:underline">
-          Accounts
+        <Link href="/prospects" className="hover:text-foreground hover:underline">
+          Prospects
         </Link>
         <span aria-hidden>›</span>
         <span className="text-foreground">{entry.name}</span>
@@ -141,16 +141,16 @@ export function LockedAccount({ entry }: { entry: DirectoryEntry }) {
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             <Link
-              href="/available"
+              href="/prospects?scope=available"
               className="inline-flex h-9 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-accent"
             >
-              Browse the available pool
+              Browse what is available
             </Link>
             <Link
-              href="/accounts"
+              href="/prospects"
               className="inline-flex h-9 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-accent"
             >
-              Back to accounts
+              Back to Prospects
             </Link>
           </div>
         </CardContent>

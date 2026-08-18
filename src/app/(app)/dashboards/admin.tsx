@@ -153,7 +153,7 @@ export async function AdminDashboard({ me }: { me: CurrentUser }) {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Tile
-            href="/directory"
+            href="/prospects"
             icon={<Building2 className="size-4" aria-hidden />}
             label="Companies"
             value={Number(dir.total ?? 0)}
@@ -241,7 +241,7 @@ export async function AdminDashboard({ me }: { me: CurrentUser }) {
             <Shortcut href="/admin/users" label="People and roles" detail="Add, deactivate, change what somebody can do" />
             <Shortcut href="/admin" label="Rules and integrations" detail="The clock, qualification, RingCentral, the cron" />
             <Shortcut href="/admin/roles" label="What each role can do" detail="The capability matrix, as data rather than a paragraph" />
-            <Shortcut href="/directory" label="Company directory" detail="Every company, whoever holds it" />
+            <Shortcut href="/prospects" label="Prospects" detail="Every company, whoever holds it" />
             <Shortcut href="/reports" label="Reports" detail="Calls, approvals, claims and losses over time" />
             <Shortcut href="/api/health" label="Server timings" detail="How long each database round trip takes" />
           </CardContent>

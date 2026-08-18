@@ -50,7 +50,7 @@ export async function assignBroker(accountId: string, brokerId: string): Promise
     const outcome = String(data ?? "");
     if (outcome !== "ok") return { error: outcome || "That did not work." };
 
-    for (const path of ["/accounts", `/accounts/${accountId}`, "/directory", "/"]) {
+    for (const path of ["/accounts", `/accounts/${accountId}`, "/prospects", "/customers", "/"]) {
       try {
         revalidatePath(path);
       } catch {

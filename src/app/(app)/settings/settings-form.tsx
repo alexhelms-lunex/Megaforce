@@ -13,6 +13,7 @@ import { LIFECYCLE, type LifecycleState } from "@/lib/lifecycle";
 import {
   ALERT_TYPES,
   LANDING_OPTIONS,
+  PAGE_SIZES,
   TIMEZONES,
   type Preferences,
 } from "@/lib/preferences";
@@ -342,7 +343,18 @@ export function SettingsForm({ initial }: { initial: Preferences }) {
             />
           </Row>
 
-          <Row label="Accounts opens on" help="Which preset the Accounts screen starts with.">
+          <Row
+            label="Rows per page"
+            help="How many companies a list shows before it pages. The same toggle sits on every list; this is where it lives when you are not on one."
+          >
+            <Select
+              value={String(prefs.rows_per_page)}
+              options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+              onChange={(v) => update({ rows_per_page: Number(v) })}
+            />
+          </Row>
+
+          <Row label="My book opens on" help="Which preset the My book screen starts with.">
             <Select
               value={prefs.default_account_preset}
               options={PRESETS.map((p) => ({ value: p.key, label: p.label }))}

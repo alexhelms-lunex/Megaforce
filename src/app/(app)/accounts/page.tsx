@@ -190,7 +190,7 @@ export default async function AccountsPage({
                           ? "One company matches, but somebody else holds it."
                           : `${lockedMatches} companies match, but other people hold them.`}{" "}
                         <Link
-                          href={`/directory?q=${encodeURIComponent(filters.q)}&scope=locked`}
+                          href={`/prospects?q=${encodeURIComponent(filters.q)}&scope=held`}
                           className="text-primary hover:underline"
                         >
                           See who
@@ -204,7 +204,7 @@ export default async function AccountsPage({
                           claim something from the pool
                         </Link>
                         .{" "}
-                        <Link href="/directory" className="text-primary hover:underline">
+                        <Link href="/prospects" className="text-primary hover:underline">
                           Search every company
                         </Link>
                         .
