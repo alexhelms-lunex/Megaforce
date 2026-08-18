@@ -239,6 +239,21 @@ export async function ensureSubscription(): Promise<{
   /** Which filters RingCentral actually accepted, so the screen can say. */
   filters: string[];
 }> {
+  /*
+   * Refuse an address the outside world cannot reach, before asking.
+   *
+   * RingCentral answers this with SUB-521 "WebHook is not reachable", which is
+   * true and gives no hint that the address it could not reach was localhost.
+   * Saying so here turns a mystifying refusal into the name of the setting.
+   */
+  if (!env.appUrlIsPublic) {
+    throw new Error(
+      `Calls would be delivered to ${env.APP_URL}${WEBHOOK_PATH}, which RingCentral cannot ` +
+        "reach. Set APP_URL in the deployment's environment variables to the site's public " +
+        "https address, then redeploy.",
+    );
+  }
+
   const token = await rcToken();
   const address = `${env.APP_URL.replace(/\/$/, "")}${WEBHOOK_PATH}`;
 

@@ -181,6 +181,7 @@ const RC_BASE = {
   schemaGaps: [],
   databaseReachable: true,
   databaseError: null,
+  webhookIsPublic: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -708,6 +709,19 @@ describe("the phone connection screen, in every state it can be in", () => {
 
   it("renders before anything has been set up", async () => {
     rcStatus = RC_BASE;
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("says so when the webhook address is not on the internet", async () => {
+    /*
+     * The one that stopped every call for days.
+     *
+     * APP_URL defaulted to http://localhost:3000, so the address handed to
+     * RingCentral was one only the server itself could reach. It refused with
+     * "WebHook is not reachable" -- accurate, and silent about which address or
+     * which setting. Five green credentials above it, and no call could arrive.
+     */
+    rcStatus = { ...RC_BASE, configured: true, webhookIsPublic: false };
     await expect(render(screen(), {})).resolves.toBeUndefined();
   });
 

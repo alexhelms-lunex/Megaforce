@@ -470,6 +470,67 @@ export async function syncRecentCalls(): Promise<{ imported: number; error?: str
   }
 }
 
+/**
+ * Make sure RingCentral is delivering calls here, without anybody asking.
+ *
+ * ---------------------------------------------------------------------------
+ * Alex: "I SHOULD NOT HAVE TO RENEW OR ANYTHING. The app opens. The API is
+ * connected and were gtg."
+ *
+ * He is right, and a button was the wrong answer. A subscription expires after
+ * seven days, and when it lapses calls simply stop -- no error, nothing in any
+ * log. Putting the repair behind a button means the repair happens only if
+ * somebody already suspects there is something to repair, which is exactly the
+ * knowledge a lapsed subscription denies you.
+ *
+ * So it is checked when the application opens, throttled to once an hour across
+ * everybody by the same job_runs row the Admin screen reads. Two RingCentral
+ * calls an hour for a company, against a seven-day expiry, is nothing -- and it
+ * means the phone is connected because the CRM keeps it connected.
+ *
+ * Silent on the way through. If it cannot be fixed the Phone connection screen
+ * says so in words; a toast on every page load would be noise nobody can act on.
+ * ---------------------------------------------------------------------------
+ */
+export async function ensureDelivery(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const user = await currentUser();
+    if (!user) return { ok: false };
+    if (!env.ringCentralConfigured) return { ok: false };
+
+    const db = tryGetDb();
+    if (!db) return { ok: false };
+
+    const { asRows } = await import("@/lib/jobs/registry");
+    const age = asRows<{ age: string | null }>(
+      await withDeadline(
+        db.execute(sql`
+          select extract(epoch from (now() - max(started_at)))::text as age
+            from job_runs
+           where job = 'renew-call-subscription'
+        `),
+        { ms: 5_000, label: "The database" },
+      ),
+    )[0]?.age;
+
+    // Once an hour is plenty against a seven-day expiry, and it means a lapse
+    // is repaired within the hour rather than whenever somebody notices.
+    if (age !== null && age !== undefined && Number(age) < 3_600) return { ok: true };
+
+    const { findJob, runJob } = await import("@/lib/jobs/registry");
+    const job = findJob("renew-call-subscription");
+    if (!job) return { ok: false };
+
+    const summary = await runJob(job, { trigger: "manual", utcHour: new Date().getUTCHours() });
+    return summary.ok ? { ok: true } : { ok: false, error: summary.error };
+  } catch (err) {
+    // The dock is on every screen. This never surfaces to the person; the
+    // Phone connection screen is where a broken connection is explained.
+    log.error({ err }, "could not ensure call delivery");
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** Why a call did not land on a company, written for the person who made it. */
 const EXPLAIN_UNMATCHED: Record<string, string> = {
   no_contact_match: "Nobody on file has this number. Say who it was with and it will count.",
@@ -812,13 +873,42 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
       };
     }
 
-    const { rcToken, listExtensions } = await import("@/lib/ringcentral/client");
-    const extensions = await listExtensions();
-    const mine = extensions.find((e) => e.extensionNumber === me.extension);
+    /*
+     * The number that will ring, found from BOTH endpoints.
+     *
+     * ---------------------------------------------------------------------------
+     * This read only listExtensions().directNumber, which was empty, so the
+     * dialler refused with "extension 101 has no direct number" -- while the
+     * screen directly above it listed +1 (323) 485-5837 as a DirectNumber that
+     * rings extension 101. Both were reading RingCentral; only one was asking
+     * the endpoint that knows.
+     *
+     * A number's association with an extension lives on the PHONE NUMBER, not on
+     * the extension, so that is where it is looked for first. The extension's
+     * own field is kept as a fallback because some accounts populate it, and the
+     * main company number is the last resort: a call from the switchboard is
+     * still a call, and refusing to dial is worse than dialling from the general
+     * number.
+     * ---------------------------------------------------------------------------
+     */
+    const { rcToken, listExtensions, listPhoneNumbers } = await import("@/lib/ringcentral/client");
+    const [extensions, numbers] = await Promise.all([
+      listExtensions(),
+      listPhoneNumbers().catch(() => []),
+    ]);
 
-    if (!mine?.directNumber) {
+    const mine = extensions.find((e) => e.extensionNumber === me.extension);
+    const fromNumber =
+      numbers.find((n) => n.extensionNumber === me.extension)?.phoneNumber ??
+      mine?.directNumber ??
+      numbers.find((n) => n.usageType === "MainCompanyNumber")?.phoneNumber ??
+      null;
+
+    if (!fromNumber) {
       return {
-        error: `Extension ${me.extension} has no direct number in RingCentral, so there is nothing to ring back.`,
+        error:
+          `No number on the RingCentral account rings extension ${me.extension}, and there is ` +
+          "no main company number to dial from either.",
       };
     }
 
@@ -831,7 +921,7 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
       signal: AbortSignal.timeout(15_000),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: { phoneNumber: mine.directNumber },
+        from: { phoneNumber: fromNumber },
         to: { phoneNumber: phone },
         // No "press 1 to connect". The broker asked for the call; making them
         // confirm it on the handset is a step that exists to prevent misdials

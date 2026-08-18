@@ -127,6 +127,33 @@ export default async function IntegrationsPage() {
         perfectly well. It simply never becomes anything.
       */}
       {/*
+        Before everything, because it is the one setting whose wrongness stops
+        every call and names itself nowhere. RingCentral's refusal for this is
+        "WebHook is not reachable" -- true, and silent about WHAT it could not
+        reach, which for a long time was localhost.
+      */}
+      {!status.webhookIsPublic ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            Calls cannot be delivered here: the address is not on the internet.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            RingCentral would be told to deliver calls to{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+              {status.subscription.shouldDeliverTo}
+            </code>
+            , which only this server can reach — so it refuses the subscription with
+            &ldquo;WebHook is not reachable&rdquo; and no call can ever arrive.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Set <code className="rounded bg-muted px-1 py-0.5 text-xs">APP_URL</code> in the
+            deployment&apos;s environment variables to this site&apos;s public https address, then
+            redeploy.
+          </p>
+        </div>
+      ) : null}
+
+      {/*
         First, because when this is wrong nothing else on the page is true.
 
         Every count below is read over the direct Postgres connection, and a

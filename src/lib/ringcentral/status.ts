@@ -145,6 +145,13 @@ export interface RingCentralStatus {
   /** Empty when the database is up to date. Anything here breaks call logging. */
   schemaGaps: SchemaGap[];
   /**
+   * False when the address we would hand RingCentral is not on the public
+   * internet -- which, with APP_URL unset, used to be http://localhost:3000.
+   * RingCentral refuses that with "WebHook is not reachable" and names no
+   * setting, so the setting is named here.
+   */
+  webhookIsPublic: boolean;
+  /**
    * False when the direct Postgres connection did not answer.
    *
    * Without this the page lies. Every count below comes from that connection,
@@ -574,6 +581,7 @@ export async function ringCentralStatus(): Promise<RingCentralStatus> {
 
   return {
     schemaGaps: gaps,
+    webhookIsPublic: env.appUrlIsPublic,
     databaseReachable: !pipeline.unreachable,
     databaseError: pipeline.unreachable ?? pipeline.recentError ?? null,
     configured: env.ringCentralConfigured,

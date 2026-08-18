@@ -16,6 +16,7 @@ import {
   placeCall,
   attachCall,
   dockHealth,
+  ensureDelivery,
   liveCalls,
   recentCalls,
   searchCompanies,
@@ -177,6 +178,18 @@ export function RcDock() {
    */
   useEffect(() => {
     let live = true;
+    /*
+     * Delivery first, then the catch-up pull.
+     *
+     * Alex: "I SHOULD NOT HAVE TO RENEW OR ANYTHING. The app opens. The API is
+     * connected and were gtg."
+     *
+     * Both are fire-and-forget and both are throttled on the server -- the
+     * subscription hourly, the pull to the minute -- so opening the application
+     * costs nothing on all but the first load in each window. Neither blocks the
+     * list, which draws from the database immediately.
+     */
+    void ensureDelivery().catch(() => {});
     void syncRecentCalls()
       .then((r) => {
         if (live && r.imported > 0) void refresh();
