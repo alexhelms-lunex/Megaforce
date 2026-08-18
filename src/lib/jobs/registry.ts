@@ -160,7 +160,7 @@ export const sweepPendingEvents: JobDef = {
     const { sweepRawEvents } = await import("@/lib/sweep");
     // Spread rather than returned directly: JobResult is an index signature and
     // a named interface does not satisfy one, even when every field matches.
-    const { processed, failed, remaining } = await sweepRawEvents(db);
+    const { processed, failed, remaining, rescued } = await sweepRawEvents(db);
 
     /*
      * Clear out live calls at the same time.
@@ -173,7 +173,7 @@ export const sweepPendingEvents: JobDef = {
     const { pruneLiveCalls } = await import("@/lib/ringcentral/live");
     const staleCalls = await pruneLiveCalls(db);
 
-    return { processed, failed, remaining, staleCalls };
+    return { processed, failed, remaining, rescued, staleCalls };
   },
 };
 

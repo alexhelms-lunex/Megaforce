@@ -289,6 +289,10 @@ export default async function AccountDetailPage({
                   accountId={account.id}
                   colleagues={colleagues}
                   holderName={account.owner_name ?? null}
+                  // Matched to the Edit pill beside it. Left on its default
+                  // "outline" variant it was a pale border and off-white text
+                  // on the navy gradient -- present, and effectively invisible.
+                  className="h-9 rounded-full border-0 bg-white/10 px-3 text-sm font-medium text-white hover:bg-white/20 hover:text-white"
                 />
               ) : null}
               {account.owner_id === null ? (

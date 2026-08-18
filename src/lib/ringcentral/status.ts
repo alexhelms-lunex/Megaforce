@@ -51,6 +51,34 @@ export interface SubscriptionState {
   detail: string | null;
 }
 
+/**
+ * Things the code needs that the database may not have yet.
+ *
+ * ===========================================================================
+ * WHY THIS IS ON THE PHONE SCREEN
+ *
+ * Database changes are applied by visiting the setup page, not by deploying.
+ * So a deploy can perfectly well ship code that writes a column the database
+ * does not have -- and the failure is invisible in the worst possible way:
+ * calls arrive, are written down, fail to be filed because the INSERT is
+ * refused, and every screen shows nothing. "Load recent calls" then reports
+ * the payload as already stored, which is true, and adds nothing, which is
+ * also true, and between them they read as "there is nothing to do".
+ *
+ * That is exactly the state this was written in. So the screen checks for
+ * itself rather than leaving somebody to deduce it: each entry is something a
+ * recent migration added, checked by name against the live database.
+ *
+ * Add to this list whenever a migration adds something the call pipeline
+ * depends on. It costs one cheap catalogue query and it converts a silent,
+ * unfixable-looking failure into a sentence naming the button to press.
+ * ===========================================================================
+ */
+export interface SchemaGap {
+  what: string;
+  why: string;
+}
+
 export interface ArrivedCall {
   at: string;
   phone: string | null;
@@ -104,6 +132,8 @@ export interface RingCentralStatus {
   credentials: CredentialState[];
   subscription: SubscriptionState;
   pipeline: PipelineState;
+  /** Empty when the database is up to date. Anything here breaks call logging. */
+  schemaGaps: SchemaGap[];
 }
 
 const WEBHOOK_PATH = "/api/webhooks/ringcentral";
@@ -360,11 +390,80 @@ async function pipelineState(): Promise<PipelineState> {
   }
 }
 
+/**
+ * What the code expects and the database does not have.
+ *
+ * Checked against the catalogue by name rather than by trying a write, because
+ * a probe write on a live table is a bad way to find out. One query, and it
+ * costs nothing when everything is present.
+ */
+async function schemaGaps(): Promise<SchemaGap[]> {
+  const REQUIRED: { kind: "table" | "column"; table: string; column?: string; gap: SchemaGap }[] = [
+    {
+      kind: "table",
+      table: "live_calls",
+      gap: {
+        what: "the live_calls table",
+        why: "Calls in progress cannot be recorded, so the dock will never show a ringing phone.",
+      },
+    },
+    {
+      kind: "column",
+      table: "activities",
+      column: "extension_id",
+      gap: {
+        what: "activities.extension_id",
+        why:
+          "Every incoming call fails to be filed, silently — it is written down and then never " +
+          "appears on any screen.",
+      },
+    },
+    {
+      kind: "column",
+      table: "unmatched_activities",
+      column: "user_id",
+      gap: {
+        what: "unmatched_activities.user_id",
+        why: "Calls to unknown numbers cannot be attributed, so nobody sees them in their dock.",
+      },
+    },
+  ];
+
+  try {
+    const present = new Set(
+      asRows<{ key: string }>(
+        await db.execute(sql`
+          select table_name || '.' || column_name as key
+            from information_schema.columns
+           where table_schema = 'public'
+          union all
+          select table_name
+            from information_schema.tables
+           where table_schema = 'public'
+        `),
+      ).map((r) => r.key),
+    );
+
+    return REQUIRED.filter((r) =>
+      r.kind === "table" ? !present.has(r.table) : !present.has(`${r.table}.${r.column}`),
+    ).map((r) => r.gap);
+  } catch {
+    // Unable to read the catalogue is not evidence of a missing column, and
+    // claiming a gap that is not there sends somebody chasing the wrong thing.
+    return [];
+  }
+}
+
 export async function ringCentralStatus(): Promise<RingCentralStatus> {
-  const [subscription, pipeline] = await Promise.all([subscriptionState(), pipelineState()]);
+  const [subscription, pipeline, gaps] = await Promise.all([
+    subscriptionState(),
+    pipelineState(),
+    schemaGaps(),
+  ]);
   const server = env.RC_SERVER;
 
   return {
+    schemaGaps: gaps,
     configured: env.ringCentralConfigured,
     sandbox: /devtest|sandbox/i.test(server),
     server,

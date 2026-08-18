@@ -117,6 +117,38 @@ export default async function IntegrationsPage() {
         </CardContent>
       </Card>
 
+      {/*
+        Above everything, because nothing below it can work.
+
+        A deploy ships code; database changes are applied by visiting the setup
+        page. When those two drift apart, every incoming call is written down
+        and then refused on the way to being filed -- and no screen shows an
+        error, because from the application's point of view the call arrived
+        perfectly well. It simply never becomes anything.
+      */}
+      {status.schemaGaps.length > 0 ? (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
+          <p className="font-medium text-destructive">
+            The database is behind this deployment. Calls cannot be filed.
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The code was updated but the database changes have not been applied yet, so calls
+            arrive, get written down, and then fail on the way to a screen. Nothing is lost — open{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">/api/setup?key=…</code> and
+            press <strong>Apply database changes</strong>, then come back and press{" "}
+            <strong>File anything waiting</strong> to pick up everything that was stranded.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {status.schemaGaps.map((gap) => (
+              <li key={gap.what}>
+                <span className="font-mono text-xs">{gap.what}</span>
+                <span className="text-muted-foreground"> — {gap.why}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {/* ---- 2. delivery ---- */}
       <Card>
         <CardHeader>

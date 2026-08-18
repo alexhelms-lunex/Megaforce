@@ -176,7 +176,9 @@ const RC_BASE = {
     unmatchedOpen: 0,
     usersWithoutExtension: 0,
     totalCallers: 0,
+    recent: [],
   },
+  schemaGaps: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -704,6 +706,27 @@ describe("the phone connection screen, in every state it can be in", () => {
 
   it("renders before anything has been set up", async () => {
     rcStatus = RC_BASE;
+    await expect(render(screen(), {})).resolves.toBeUndefined();
+  });
+
+  it("says so when the database is behind the deployment", async () => {
+    /*
+     * The failure this screen exists for, and the one that hid for a day.
+     *
+     * Database changes are applied by visiting the setup page, not by
+     * deploying. When the two drift apart, every call is written down and then
+     * refused on the way to being filed -- no error on any screen, because from
+     * the application's side the call arrived perfectly well. "Load recent
+     * calls" then truthfully reports the payload as already stored and adds
+     * nothing, and the two true statements together read as "nothing to do".
+     */
+    rcStatus = {
+      ...RC_BASE,
+      configured: true,
+      schemaGaps: [
+        { what: "activities.extension_id", why: "Every incoming call fails to be filed." },
+      ],
+    };
     await expect(render(screen(), {})).resolves.toBeUndefined();
   });
 

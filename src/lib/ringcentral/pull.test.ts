@@ -220,6 +220,38 @@ describe("pulling the same window twice", () => {
     expect(summary.imported).toBe(0);
     expect(await activities()).toHaveLength(1);
   });
+
+  it("files a call whose payload was stored but never turned into anything", async () => {
+    /*
+     * The failure that made "already here" a dead end.
+     *
+     * Storing and filing are two steps. If the second fails -- the matcher
+     * threw, a column was missing, a deploy landed mid-flight -- the payload is
+     * on disk and the call is on no screen. The pull used to see the duplicate
+     * payload and skip, so pressing the button again reported "RingCentral had
+     * 1, and every one was already here" beside an empty dock, and no amount of
+     * pressing could ever change that.
+     *
+     * Now the pull processes regardless, and the second attempt is the one that
+     * rescues it.
+     */
+    const payload = buildCallLogPayload({
+      telephonySessionId: "s-1000",
+      counterpartyNumber: "+17045550142",
+      durationSeconds: 214,
+      extensionId: "101",
+    });
+    // Stored, and deliberately never processed.
+    await storeRawEvent(db, "ringcentral", extractExternalId(payload, "ringcentral"), payload);
+    expect(await activities()).toHaveLength(0);
+
+    logToReturn = [call()];
+    const summary = await importRecentCalls(db);
+
+    expect(summary.imported).toBe(1);
+    expect(summary.matched).toBe(1);
+    expect(await activities()).toHaveLength(1);
+  });
 });
 
 // ===========================================================================

@@ -415,14 +415,26 @@ export async function sweepNow(): Promise<ActionResult> {
     const summary = await runJob(job, { trigger: "manual", utcHour: new Date().getUTCHours() });
     if (!summary.ok) return { error: summary.error ?? "The sweep failed." };
 
-    const { processed = 0, failed = 0, remaining = 0 } = summary.result ?? {};
+    const { processed = 0, failed = 0, remaining = 0, rescued = 0 } = summary.result ?? {};
     revalidatePath("/admin/integrations");
+    revalidatePath("/activity");
+    revalidatePath("/review");
+
+    const filed = Number(processed) + Number(rescued);
     return {
       ok: true,
       message:
-        Number(processed) === 0 && Number(remaining) === 0
+        filed === 0 && Number(remaining) === 0
           ? "Nothing was waiting."
-          : `Filed ${processed}. ${failed} could not be read. ${remaining} still waiting.`,
+          : // Rescued calls are named separately because they mean something
+            // different: not "a backlog was cleared" but "calls that were here
+            // all along, and on no screen, are now visible".
+            `Filed ${processed}.${
+              Number(rescued) > 0
+                ? ` Rescued ${rescued} that had been stored but never filed.`
+                : ""
+            } ${failed} could not be read. ${remaining} still waiting.`,
+      href: filed > 0 ? "/activity" : undefined,
     };
   } catch (err) {
     return { error: explain(err) };

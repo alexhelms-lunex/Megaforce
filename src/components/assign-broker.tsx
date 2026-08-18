@@ -30,10 +30,25 @@ export function AssignBroker({
   accountId,
   colleagues,
   holderName,
+  className,
 }: {
   accountId: string;
   colleagues: { id: string; name: string }[];
   holderName: string | null;
+  /**
+   * How the closed button should look where it is being used.
+   *
+   * The default variants are drawn for a light page. On the account header's
+   * navy gradient, "outline" renders a pale border and near-white text on a
+   * transparent background -- a button you can only find by knowing it is there.
+   * The same trap already caught Release on this header once, which is why the
+   * surrounding buttons are styled by hand rather than by variant.
+   *
+   * Passed in rather than detected, because a component cannot know what colour
+   * it has been dropped onto, and guessing is how it goes wrong on the next
+   * screen that uses it.
+   */
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [broker, setBroker] = useState("");
@@ -44,7 +59,12 @@ export function AssignBroker({
 
   if (!open) {
     return (
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        className={className}
+      >
         <UserPlus className="size-3.5" aria-hidden />
         Add a broker
       </Button>

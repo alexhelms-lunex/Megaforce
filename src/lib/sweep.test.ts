@@ -256,6 +256,71 @@ describe("a backlog", () => {
 
   it("reports nothing to do without touching anything", async () => {
     const result = await sweepRawEvents(db);
-    expect(result).toEqual({ processed: 0, failed: 0, remaining: 0 });
+    expect(result).toEqual({ processed: 0, failed: 0, remaining: 0, rescued: 0 });
+  });
+});
+
+// ===========================================================================
+describe("events marked done that produced nothing", () => {
+  /**
+   * The state nothing else in the system could reach.
+   *
+   * An event with processed_at SET and no activity and no queue row behind it
+   * is in the database and on no screen. processRawEvent returns early on it,
+   * the sweep's own query excludes it, and the call-log pull sees its payload
+   * already stored and moves on. Every repair button in the application says
+   * "nothing to do", truthfully, forever.
+   *
+   * It arises from ordinary causes -- a schema change applied to the code but
+   * not to the database makes every insert fail on the way out -- which is why
+   * it is worth a rescue path rather than an assumption that it cannot happen.
+   */
+  async function storeAndMarkDoneWithoutFiling(sessionId: string): Promise<string> {
+    const id = await storeUnprocessed(sessionId);
+    await db.execute(sql.raw(`update raw_events set processed_at = now() where id = '${id}'`));
+    return id;
+  }
+
+  it("finds one and files it", async () => {
+    await storeAndMarkDoneWithoutFiling("stranded-1");
+    expect(await activityCount()).toBe(0);
+
+    const result = await sweepRawEvents(db);
+    expect(result.rescued).toBe(1);
+    expect(await activityCount()).toBe(1);
+  });
+
+  it("leaves alone an event that really did produce something", async () => {
+    // The guard that keeps this from re-filing the entire history on every
+    // sweep. A normally processed call has an activity behind it and must not
+    // be touched.
+    await storeUnprocessed("normal-1");
+    await sweepRawEvents(db);
+    expect(await activityCount()).toBe(1);
+
+    const second = await sweepRawEvents(db);
+    expect(second.rescued).toBe(0);
+    expect(await activityCount()).toBe(1);
+  });
+
+  it("counts a queue row as having produced something", async () => {
+    // A call to a number nobody has on file is correctly filed -- into the
+    // review queue. Treating that as "produced nothing" would put it through
+    // the matcher again on every single sweep, forever.
+    await storeUnprocessed("orphan-1", 30, "+19995550000");
+    const first = await sweepRawEvents(db);
+    expect(first.processed).toBe(1);
+
+    const second = await sweepRawEvents(db);
+    expect(second.rescued).toBe(0);
+  });
+
+  it("is safe to run twice", async () => {
+    await storeAndMarkDoneWithoutFiling("stranded-2");
+    await sweepRawEvents(db);
+    const second = await sweepRawEvents(db);
+
+    expect(second.rescued).toBe(0);
+    expect(await activityCount()).toBe(1);
   });
 });

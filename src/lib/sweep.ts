@@ -41,6 +41,8 @@ export interface SweepResult {
   failed: number;
   /** Still eligible after this pass. Non-zero means the batch limit was hit. */
   remaining: number;
+  /** Marked done, but nothing was ever produced. Re-filed by this pass. */
+  rescued: number;
 }
 
 export interface SweepOptions {
@@ -129,8 +131,67 @@ export async function sweepRawEvents(
     )[0]?.n ?? 0,
   );
 
-  if (processed > 0 || failed > 0) {
-    log.info({ processed, failed, remaining }, "swept pending events");
+  const rescued = await refileOrphans(db, batch);
+
+  if (processed > 0 || failed > 0 || rescued > 0) {
+    log.info({ processed, failed, remaining, rescued }, "swept pending events");
   }
-  return { processed, failed, remaining };
+  return { processed, failed, remaining, rescued };
+}
+
+/**
+ * Events marked done that produced nothing at all.
+ *
+ * ===========================================================================
+ * THE GAP BETWEEN "PROCESSED" AND "VISIBLE"
+ *
+ * The sweep above rescues an event that was never processed. This rescues the
+ * other kind, which is worse because nothing anywhere reports it: an event with
+ * processed_at SET and no activity and no review-queue row behind it.
+ *
+ * A call in that state is in the database, absent from every screen, and
+ * unreachable by every repair path in the system. processRawEvent returns early
+ * on a processed event, the sweep's query excludes it, and the call-log pull saw
+ * its payload already stored and skipped it. Pressing every button on the admin
+ * screen changed nothing, forever.
+ *
+ * It happens for ordinary reasons. A schema change applied to the code but not
+ * yet to the database makes every insert fail; a partial deploy files an event
+ * with a matcher that could not write. Both leave the row looking finished.
+ *
+ * So: find the ones with nothing behind them, clear the mark, and put them back
+ * through. Safe to run repeatedly -- an event that files successfully this time
+ * stops matching the query, and one that genuinely produced nothing (a
+ * cancelled call, an event type we do not turn into anything) is retried at the
+ * cost of one parse per sweep and recorded as an error if it is truly
+ * unparseable.
+ * ===========================================================================
+ */
+async function refileOrphans(db: Db, limit: number): Promise<number> {
+  const orphans = rowsOf<{ id: string }>(
+    await db.execute(sql`
+      select r.id
+        from raw_events r
+       where r.processed_at is not null
+         and r.error is null
+         and not exists (select 1 from activities a where a.raw_event_id = r.id)
+         and not exists (select 1 from unmatched_activities m where m.raw_event_id = r.id)
+       order by r.received_at desc
+       limit ${limit}
+    `),
+  );
+
+  let rescued = 0;
+  for (const row of orphans) {
+    try {
+      // Clearing the mark is what makes processRawEvent willing to look at it
+      // again; it returns early on anything already stamped.
+      await db.execute(sql`update raw_events set processed_at = null where id = ${row.id}`);
+      const outcome = await processRawEvent(db, row.id);
+      if (outcome.status === "matched" || outcome.status === "unmatched") rescued += 1;
+    } catch (err) {
+      log.warn({ rawEventId: row.id, err }, "could not re-file an orphaned event");
+    }
+  }
+  return rescued;
 }

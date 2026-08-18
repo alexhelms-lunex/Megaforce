@@ -143,13 +143,38 @@ export async function importRecentCalls(
         payload,
       );
 
-      if (!stored.isNew) {
+      /*
+       * ALWAYS process, even a payload we have seen before.
+       *
+       * -------------------------------------------------------------------
+       * This used to `continue` on a duplicate, and that made the pull
+       * incapable of fixing the one thing it exists to fix.
+       *
+       * Storing and filing are two steps. An event can be written down and
+       * then fail to become anything -- the matcher threw, a column was
+       * missing, a deploy landed mid-flight -- and after that the payload IS
+       * on disk, so every later pull saw a duplicate, said "already here",
+       * and skipped the very row that needed filing. The call was in the
+       * database and on no screen, and pressing the button again could never
+       * help. Which is exactly what it looked like: "RingCentral had 1, and
+       * every one was already here", next to an empty dock.
+       *
+       * processRawEvent returns early on an event that really is filed, so
+       * this costs one indexed read in the common case and rescues the
+       * uncommon one.
+       * -------------------------------------------------------------------
+       */
+      const outcome = await processRawEvent(db, stored.id);
+
+      if (outcome.status === "already_processed" || outcome.status === "duplicate") {
         summary.duplicates += 1;
         continue;
       }
 
+      // Counted as imported whether or not the PAYLOAD was new, because what
+      // this number is read for is "how many calls appeared", and a rescued
+      // one appears exactly as much as a fresh one does.
       summary.imported += 1;
-      const outcome = await processRawEvent(db, stored.id);
       if (outcome.status === "matched") summary.matched += 1;
       else if (outcome.status === "unmatched") summary.unmatched += 1;
     } catch (err) {
