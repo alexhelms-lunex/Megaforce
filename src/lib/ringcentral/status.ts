@@ -537,6 +537,15 @@ async function schemaGaps(): Promise<SchemaGap[]> {
     },
     {
       kind: "column",
+      table: "users",
+      column: "call_back_number",
+      gap: {
+        what: "users.call_back_number",
+        why: "Click-to-call fails outright, because the dialler reads this column to find which handset to ring.",
+      },
+    },
+    {
+      kind: "column",
       table: "unmatched_activities",
       column: "user_id",
       gap: {

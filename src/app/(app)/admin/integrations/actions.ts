@@ -459,6 +459,66 @@ export async function setCallBackNumber(userId: string, raw: string): Promise<Ac
   }
 }
 
+/**
+ * Apply the pending database changes, from the screen that noticed they were missing.
+ *
+ * ===========================================================================
+ * WHY THIS BUTTON EXISTS
+ *
+ * A deploy ships code. Database changes are applied by opening /api/setup with
+ * a secret in the URL and pressing a button on a page that has nothing to do
+ * with anything else. Those two steps have drifted apart three times in two
+ * days, and each time the symptom was different and none of them said
+ * "migration": calls stored and never filed, a page hanging on a skeleton, a
+ * dialler reporting that it could not reach RingCentral because a COLUMN was
+ * missing.
+ *
+ * Being told to go and find a URL with a secret in it, while holding a broken
+ * screen, is not a fix -- it is a second task. The screen that detects the gap
+ * should be the screen that closes it.
+ *
+ * SAFE, AND THE SAME CODE PATH
+ *
+ * Exactly what the setup page runs: the migration files, in order, each one
+ * written to be re-runnable. No seeding, no data touched, nothing dropped. An
+ * already-applied migration is a no-op, which is why running this when nothing
+ * is pending costs a few hundred milliseconds and changes nothing.
+ *
+ * Administrator only, checked on the server. The setup page's key exists
+ * because that page is reachable BEFORE any login exists; this one is behind a
+ * session and a role, which is a stronger guard, not a weaker one.
+ * ===========================================================================
+ */
+export async function applyDatabaseChanges(): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    const { runMigrationsOnly } = await import("@/lib/setup/run");
+    const result = await runMigrationsOnly();
+
+    revalidatePath("/admin/integrations");
+
+    if (!result.ok) {
+      const failed = result.steps.find((s) => s.status === "failed");
+      return {
+        error:
+          result.problem?.fix ??
+          failed?.detail ??
+          "The database changes could not be applied.",
+      };
+    }
+
+    const applied = result.steps.find((s) => s.name.startsWith("Applying"));
+    return {
+      ok: true,
+      message: `${applied?.detail ?? "Applied."} Nothing was seeded and no data was touched.`,
+    };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
 /** Work through the backlog now rather than waiting for tonight's sweep. */
 export async function sweepNow(): Promise<ActionResult> {
   const refused = await requireAdmin();

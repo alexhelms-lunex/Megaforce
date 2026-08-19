@@ -1032,9 +1032,27 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
     return { ok: true };
   } catch (err) {
     log.error({ err }, "click-to-call failed");
-    return {
-      error: `Could not reach RingCentral: ${err instanceof Error ? err.message : String(err)}`,
-    };
+
+    /*
+     * Say which thing failed, not which thing we were trying to do.
+     *
+     * This blanket-blamed RingCentral, so a missing DATABASE column -- a
+     * migration not yet applied -- was reported as "Could not reach
+     * RingCentral", complete with the SQL that failed. Nobody reading that
+     * would go and apply a migration; they would go and check their phone
+     * credentials, which were fine.
+     */
+    const { describeDbError } = await import("@/lib/ringcentral/status");
+    const failure = describeDbError(err);
+    if (/does not exist/i.test(failure.message)) {
+      return {
+        error:
+          `The database is behind this deployment (${failure.message}). An administrator can ` +
+          "fix it on the Phone connection screen — there is a button that applies the pending " +
+          "changes.",
+      };
+    }
+    return { error: `Could not place the call: ${failure.message}` };
   }
 }
 

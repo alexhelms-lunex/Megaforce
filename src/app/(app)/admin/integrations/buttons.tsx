@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { runAction } from "@/lib/run-action";
 import {
+  applyDatabaseChanges,
   claimExtension,
   clearTestCalls,
   setCallBackNumber,
@@ -35,6 +36,55 @@ import {
  * next press rather than cleared on a timer.
  * ---------------------------------------------------------------------------
  */
+/**
+ * Apply the pending database changes, here rather than on another page.
+ *
+ * The gap between a deploy and a migration has now produced three different
+ * symptoms and none of them said "migration". Being told to go and find a URL
+ * with a secret in it, while holding a broken screen, is a second task rather
+ * than a fix -- so the screen that detects the gap closes it.
+ */
+export function ApplyChangesButton() {
+  const [pending, start] = useTransition();
+  const [reply, setReply] = useState<ActionResult | null>(null);
+  const router = useRouter();
+
+  return (
+    <div className="space-y-2">
+      <Button
+        size="sm"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            setReply(null);
+            try {
+              setReply(await applyDatabaseChanges());
+            } catch (err) {
+              setReply({ error: describe(err) });
+            }
+            router.refresh();
+          })
+        }
+      >
+        {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+        Apply database changes
+      </Button>
+      {reply ? (
+        <p
+          role="status"
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            reply.error
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200"
+          }`}
+        >
+          {reply.error ?? reply.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function IntegrationButtons({ configured }: { configured: boolean }) {
   const [pending, start] = useTransition();
   const [reply, setReply] = useState<ActionResult | null>(null);

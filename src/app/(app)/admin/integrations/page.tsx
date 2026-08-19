@@ -10,7 +10,12 @@ import {
   type RingCentralStatus,
 } from "@/lib/ringcentral/status";
 import { formatDateTime } from "@/lib/format";
-import { ExtensionList, IntegrationButtons, TestCallButtons } from "./buttons";
+import {
+  ApplyChangesButton,
+  ExtensionList,
+  IntegrationButtons,
+  TestCallButtons,
+} from "./buttons";
 
 export const dynamic = "force-dynamic";
 
@@ -201,10 +206,11 @@ export default async function IntegrationsPage() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             Some of what is shown below may be incomplete. This is usually a database change that
-            has not been applied yet — open{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">/api/setup?key=…</code> and
-            press <strong>Apply database changes</strong>.
+            has not been applied yet.
           </p>
+          <div className="mt-3">
+            <ApplyChangesButton />
+          </div>
           <p className="mt-2 font-mono text-xs text-amber-900 dark:text-amber-200">
             {status.databaseError}
           </p>
@@ -218,11 +224,14 @@ export default async function IntegrationsPage() {
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             The code was updated but the database changes have not been applied yet, so calls
-            arrive, get written down, and then fail on the way to a screen. Nothing is lost — open{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">/api/setup?key=…</code> and
-            press <strong>Apply database changes</strong>, then come back and press{" "}
-            <strong>File anything waiting</strong> to pick up everything that was stranded.
+            arrive, get written down, and then fail on the way to a screen. Nothing is lost, and
+            nothing below is seeded or overwritten — the pending changes are applied and that is
+            all. Afterwards press <strong>File anything waiting</strong> to pick up everything
+            that was stranded.
           </p>
+          <div className="mt-3">
+            <ApplyChangesButton />
+          </div>
           <ul className="mt-2 space-y-1 text-sm">
             {status.schemaGaps.map((gap) => (
               <li key={gap.what}>
