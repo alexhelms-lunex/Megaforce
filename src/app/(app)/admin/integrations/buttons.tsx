@@ -9,6 +9,7 @@ import { runAction } from "@/lib/run-action";
 import {
   claimExtension,
   clearTestCalls,
+  setCallBackNumber,
   loadExtensions,
   pullCallsNow,
   renewNow,
@@ -359,6 +360,7 @@ export function ExtensionList() {
                             matched={e.matchedUser}
                             matchedId={e.matchedUserId}
                             ringCentralName={e.name}
+                            callBackNumber={e.callBackNumber}
                             onDone={reload}
                           />
                         </td>
@@ -399,6 +401,7 @@ function AttachExtension({
   matched,
   matchedId,
   ringCentralName,
+  callBackNumber,
   onDone,
 }: {
   extension: string;
@@ -407,6 +410,7 @@ function AttachExtension({
   matched: string | null;
   matchedId: string | null;
   ringCentralName: string;
+  callBackNumber: string | null;
   onDone: () => void;
 }) {
   const [who, setWho] = useState(matchedId ?? suggested?.id ?? "");
@@ -490,6 +494,81 @@ function AttachExtension({
         </p>
       ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
+      {/* Only once somebody actually holds the extension -- a call-back number
+          with nobody to ring is a field that cannot mean anything yet. */}
+      {matchedId ? (
+        <CallBackNumber userId={matchedId} current={callBackNumber} onDone={onDone} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The handset that rings when this person presses Call.
+ *
+ * ---------------------------------------------------------------------------
+ * Click-to-call rings YOU first and dials the customer once you answer. Without
+ * this it rings the extension's own RingCentral number, which routes back into
+ * RingCentral and reaches whatever device that extension is registered to --
+ * frequently a desk phone nobody has. The call then rings out in a few seconds
+ * and the broker's phone never makes a sound, which reads as a broken dialler.
+ *
+ * A mobile is the number that is actually in somebody's pocket.
+ * ---------------------------------------------------------------------------
+ */
+function CallBackNumber({
+  userId,
+  current,
+  onDone,
+}: {
+  userId: string;
+  current: string | null;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(current ?? "");
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-1 border-t pt-2">
+      <label className="text-xs text-muted-foreground">
+        Ring this number when they click to call
+      </label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="Their mobile, e.g. (323) 555-0142"
+          className="h-8 w-52 rounded-md border bg-transparent px-2 text-xs"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          disabled={pending || value.trim() === (current ?? "")}
+          onClick={() =>
+            start(async () => {
+              setNote(null);
+              try {
+                const answer = await setCallBackNumber(userId, value);
+                setNote(answer.error ?? answer.message ?? null);
+                if (!answer.error) onDone();
+              } catch (err) {
+                setNote(describe(err));
+              }
+            })
+          }
+        >
+          {pending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {current
+          ? "Leave it empty and save to go back to the extension's own number."
+          : "Empty means the extension's own RingCentral number, which may not ring any device."}
+      </p>
+      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
     </div>
   );
 }

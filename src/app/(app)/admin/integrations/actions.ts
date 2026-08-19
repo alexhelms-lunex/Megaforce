@@ -172,6 +172,8 @@ export interface ExtensionRow {
   matchedUserId: string | null;
   /** A CRM user with the same email who has no extension recorded yet. */
   suggestedUser: { id: string; name: string } | null;
+  /** The number RingOut rings first for whoever holds this extension. */
+  callBackNumber: string | null;
 }
 
 export interface ExtensionsResult {
@@ -232,7 +234,7 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
 
     const { data } = await supabase
       .from("users")
-      .select("id, full_name, email, rc_extension_id")
+      .select("id, full_name, email, rc_extension_id, call_back_number")
       .eq("active", true);
 
     const users = (data ?? []) as {
@@ -240,6 +242,7 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
       full_name: string;
       email: string | null;
       rc_extension_id: string | null;
+      call_back_number: string | null;
     }[];
 
     const byExtension = new Map(
@@ -263,6 +266,7 @@ export async function loadExtensions(): Promise<ExtensionsResult> {
           type: e.type,
           matchedUser: matched?.full_name ?? null,
           matchedUserId: matched?.id ?? null,
+          callBackNumber: matched?.call_back_number ?? null,
           suggestedUser:
             !matched && byMail && !byMail.rc_extension_id
               ? { id: byMail.id, name: byMail.full_name }
@@ -396,6 +400,59 @@ export async function claimExtension(userId: string, extension: string): Promise
           : `Extension ${extension.trim()} attached, and ${moved} earlier ${
               moved === 1 ? "call was" : "calls were"
             } handed back.`,
+    };
+  } catch (err) {
+    return { error: explain(err) };
+  }
+}
+
+/**
+ * The handset RingOut should ring for this person.
+ *
+ * ---------------------------------------------------------------------------
+ * "it rung out according to the ring central app. However, my phone never got
+ * the call."
+ *
+ * RingOut calls YOU first and dials the customer only once you answer. Left to
+ * itself it calls the extension's RingCentral number, which routes back into
+ * RingCentral and rings whatever device that extension is registered to -- a
+ * desk phone nobody has, an app nobody is signed into. The leg rings out after
+ * a few seconds and reaches nobody, which is precisely what RingCentral's log
+ * showed: a run of three to fourteen second calls that never became anything.
+ *
+ * A mobile number is a fact about the person and is reliably in their pocket.
+ * ---------------------------------------------------------------------------
+ */
+export async function setCallBackNumber(userId: string, raw: string): Promise<ActionResult> {
+  const refused = await requireAdmin();
+  if (refused) return refused;
+
+  try {
+    if (!userId) return { error: "Pick a person first." };
+
+    const { toE164 } = await import("@/lib/phone");
+    const trimmed = raw.trim();
+    // Empty clears it, which is a real thing to want: it puts the person back
+    // on the extension's own number.
+    const number = trimmed ? toE164(trimmed) : null;
+    if (trimmed && !number) {
+      return { error: `"${trimmed}" is not a number that can be dialled. Check the area code.` };
+    }
+
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("users")
+      .update({ call_back_number: number })
+      .eq("id", userId);
+    if (error) return { error: error.message };
+
+    revalidatePath("/admin/integrations");
+    return {
+      ok: true,
+      message: number
+        ? `Calls will ring ${number} first, then dial the customer.`
+        : "Cleared. Calls will ring the extension's own RingCentral number.",
     };
   } catch (err) {
     return { error: explain(err) };

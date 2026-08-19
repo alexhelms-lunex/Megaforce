@@ -919,7 +919,10 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
     const db = tryGetDb();
     const [me] = db
       ? await db
-          .select({ extension: schema.users.rcExtensionId })
+          .select({
+            extension: schema.users.rcExtensionId,
+            callBack: schema.users.callBackNumber,
+          })
           .from(schema.users)
           .where(eq(schema.users.id, user.id))
           .limit(1)
@@ -957,8 +960,19 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
       listPhoneNumbers().catch(() => []),
     ]);
 
+    /*
+     * The person's own handset first, if they have given us one.
+     *
+     * RingOut rings `from` and only dials the customer once somebody answers
+     * it. Sending it back into RingCentral rings whatever device the extension
+     * is registered to -- which, when that is a desk phone nobody has, rings
+     * out after a few seconds and reaches the broker not at all. A mobile
+     * number is a fact about the person; the extension is a fact about the
+     * phone system, and only one of them is reliably in somebody's pocket.
+     */
     const mine = extensions.find((e) => e.extensionNumber === me.extension);
     const fromNumber =
+      (me.callBack ? toE164(me.callBack) : null) ??
       numbers.find((n) => n.extensionNumber === me.extension)?.phoneNumber ??
       mine?.directNumber ??
       numbers.find((n) => n.usageType === "MainCompanyNumber")?.phoneNumber ??

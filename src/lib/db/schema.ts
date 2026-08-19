@@ -35,6 +35,14 @@ export const users = pgTable(
     managerId: uuid("manager_id"),
     /** Telephony extension, used to attribute an inbound call event to a rep. */
     rcExtensionId: text("rc_extension_id").unique(),
+    /**
+     * The handset RingOut rings first when this person presses Call.
+     *
+     * Their mobile, usually. Without it the dialler rings the extension's own
+     * RingCentral number, which routes back into RingCentral and reaches
+     * whatever device that extension is registered to -- frequently nothing.
+     */
+    callBackNumber: text("call_back_number"),
     /** Branch or office. Shown as a column in the account list. */
     location: text("location"),
     /** Drives the policy's tier: 0-12mo junior, 2-3yr unseasoned, 3yr+ veteran. */

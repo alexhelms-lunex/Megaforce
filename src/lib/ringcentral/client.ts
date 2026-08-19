@@ -506,8 +506,10 @@ export async function fetchCallLog(options: {
       duration?: number;
       direction?: string;
       result?: string;
-      to?: { phoneNumber?: string; name?: string };
-      from?: { phoneNumber?: string; name?: string };
+      // extensionNumber is present instead of phoneNumber on internal calls,
+      // which is every RingOut leg and every extension-to-extension call.
+      to?: { phoneNumber?: string; name?: string; extensionNumber?: string };
+      from?: { phoneNumber?: string; name?: string; extensionNumber?: string };
       extension?: { id?: number | string };
     }[];
   };
@@ -528,8 +530,36 @@ export async function fetchCallLog(options: {
     if (!id) continue;
 
     const outbound = String(r.direction ?? "Outbound") === "Outbound";
-    const counterparty = outbound ? r.to?.phoneNumber : r.from?.phoneNumber;
-    const ours = outbound ? r.from?.phoneNumber : r.to?.phoneNumber;
+    const them = outbound ? r.to : r.from;
+    const us = outbound ? r.from : r.to;
+
+    /*
+     * EVERY call, including the ones with no phone number on the other end.
+     *
+     * -------------------------------------------------------------------------
+     * Alex: "I need every call whether it connected or not in this history there
+     * and it's still not there."
+     *
+     * This used to `continue` when the other party had no phoneNumber, which
+     * reads as defensive and is not: an INTERNAL call -- extension to extension,
+     * and every RingOut leg is one -- identifies the other party by extension
+     * number and carries no phone number at all. So the calls he could see in
+     * RingCentral's own app were being dropped here, one by one, before
+     * anything downstream ever saw them. Four calls in his log, none in ours,
+     * and no error anywhere because dropping was the intended behaviour.
+     *
+     * Now the extension stands in when there is no number, and a record is
+     * skipped only when there is nothing to identify the other end by at all.
+     * A call with an odd-looking counterparty lands in the review queue, which
+     * is exactly where a call nobody can attribute belongs -- visible, and
+     * somebody's to sort out.
+     * -------------------------------------------------------------------------
+     */
+    const counterparty =
+      them?.phoneNumber ??
+      (them?.extensionNumber ? `Extension ${them.extensionNumber}` : null) ??
+      (them?.name ? them.name : null);
+    const ours = us?.phoneNumber ?? null;
     if (!counterparty) continue;
 
     out.push({
@@ -541,7 +571,7 @@ export async function fetchCallLog(options: {
       result: String(r.result ?? "Unknown"),
       startTime: r.startTime ? new Date(r.startTime) : new Date(),
       extensionId: r.extension?.id != null ? String(r.extension.id) : null,
-      contactName: (outbound ? r.to?.name : r.from?.name) ?? "",
+      contactName: them?.name ?? "",
     });
   }
   return out;
