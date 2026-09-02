@@ -9,7 +9,7 @@ import {
   type ArrivedCall,
   type RingCentralStatus,
 } from "@/lib/ringcentral/status";
-import { formatDateTime } from "@/lib/format";
+import { LocalTime } from "@/components/local-time";
 import {
   ApplyChangesButton,
   ExtensionList,
@@ -293,7 +293,13 @@ export default async function IntegrationsPage() {
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Fact
             label="Last call received"
-            value={status.pipeline.lastCallAt ? formatDateTime(status.pipeline.lastCallAt) : "never"}
+            value={
+              status.pipeline.lastCallAt ? (
+                <LocalTime iso={status.pipeline.lastCallAt} />
+              ) : (
+                "never"
+              )
+            }
             tone={status.pipeline.lastCallAt ? "calm" : "warn"}
             help="When RingCentral last posted anything here at all."
           />
@@ -379,7 +385,7 @@ function ArrivedCalls({ calls }: { calls: ArrivedCall[] }) {
           {calls.map((c, i) => (
             <tr key={`${c.at}-${i}`} className="border-b last:border-b-0">
               <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
-                {c.at ? formatDateTime(c.at) : "—"}
+                {c.at ? <LocalTime iso={c.at} /> : "—"}
               </td>
               <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
                 {c.phone ?? "—"}
@@ -467,7 +473,7 @@ function Headline({ status }: { status: RingCentralStatus }) {
   return (
     <Banner tone="good">
       <strong>Working.</strong> {status.pipeline.callsLast7Days.toLocaleString()} calls in the
-      last seven days, the most recent at {formatDateTime(status.pipeline.lastCallAt)}.
+      last seven days, the most recent at <LocalTime iso={status.pipeline.lastCallAt} />.
     </Banner>
   );
 }
@@ -493,7 +499,7 @@ function Delivery({ status }: { status: RingCentralStatus }) {
       ) : null}
       <Line
         label="Expires"
-        value={s.expiresAt ? formatDateTime(s.expiresAt) : "—"}
+        value={s.expiresAt ? <LocalTime iso={s.expiresAt} /> : "—"}
       />
       {s.detail ? (
         <p className="pt-1 text-xs text-muted-foreground">{s.detail}</p>
@@ -555,7 +561,9 @@ function Fact({
   href,
 }: {
   label: string;
-  value: string;
+  // ReactNode, not string: a timestamp has to be rendered by a client component
+  // to be shown in the reader's timezone rather than the server's.
+  value: React.ReactNode;
   tone: "calm" | "warn" | "bad";
   help: string;
   href?: string;

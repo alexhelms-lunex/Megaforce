@@ -4,10 +4,10 @@ import { ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient, currentUser } from "@/lib/supabase/server";
-import { formatDateTime } from "@/lib/format";
 import { REQUEST_KINDS, REQUEST_KIND_LABEL } from "@/lib/request-kinds";
 import { formatMoney } from "@/lib/format";
 import { DecideButtons, WithdrawButton } from "./decide-buttons";
+import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
 
@@ -260,8 +260,8 @@ function RequestHead({
       <span className="ml-auto text-xs text-muted-foreground">
         {row.requester?.full_name ?? "Someone"}
         {row.requester?.location ? ` · ${row.requester.location}` : ""} ·{" "}
-        {formatDateTime(row.created_at)}
-        {row.decided_at ? ` · decided ${formatDateTime(row.decided_at)}` : ""}
+        <LocalTime iso={row.created_at} />
+        {row.decided_at ? ` · decided $<LocalTime iso={row.decided_at} />` : ""}
       </span>
       <span className="sr-only">{spec?.help}</span>
     </div>

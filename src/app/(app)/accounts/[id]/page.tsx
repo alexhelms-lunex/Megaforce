@@ -32,6 +32,7 @@ import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
 import { daysSince, formatDateTime, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 import { STATUS_LABEL } from "@/lib/account-filters";
+import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
 
@@ -1174,9 +1175,9 @@ function OwnershipTab({
                           ) : null}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {formatDateTime(s.started_at)}
+                          <LocalTime iso={s.started_at} />
                           {" → "}
-                          {s.ended_at ? formatDateTime(s.ended_at) : "now"}
+                          {s.ended_at ? <LocalTime iso={s.ended_at} /> : "now"}
                         </p>
                       </div>
                       <div className="text-right">
@@ -1280,7 +1281,7 @@ function RequestsTab({
                         <span className="text-xs text-muted-foreground">{r.days} days</span>
                       ) : null}
                       <span className="ml-auto text-xs text-muted-foreground">
-                        {r.requester?.full_name ?? "Someone"} · {formatDateTime(r.created_at)}
+                        {r.requester?.full_name ?? "Someone"} · <LocalTime iso={r.created_at} />
                       </span>
                     </div>
                     <p className="text-sm">{r.reason}</p>

@@ -3,9 +3,10 @@ import { InfoTip } from "@/components/info-tip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { createClient } from "@/lib/supabase/server";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 import { ResolveForm, type AccountOption } from "./resolve-form";
+import { LocalTime } from "@/components/local-time";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,7 @@ export default async function ReviewPage() {
                 <CardContent className="space-y-3">
                   <p className="text-sm text-muted-foreground">{meta.explain}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatDateTime(item.occurred_at ?? item.created_at)}
+                    <LocalTime iso={item.occurred_at ?? item.created_at} />
                     {item.duration_seconds !== null
                       ? ` · ${formatDuration(item.duration_seconds)}`
                       : ""}

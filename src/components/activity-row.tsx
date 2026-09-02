@@ -7,7 +7,8 @@ import {
   countedTone,
   directionTone,
 } from "@/lib/activity-style";
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
+import { LocalTime } from "@/components/local-time";
 
 /**
  * One row of the activity feed.
@@ -140,7 +141,7 @@ export function ActivityRow({
 
       <div className="shrink-0 text-right">
         <p className="whitespace-nowrap text-xs text-muted-foreground">
-          {formatDateTime(a.occurred_at)}
+          <LocalTime iso={a.occurred_at} />
         </p>
         {a.userName ? (
           <p className="truncate text-xs text-muted-foreground/80">{a.userName}</p>
@@ -181,13 +182,15 @@ function Notes({ activity: a }: { activity: FeedActivity }) {
  * can run an eye down answers it faster than prose.
  */
 function SystemNotes({ activity: a }: { activity: FeedActivity }) {
-  const facts: [string, string | null][] = [
+  // ReactNode rather than string: a timestamp is rendered by a client component
+  // so it shows in the reader's timezone rather than the server's, which is UTC.
+  const facts: [string, React.ReactNode][] = [
     ["Subject", a.subject],
     ["Verdict", a.qualification_reason || null],
     ["Result", a.result],
     ["Duration", a.duration_seconds !== null ? formatDuration(a.duration_seconds) : null],
     ["Captured by", a.source],
-    ["Written up", a.logged_at ? formatDateTime(a.logged_at) : "not yet"],
+    ["Written up", a.logged_at ? <LocalTime iso={a.logged_at} /> : "not yet"],
   ];
 
   return (
