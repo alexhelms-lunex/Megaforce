@@ -785,6 +785,7 @@ function Field({
 function Dialer() {
   const [number, setNumber] = useState("");
   const [pending, start] = useTransition();
+  const [dialResult, setDialResult] = useState<string | null>(null);
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
 
   return (
@@ -813,10 +814,22 @@ function Dialer() {
           disabled={pending || !number}
           onClick={() =>
             start(async () => {
-              await runAction(() => placeCall(number), {
-                label: "Could not place the call",
-                success: "Ringing your handset now.",
-              });
+              /*
+               * The reply is kept on the screen, not flashed as a toast.
+               *
+               * It now carries what RingCentral said about each leg -- which
+               * phone rang, which one answered, which one did not -- and that
+               * is the sentence somebody needs to read twice and act on. A
+               * toast that fades in four seconds is where three rounds of
+               * guessing came from.
+               */
+              setDialResult(null);
+              try {
+                const answer = await placeCall(number);
+                setDialResult(answer.error ?? answer.detail ?? "Ringing your phone now.");
+              } catch (err) {
+                setDialResult(err instanceof Error ? err.message : String(err));
+              }
             })
           }
         >
@@ -826,6 +839,12 @@ function Dialer() {
           ⌫
         </Button>
       </div>
+      {dialResult ? (
+        <p className="mt-3 whitespace-pre-line rounded-lg border px-3 py-2 text-xs" role="status">
+          {dialResult}
+        </p>
+      ) : null}
+
       <p className="mt-auto text-xs text-muted-foreground">
         Your own phone rings first. <strong>Answer it</strong> — RingCentral then dials the
         customer and joins you. The call appears under Calls when it ends; remember it does not

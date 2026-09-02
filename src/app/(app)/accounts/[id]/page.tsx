@@ -29,7 +29,7 @@ import { ZoomInfoPanel } from "@/components/zoominfo-panel";
 import { LockedAccount, type DirectoryEntry } from "@/components/locked-account";
 import type { LifecycleState } from "@/lib/lifecycle";
 import { createClient, currentUser, isPrivileged } from "@/lib/supabase/server";
-import { daysSince, formatDateTime, formatMoney, staleTone } from "@/lib/format";
+import { daysSince, formatMoney, staleTone } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 import { STATUS_LABEL } from "@/lib/account-filters";
 import { LocalTime } from "@/components/local-time";

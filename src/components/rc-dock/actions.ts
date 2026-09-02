@@ -881,7 +881,9 @@ export async function logCall(_prev: LogResult, form: FormData): Promise<LogResu
  * the customer. Without credentials there is nothing to ring, so this reports
  * that plainly instead of appearing to work.
  */
-export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: string }> {
+export async function placeCall(
+  rawPhone: string,
+): Promise<{ ok?: true; error?: string; detail?: string }> {
   const user = await currentUser();
   if (!user) return { error: "Not signed in." };
 
@@ -1049,7 +1051,71 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
     if (!res.ok) {
       return { error: explainCallRefusal(res.status, await res.text()) };
     }
-    return { ok: true };
+
+    /*
+     * Ask RingCentral how the call actually went.
+     *
+     * =======================================================================
+     * "Didn't change anything."
+     *
+     * Three attempts at this have been guesses -- the wrong endpoint, the
+     * wrong from-number, the prompt setting -- and each one was plausible,
+     * shipped, and wrong. The reason they were guesses is that the only thing
+     * this code ever looked at was whether the POST was ACCEPTED. It always
+     * was. A 200 from RingOut means "I have accepted the request", not "the
+     * call worked", and everything interesting happens after it.
+     *
+     * RingOut reports each leg separately, and the two are different problems:
+     *
+     *   callerStatus  what YOUR phone did. NoAnswer, Busy, CannotReach --
+     *                 this is the leg that has been collapsing.
+     *   calleeStatus  what the CUSTOMER's phone did.
+     *
+     * One extra request, three seconds later, turns "it ends immediately" into
+     * a word naming which leg failed and why. That should have been here from
+     * the first attempt; the guessing is what it cost not to have it.
+     * =======================================================================
+     */
+    const started = (await res.json().catch(() => null)) as
+      | { id?: string; status?: { callStatus?: string; callerStatus?: string; calleeStatus?: string } }
+      | null;
+
+    const ringing = `Ringing ${fromNumber} first, then ${phone}. Answer your phone when it rings.`;
+    if (!started?.id) return { ok: true, detail: ringing };
+
+    // Three seconds: long enough for both legs to have a status worth reading,
+    // short enough to stay well inside the action's budget.
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+    try {
+      const token = await rcToken();
+      const check = await fetch(
+        `${env.RC_SERVER}/restapi/v1.0/account/~/extension/~/ring-out/${started.id}`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8_000) },
+      );
+      if (!check.ok) return { ok: true, detail: ringing };
+
+      const now = (await check.json()) as {
+        status?: { callStatus?: string; callerStatus?: string; calleeStatus?: string };
+      };
+      const caller = now.status?.callerStatus ?? "unknown";
+      const callee = now.status?.calleeStatus ?? "unknown";
+
+      return {
+        ok: true,
+        detail:
+          `${ringing}\n\nRingCentral says: your phone — ${caller}; ` +
+          `the customer — ${callee}.` +
+          (/NoAnswer|Busy|CannotReach|Congestion|Error/i.test(caller)
+            ? ` Your phone did not take the call (${caller}). That number is ${fromNumber} — ` +
+              "if it is not a phone you are holding, set your mobile on the Phone connection " +
+              "screen under Who can make calls."
+            : ""),
+      };
+    } catch {
+      // The call may well be ringing; only the status check failed.
+      return { ok: true, detail: ringing };
+    }
   } catch (err) {
     log.error({ err }, "click-to-call failed");
 
