@@ -827,8 +827,9 @@ function Dialer() {
         </Button>
       </div>
       <p className="mt-auto text-xs text-muted-foreground">
-        Click-to-call rings your handset first, then the customer. The call appears under
-        Calls when it ends — remember it does not count until you write it up.
+        Your own phone rings first. <strong>Answer it</strong> — RingCentral then dials the
+        customer and joins you. The call appears under Calls when it ends; remember it does not
+        count until you write it up.
       </p>
     </div>
   );

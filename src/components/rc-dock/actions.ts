@@ -999,10 +999,30 @@ export async function placeCall(rawPhone: string): Promise<{ ok?: true; error?: 
         body: JSON.stringify({
           from: { phoneNumber: fromNumber },
           to: { phoneNumber: phone },
-          // No "press 1 to connect". The broker asked for the call; making them
-          // confirm it on the handset is a step that exists to prevent misdials
-          // from an autodialler, which this is not.
-          playPrompt: false,
+          /*
+           * TRUE, and the false here was the bug.
+           *
+           * -----------------------------------------------------------------
+           * "So the call populates but ends immediately. It does not give you
+           * a chance to even answer."
+           *
+           * With playPrompt off, RingCentral bridges the two legs as soon as it
+           * has them rather than waiting for the CALLER to actually pick up. A
+           * handset that takes two rings loses -- the call collapses before
+           * anybody can answer it, which is exactly what he saw.
+           *
+           * With it on, RingCentral rings you, waits for you to answer, plays a
+           * short prompt, and only then dials the customer. The extra second is
+           * the whole point: it is what keeps the leg alive while you reach for
+           * the phone.
+           *
+           * I turned it off on a reasonable-sounding argument -- that a
+           * confirmation step exists to stop autodiallers misdialling, and this
+           * is not an autodialler. That was true about WHY the prompt exists and
+           * wrong about what it does here, and it cost a working dialler.
+           * -----------------------------------------------------------------
+           */
+          playPrompt: true,
         }),
       });
 
