@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- ============================================================
+     LINKPOINT ELEN CONSTRUCTION LLC — one-page website
+     Everything (CSS + JS) is inlined in this single file.
+     To go live: upload index.html + the /images folder to public_html.
+     Anything you need to change is flagged with the word EDIT in a comment.
+     ============================================================ -->
+
+<title>Linkpoint Elen Construction | High-End Remodeling &amp; Interior Finish Work | Loveland, OH</title>
+<meta name="description" content="Owner-led remodeling and high-end interior finish work in Loveland and Greater Cincinnati. Kitchens, bathrooms, custom trim and millwork, tile and stone, and whole-home renovations by Linkpoint Elen Construction LLC.">
+<link rel="canonical" href="https://www.linkpointelen.com/"><!-- EDIT: your real domain -->
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Linkpoint Elen Construction | High-End Remodeling in Loveland, OH">
+<meta property="og:description" content="Kitchens, baths, custom trim, tile and full interior renovations — built start to finish by the same craftsman.">
+<meta property="og:url" content="https://www.linkpointelen.com/"><!-- EDIT -->
+<meta property="og:image" content="https://www.linkpointelen.com/images/hero.jpg"><!-- EDIT -->
+<meta name="theme-color" content="#1B1A16">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231B1A16'/%3E%3Cpath d='M9 8v16h5.6M20.5 8v16M17 8h7' stroke='%23C79A54' stroke-width='2.4' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --bone:#FAF8F5;
+  --paper:#FFFFFF;
+  --char:#1B1A16;
+  --char-2:#26241E;
+  --ink:#1B1A16;
+  --ink-2:#615B51;
+  --ink-3:#8A8378;
+  --line:#E7E0D5;
+  --line-dk:#3A362E;
+  --brass:#8F6F3E;
+  --brass-lt:#C79A54;
+  --radius:2px;
+  --wrap:1180px;
+  --pad:clamp(20px,5vw,64px);
+  --sect:clamp(72px,9vw,132px);
+  --serif:"Fraunces",Georgia,"Times New Roman",serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+
+/* ---------- reset ---------- */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+body{margin:0;background:var(--bone);color:var(--ink);
+  font-family:var(--sans);font-size:17px;line-height:1.65;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+img{max-width:100%;display:block;height:auto}
+a{color:inherit}
+button{font:inherit}
+h1,h2,h3,h4{margin:0;font-family:var(--serif);font-weight:600;line-height:1.1;letter-spacing:-.02em}
+p{margin:0}
+:focus-visible{outline:2px solid var(--brass);outline-offset:3px}
+
+/* ---------- layout helpers ---------- */
+.wrap{max-width:var(--wrap);margin-inline:auto;padding-inline:var(--pad)}
+.section{padding-block:var(--sect)}
+.eyebrow{font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--brass);margin-bottom:18px}
+.h2{font-size:clamp(30px,4.4vw,50px)}
+.lede{font-size:clamp(17px,1.7vw,19px);color:var(--ink-2);max-width:60ch}
+.rule{height:1px;background:var(--line);border:0;margin:0}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  padding:15px 28px;border-radius:var(--radius);border:1px solid transparent;
+  font-size:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  text-decoration:none;cursor:pointer;transition:background .2s,color .2s,border-color .2s,transform .2s}
+.btn--brass{background:var(--brass);color:#fff}
+.btn--brass:hover{background:#7A5D33}
+.btn--ghost{border-color:currentColor;background:transparent}
+.btn--ghost:hover{background:var(--ink);color:var(--bone);border-color:var(--ink)}
+.btn--onDark.btn--ghost:hover{background:#fff;color:var(--ink);border-color:#fff}
+
+/* ---------- header ---------- */
+.hdr{position:fixed;inset:0 0 auto;z-index:60;transition:background .3s,box-shadow .3s,border-color .3s;
+  border-bottom:1px solid transparent}
+.hdr__in{display:flex;align-items:center;justify-content:space-between;gap:24px;
+  height:76px;max-width:var(--wrap);margin-inline:auto;padding-inline:var(--pad)}
+.hdr.is-stuck{background:rgba(250,248,245,.95);backdrop-filter:blur(10px);
+  border-bottom-color:var(--line)}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:#fff;transition:color .3s}
+.hdr.is-stuck .brand{color:var(--ink)}
+.brand__mark{width:34px;height:34px;flex:none}
+.brand__txt{display:flex;flex-direction:column;line-height:1.06}
+.brand__name{font-family:var(--serif);font-size:18px;font-weight:700;letter-spacing:-.01em}
+.brand__sub{font-size:9.5px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;opacity:.7}
+.nav{display:flex;align-items:center;gap:34px}
+.nav a{font-size:14px;font-weight:500;text-decoration:none;color:#fff;opacity:.85;transition:opacity .2s,color .3s}
+.nav a:hover{opacity:1}
+.hdr.is-stuck .nav a{color:var(--ink);opacity:.7}
+.hdr.is-stuck .nav a:hover{opacity:1;color:var(--brass)}
+.hdr .btn{padding:12px 22px;font-size:12.5px;color:#fff;border-color:rgba(255,255,255,.5)}
+.hdr.is-stuck .btn{color:#fff;background:var(--brass);border-color:var(--brass)}
+.hdr.is-stuck .btn:hover{background:#7A5D33}
+.burger{display:none;width:44px;height:44px;align-items:center;justify-content:center;
+  background:none;border:0;cursor:pointer;color:#fff;transition:color .3s}
+.hdr.is-stuck .burger{color:var(--ink)}
+.burger span{display:block;width:22px;height:1.5px;background:currentColor;position:relative;transition:transform .25s,background .25s}
+.burger span::before,.burger span::after{content:"";position:absolute;left:0;width:22px;height:1.5px;background:currentColor;transition:transform .25s}
+.burger span::before{top:-7px}.burger span::after{top:7px}
+.burger[aria-expanded="true"] span{background:transparent}
+.burger[aria-expanded="true"] span::before{transform:translateY(7px) rotate(45deg)}
+.burger[aria-expanded="true"] span::after{transform:translateY(-7px) rotate(-45deg)}
+
+/* mobile drawer */
+.drawer{position:fixed;inset:0;z-index:55;background:var(--char);
+  display:flex;flex-direction:column;justify-content:center;gap:6px;padding:0 var(--pad);
+  opacity:0;visibility:hidden;transition:opacity .28s,visibility .28s}
+.drawer.is-open{opacity:1;visibility:visible}
+.drawer a{color:#fff;text-decoration:none;font-family:var(--serif);font-size:30px;
+  padding:11px 0;border-bottom:1px solid rgba(255,255,255,.1)}
+.drawer .btn{margin-top:26px;align-self:flex-start;background:var(--brass);color:#fff}
+
+/* ---------- hero ---------- */
+.hero{position:relative;min-height:min(94vh,860px);display:flex;align-items:flex-end;
+  color:#fff;overflow:hidden}
+.hero__bg{position:absolute;inset:0}
+.hero__bg img{width:100%;height:100%;object-fit:cover}
+.hero__bg::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(15,14,11,.62) 0%,rgba(15,14,11,.36) 38%,rgba(15,14,11,.86) 100%)}
+.hero__in{position:relative;z-index:2;width:100%;max-width:var(--wrap);margin-inline:auto;
+  padding:0 var(--pad) clamp(52px,7vw,88px)}
+.hero h1{font-size:clamp(38px,6.4vw,76px);max-width:17ch;text-wrap:balance}
+.hero__sub{margin-top:24px;max-width:56ch;font-size:clamp(16.5px,1.8vw,19px);color:rgba(255,255,255,.86)}
+.hero__cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:38px}
+.hero__eyebrow{color:var(--brass-lt)}
+
+/* ---------- trust bar ---------- */
+.trust{background:var(--char);color:rgba(255,255,255,.82);border-block:1px solid var(--line-dk)}
+.trust__in{display:flex;flex-wrap:wrap;gap:14px 44px;justify-content:center;
+  padding-block:22px;max-width:var(--wrap);margin-inline:auto;padding-inline:var(--pad)}
+.trust__i{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:500;letter-spacing:.03em}
+.trust__i svg{flex:none;color:var(--brass-lt)}
+
+/* ---------- services ---------- */
+.svc-head{display:grid;grid-template-columns:1fr;gap:22px;margin-bottom:56px}
+@media(min-width:900px){.svc-head{grid-template-columns:1fr 1fr;gap:64px;align-items:end}}
+.svc{display:grid;grid-template-columns:1fr;gap:1px;background:var(--line);border:1px solid var(--line)}
+@media(min-width:640px){.svc{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1000px){.svc{grid-template-columns:repeat(3,1fr)}}
+.svc__c{background:var(--bone);padding:clamp(28px,3.4vw,40px);transition:background .25s}
+.svc__c:hover{background:var(--paper)}
+.svc__n{font-family:var(--serif);font-size:13px;color:var(--brass);letter-spacing:.05em}
+.svc__c h3{font-size:23px;margin:14px 0 12px}
+.svc__c p{font-size:15.5px;color:var(--ink-2);line-height:1.62}
+.svc-more{margin-top:34px;padding:24px 28px;background:var(--paper);border:1px solid var(--line);
+  font-size:15.5px;color:var(--ink-2)}
+.svc-more strong{color:var(--ink);font-weight:600}
+
+/* ---------- why ---------- */
+.why{background:var(--char);color:#fff}
+.why .lede{color:rgba(255,255,255,.7)}
+.why-grid{display:grid;grid-template-columns:1fr;gap:1px;background:var(--line-dk);
+  border:1px solid var(--line-dk);margin-top:56px}
+@media(min-width:760px){.why-grid{grid-template-columns:repeat(2,1fr)}}
+.why-c{background:var(--char);padding:clamp(30px,3.6vw,44px)}
+.why-c__ic{width:40px;height:40px;color:var(--brass-lt);margin-bottom:22px}
+.why-c h3{font-size:22px;margin-bottom:12px}
+.why-c p{font-size:15.5px;color:rgba(255,255,255,.66);line-height:1.65}
+
+/* ---------- process ---------- */
+.proc{display:grid;grid-template-columns:1fr;gap:1px;background:var(--line);
+  border-block:1px solid var(--line)}
+@media(min-width:820px){.proc{grid-template-columns:repeat(4,1fr)}}
+.proc__s{background:var(--bone);padding:clamp(28px,3vw,38px)}
+.proc__n{font-family:var(--serif);font-size:34px;color:var(--line);line-height:1;margin-bottom:16px}
+.proc__s h3{font-size:18px;margin-bottom:9px}
+.proc__s p{font-size:14.5px;color:var(--ink-2);line-height:1.6}
+
+/* ---------- about ---------- */
+.about{background:var(--paper)}
+.about-grid{display:grid;grid-template-columns:1fr;gap:clamp(36px,5vw,72px);align-items:center}
+@media(min-width:900px){.about-grid{grid-template-columns:.82fr 1fr}}
+.about-fig{position:relative;margin:0}
+.about-fig img{width:100%;aspect-ratio:4/5;object-fit:cover}
+.about-fig figcaption{position:absolute;left:0;bottom:0;background:var(--char);color:#fff;
+  padding:18px 24px;max-width:86%}
+.about-fig .nm{font-family:var(--serif);font-size:19px}
+.about-fig .rl{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--brass-lt);margin-top:3px}
+.about-body p+p{margin-top:20px}
+.about-body p{color:var(--ink-2);font-size:16.5px}
+.about-body .first{font-size:clamp(19px,2.1vw,23px);color:var(--ink);font-family:var(--serif);line-height:1.42}
+.about-stats{display:flex;flex-wrap:wrap;gap:36px;margin-top:36px;padding-top:32px;border-top:1px solid var(--line)}
+.about-stats div{min-width:96px}
+.about-stats .v{font-family:var(--serif);font-size:30px;color:var(--brass);line-height:1}
+.about-stats .k{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-top:7px}
+
+/* ---------- gallery ---------- */
+.gal{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(8px,1.1vw,14px);margin-top:52px}
+@media(min-width:820px){.gal{grid-template-columns:repeat(6,1fr)}}
+.gal figure{position:relative;margin:0;overflow:hidden;background:var(--line)}
+.gal img{width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.2,.7,.3,1)}
+.gal figure:hover img{transform:scale(1.045)}
+.gal figcaption{position:absolute;inset:auto 0 0;padding:26px 22px 18px;color:#fff;font-size:13.5px;
+  font-weight:500;letter-spacing:.02em;
+  background:linear-gradient(180deg,transparent,rgba(15,14,11,.82))}
+.gal .w4{grid-column:span 2;aspect-ratio:16/10}
+.gal .w3{grid-column:span 2;aspect-ratio:3/2}
+.gal .w2{grid-column:span 1;aspect-ratio:4/5}
+@media(min-width:820px){
+  .gal .w4{grid-column:span 4}
+  .gal .w3{grid-column:span 3}
+  .gal .w2{grid-column:span 2}
+}
+
+/* ---------- CTA band ---------- */
+.cta{position:relative;color:#fff;text-align:center;overflow:hidden}
+.cta__bg{position:absolute;inset:0}
+.cta__bg img{width:100%;height:100%;object-fit:cover}
+.cta__bg::after{content:"";position:absolute;inset:0;background:rgba(19,18,14,.8)}
+.cta__in{position:relative;z-index:2;max-width:760px;margin-inline:auto;
+  padding:clamp(72px,9vw,120px) var(--pad)}
+.cta h2{font-size:clamp(30px,4.6vw,52px);text-wrap:balance}
+.cta p{margin-top:20px;color:rgba(255,255,255,.76);font-size:17.5px}
+.cta__btns{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:38px}
+
+/* ---------- contact ---------- */
+.contact{background:var(--paper)}
+.ct-grid{display:grid;grid-template-columns:1fr;gap:clamp(44px,5vw,80px)}
+@media(min-width:940px){.ct-grid{grid-template-columns:1fr .95fr}}
+.form{display:grid;gap:20px}
+.row{display:grid;grid-template-columns:1fr;gap:20px}
+@media(min-width:560px){.row{grid-template-columns:1fr 1fr}}
+.f label{display:block;font-size:12.5px;font-weight:600;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-2);margin-bottom:9px}
+.f .req{color:var(--brass)}
+.f input,.f select,.f textarea{width:100%;padding:14px 15px;font:inherit;font-size:16px;
+  color:var(--ink);background:var(--bone);border:1px solid var(--line);border-radius:var(--radius);
+  transition:border-color .2s,background .2s}
+.f textarea{min-height:132px;resize:vertical}
+.f select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23615B51' stroke-width='1.6' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 16px center;padding-right:42px}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--brass);background:var(--paper)}
+.form .btn{width:100%;padding:17px}
+.fineprint{font-size:13px;color:var(--ink-3);line-height:1.55}
+.formmsg{padding:15px 18px;border-radius:var(--radius);font-size:15px;display:none}
+.formmsg.ok{display:block;background:#EFF5EE;border:1px solid #C6DCC2;color:#2C5127}
+.formmsg.err{display:block;background:#FBF0EE;border:1px solid #E8C9C3;color:#8A3325}
+.hp{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;margin:0;
+  clip:auto;clip-path:none;white-space:normal;padding:13px 22px;background:var(--char);
+  color:#fff;z-index:100;text-decoration:none;font-size:14px;font-weight:600}
+
+.ct-info dl{margin:0}
+.ct-item{display:flex;gap:16px;padding:22px 0;border-bottom:1px solid var(--line)}
+.ct-item:first-of-type{border-top:1px solid var(--line)}
+.ct-item svg{flex:none;color:var(--brass);margin-top:3px}
+.ct-item dt{font-size:12px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.ct-item dd{margin:0;font-size:17px;font-weight:500}
+.ct-item dd a{text-decoration:none}
+.ct-item dd a:hover{color:var(--brass)}
+.ct-item dd span{display:block;font-size:14.5px;font-weight:400;color:var(--ink-2);margin-top:4px}
+.area{margin-top:34px;padding:26px;background:var(--bone);border:1px solid var(--line)}
+.area h3{font-size:17px;margin-bottom:12px}
+.area p{font-size:15px;color:var(--ink-2);line-height:1.7}
+
+/* ---------- footer ---------- */
+.ftr{background:var(--char);color:rgba(255,255,255,.6);font-size:14.5px}
+.ftr__top{display:grid;grid-template-columns:1fr;gap:40px;padding-block:clamp(52px,6vw,76px)}
+@media(min-width:800px){.ftr__top{grid-template-columns:1.5fr 1fr 1fr}}
+.ftr .brand{color:#fff}
+.ftr__blurb{margin-top:20px;max-width:36ch;line-height:1.7}
+.ftr h4{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#fff;
+  font-family:var(--sans);font-weight:600;margin-bottom:18px}
+.ftr ul{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+.ftr ul a{text-decoration:none;transition:color .2s}
+.ftr ul a:hover{color:var(--brass-lt)}
+.ftr__bot{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between;
+  padding-block:26px;border-top:1px solid var(--line-dk);font-size:13px}
+.social{display:flex;gap:12px;margin-top:22px}
+.social a{width:38px;height:38px;display:grid;place-items:center;border:1px solid var(--line-dk);
+  color:#fff;transition:background .2s,border-color .2s}
+.social a:hover{background:var(--brass);border-color:var(--brass)}
+
+/* ---------- reveal ---------- */
+.rv{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.3,1)}
+.rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.rv{opacity:1;transform:none}}
+
+/* ---------- mobile ---------- */
+@media(max-width:900px){
+  .nav,.hdr .btn{display:none}
+  .burger{display:flex}
+}
+</style>
+</head>
+<body>
+
+<a href="#main" class="hp">Skip to content</a>
+
+<!-- ============ HEADER ============ -->
+<header class="hdr" id="hdr">
+  <div class="hdr__in">
+    <a href="#top" class="brand" aria-label="Linkpoint Elen Construction — home">
+      <svg class="brand__mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="38" height="38" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+        <path d="M12 10v20h7.5M26.5 10v20M22 10h9" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"/>
+      </svg>
+      <span class="brand__txt">
+        <span class="brand__name">Linkpoint Elen</span>
+        <span class="brand__sub">Construction</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Primary">
+      <a href="#services">Services</a>
+      <a href="#why">Why Us</a>
+      <a href="#about">About</a>
+      <a href="#work">Our Work</a>
+      <a href="#contact">Contact</a>
+    </nav>
+
+    <a href="#contact" class="btn btn--ghost">Get an Estimate</a>
+
+    <button class="burger" id="burger" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+      <span></span>
+    </button>
+  </div>
+</header>
+
+<div class="drawer" id="drawer">
+  <a href="#services">Services</a>
+  <a href="#why">Why Us</a>
+  <a href="#about">About</a>
+  <a href="#work">Our Work</a>
+  <a href="#contact">Contact</a>
+  <a href="#contact" class="btn">Get an Estimate</a>
+</div>
+
+<main id="main">
+
+<!-- ============ HERO ============ -->
+<section class="hero" id="top">
+  <div class="hero__bg">
+    <img src="images/hero.jpg" alt="Finished custom kitchen interior by Linkpoint Elen Construction" fetchpriority="high" width="1600" height="900">
+  </div>
+  <div class="hero__in">
+    <p class="eyebrow hero__eyebrow">Loveland, Ohio &middot; Greater Cincinnati</p>
+    <h1>Interiors finished to a standard that holds up close.</h1>
+    <p class="hero__sub">
+      Linkpoint Elen Construction is an owner-led remodeling company specializing in
+      high-end interior work — kitchens, bathrooms, custom trim and millwork, tile and stone.
+      The person who quotes your project is the person who builds it.
+    </p>
+    <div class="hero__cta">
+      <a href="#contact" class="btn btn--brass">Request a Free Estimate</a>
+      <a href="#work" class="btn btn--ghost btn--onDark">See Our Work</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUST BAR ============ -->
+<section class="trust" aria-label="Credentials">
+  <div class="trust__in">
+    <span class="trust__i">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.4 8.8-8 10-4.6-1.2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      Licensed &amp; Insured
+    </span>
+    <span class="trust__i">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+      Background Checked
+    </span>
+    <span class="trust__i">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.3 6.6.8-4.9 4.5 1.3 6.6L12 17l-5.9 3.2 1.3-6.6L2.5 9.1l6.6-.8z"/></svg>
+      5.0 Rated on Thumbtack
+    </span>
+    <span class="trust__i">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.7-4 3.9-6 7.5-6s6.8 2 7.5 6"/></svg>
+      Owner on Every Job
+    </span>
+    <span class="trust__i">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.6-7-11a7 7 0 1114 0c0 5.4-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>
+      Free On-Site Estimates
+    </span>
+  </div>
+</section>
+
+<!-- ============ SERVICES ============ -->
+<section class="section" id="services">
+  <div class="wrap">
+    <div class="svc-head rv">
+      <div>
+        <p class="eyebrow">What We Build</p>
+        <h2 class="h2">Remodeling and finish work,<br>done to a higher tolerance.</h2>
+      </div>
+      <p class="lede">
+        We take on the interior work where the details are the whole job — where a
+        joint that's a sixteenth off is the first thing you'd see every morning.
+        Most projects run from a single room to a full interior renovation.
+      </p>
+    </div>
+
+    <div class="svc">
+      <article class="svc__c rv">
+        <p class="svc__n">01</p>
+        <h3>Kitchen Remodeling</h3>
+        <p>Layout changes, cabinetry installation, countertops, backsplash tile, lighting, and the trim and scribe work that makes cabinets look built into the house instead of set against it.</p>
+      </article>
+      <article class="svc__c rv">
+        <p class="svc__n">02</p>
+        <h3>Bathroom Remodeling</h3>
+        <p>Tiled showers built on properly waterproofed assemblies, custom niches and benches, vanities, and fixtures set plumb and true. Done right behind the tile, not just on it.</p>
+      </article>
+      <article class="svc__c rv">
+        <p class="svc__n">03</p>
+        <h3>Custom Trim &amp; Millwork</h3>
+        <p>Crown moulding, casing and baseboard, wainscoting and panelled walls, coffered ceilings, built-ins, shelving, and stair details. Mitres tight, returns clean, no caulk hiding the cuts.</p>
+      </article>
+      <article class="svc__c rv">
+        <p class="svc__n">04</p>
+        <h3>Tile &amp; Stone</h3>
+        <p>Large-format porcelain, mosaic, herringbone and chevron layouts, and natural stone. Substrates flattened first so the finished surface is flat, the lippage is nil, and the grout lines run straight.</p>
+      </article>
+      <article class="svc__c rv">
+        <p class="svc__n">05</p>
+        <h3>Basement Finishing</h3>
+        <p>Framing, electrical and wiring, insulation, drywall, flooring, and finish carpentry — built and detailed so the finished space reads like the rest of your home, not like a basement.</p>
+      </article>
+      <article class="svc__c rv">
+        <p class="svc__n">06</p>
+        <h3>Whole-Home Interior Renovation</h3>
+        <p>Multi-room and full-floor renovations, sequenced and staged so your household keeps functioning while the work moves through it. One point of contact from demo to punch list.</p>
+      </article>
+    </div>
+
+    <p class="svc-more rv">
+      <strong>Also available:</strong> interior painting &middot; drywall repair &middot; doors and hardware &middot;
+      flooring installation &middot; electrical and wiring repair &middot; trim and moulding &middot;
+      furniture assembly &middot; picture hanging and art installation &middot; general home improvements and handyman work.
+    </p>
+  </div>
+</section>
+
+<!-- ============ WHY LINKPOINT ELEN ============ -->
+<section class="section why" id="why">
+  <div class="wrap">
+    <div class="rv" style="max-width:64ch">
+      <p class="eyebrow">Why Linkpoint Elen</p>
+      <h2 class="h2">Four reasons homeowners<br>stop shopping and hire us.</h2>
+      <p class="lede" style="margin-top:22px">
+        Remodeling has a reputation problem, and it's earned. Here's specifically how
+        we work differently — and how you can hold us to it.
+      </p>
+    </div>
+
+    <div class="why-grid">
+      <article class="why-c rv">
+        <svg class="why-c__ic" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <circle cx="20" cy="13.5" r="6.5"/><path d="M7.5 34c1.5-7.5 6.8-11 12.5-11s11 3.5 12.5 11"/>
+        </svg>
+        <h3>One craftsman, start to finish</h3>
+        <p>You won't meet a salesman, then get handed to a rotating crew of subs. Vitalii walks your job, prices it, and does the work himself. The standard doesn't change between the estimate and the punch list, because the person doesn't.</p>
+      </article>
+
+      <article class="why-c rv">
+        <svg class="why-c__ic" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M6 28.5L28.5 6l5.5 5.5L11.5 34 6 34z"/><path d="M24 10.5l5.5 5.5"/><path d="M6 34h28"/>
+        </svg>
+        <h3>Finish-level standards</h3>
+        <p>Square, level, plumb, and tight — checked, not eyeballed. We spend the extra hours on substrate prep, layout, and the transitions most people only ever notice when they're wrong. That's the whole difference between a remodel and a high-end remodel.</p>
+      </article>
+
+      <article class="why-c rv">
+        <svg class="why-c__ic" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M5 17L20 5.5 35 17"/><path d="M8.5 20v14h23V20"/><path d="M16 34v-9h8v9"/>
+        </svg>
+        <h3>Clean sites, respected homes</h3>
+        <p>Floors and pathways protected, dust contained at the source, tools and debris packed out at the end of every day. You still live here while we work, and the site gets treated that way.</p>
+      </article>
+
+      <article class="why-c rv">
+        <svg class="why-c__ic" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M10 5h20a2 2 0 012 2v26a2 2 0 01-2 2H10a2 2 0 01-2-2V7a2 2 0 012-2z"/>
+          <path d="M14 14h12M14 20h12M14 26h7"/>
+        </svg>
+        <h3>Straight answers on price and timeline</h3>
+        <p>A written scope before anything gets demoed, so you know what's included and what isn't. If something changes once the walls are open — and on older homes it sometimes does — you hear it from us that day, with the cost, before we proceed.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PROCESS ============ -->
+<section class="proc" aria-label="How we work">
+  <div class="proc__s rv">
+    <p class="proc__n">01</p>
+    <h3>Walkthrough</h3>
+    <p>We come out, look at the space, and talk through what you actually want. No charge, no pressure.</p>
+  </div>
+  <div class="proc__s rv">
+    <p class="proc__n">02</p>
+    <h3>Written scope &amp; price</h3>
+    <p>You get the work itemized in writing — materials, sequence, and timeline — so you can compare it honestly.</p>
+  </div>
+  <div class="proc__s rv">
+    <p class="proc__n">03</p>
+    <h3>The build</h3>
+    <p>Protected, contained, and cleaned daily. You get regular updates and a direct line the whole way through.</p>
+  </div>
+  <div class="proc__s rv">
+    <p class="proc__n">04</p>
+    <h3>Walk it together</h3>
+    <p>We go through the finished work with you and fix anything on your list before we call it done.</p>
+  </div>
+</section>
+
+<!-- ============ ABOUT ============ -->
+<section class="section about" id="about">
+  <div class="wrap">
+    <div class="about-grid">
+      <figure class="about-fig rv">
+        <img src="images/about-vitalii.jpg" alt="Vitalii Korostii, owner of Linkpoint Elen Construction" width="800" height="1000" loading="lazy">
+        <figcaption>
+          <div class="nm">Vitalii Korostii</div>
+          <div class="rl">Owner &amp; Lead Craftsman</div>
+        </figcaption>
+      </figure>
+
+      <div class="about-body rv">
+        <p class="eyebrow">About Us</p>
+        <h2 class="h2" style="margin-bottom:26px">A trade learned where<br>the details weren't optional.</h2>
+
+        <p class="first">
+          Linkpoint Elen Construction was founded by Vitalii Korostii, who learned finish
+          carpentry and interior work in Ukraine — a trade culture where a craftsman's
+          reputation travels by word of mouth and nothing gets covered up with caulk and
+          a hope that nobody looks.
+        </p>
+
+        <p>
+          He brought that standard to Ohio and built the business here the same way: one
+          job at a time, on referrals from people who were happy enough to hand out his
+          name. Linkpoint Elen stays deliberately small so that every project gets the
+          owner's own hands and full attention rather than whichever crew happened to be
+          free that week.
+        </p>
+
+        <p>
+          The work is intentionally focused on high-end interiors — kitchens, baths,
+          custom trim and millwork, tile and stone — because that's where craftsmanship
+          is actually visible, and where the difference between good and exceptional is
+          something you notice every single day you live in the room.
+        </p>
+
+        <p>
+          Today Linkpoint Elen serves homeowners throughout Loveland, Mason, Montgomery,
+          Madeira, Symmes Township, Blue Ash, Indian Hill, Milford, and the surrounding
+          Cincinnati suburbs.
+        </p>
+
+        <!-- EDIT: adjust these three stats to whatever is accurate for you -->
+        <div class="about-stats">
+          <div><div class="v">5.0</div><div class="k">Customer Rating</div></div>
+          <div><div class="v">100%</div><div class="k">Owner-Built</div></div>
+          <div><div class="v">Free</div><div class="k">On-Site Estimates</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ OUR WORK ============ -->
+<section class="section" id="work" style="background:var(--bone)">
+  <div class="wrap">
+    <div class="svc-head rv">
+      <div>
+        <p class="eyebrow">Our Work</p>
+        <h2 class="h2">Recent projects.</h2>
+      </div>
+      <p class="lede">
+        A sample of finished interiors across Greater Cincinnati. If you want to see
+        something closer to your own project, ask — we'll send photos of comparable work.
+      </p>
+    </div>
+
+    <!-- EDIT: replace each image file in /images with your real job photos.
+         Keep the same file names and the layout stays exactly as-is. -->
+    <div class="gal">
+      <figure class="w4"><img src="images/work-01.jpg" alt="Custom kitchen remodel with full-height cabinetry and tile backsplash" loading="lazy" width="1200" height="750"><figcaption>Full Kitchen Remodel &middot; Loveland, OH</figcaption></figure>
+      <figure class="w2"><img src="images/work-02.jpg" alt="Tiled walk-in shower with custom niche" loading="lazy" width="600" height="750"><figcaption>Master Bath &amp; Tiled Shower</figcaption></figure>
+      <figure class="w2"><img src="images/work-03.jpg" alt="Custom wainscoting and trim detail in a dining room" loading="lazy" width="600" height="750"><figcaption>Wainscoting &amp; Trim</figcaption></figure>
+      <figure class="w4"><img src="images/work-04.jpg" alt="Herringbone tile floor installation" loading="lazy" width="1200" height="750"><figcaption>Herringbone Tile Floor</figcaption></figure>
+      <figure class="w3"><img src="images/work-05.jpg" alt="Finished basement with built-in shelving" loading="lazy" width="900" height="600"><figcaption>Finished Basement</figcaption></figure>
+      <figure class="w3"><img src="images/work-06.jpg" alt="Built-in shelving and cabinetry millwork" loading="lazy" width="900" height="600"><figcaption>Built-Ins &amp; Millwork</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA BAND ============ -->
+<section class="cta">
+  <div class="cta__bg">
+    <img src="images/cta.jpg" alt="" aria-hidden="true" loading="lazy" width="1600" height="700">
+  </div>
+  <div class="cta__in rv">
+    <h2>Have a project in mind?<br>Let's walk through it.</h2>
+    <p>
+      Free on-site estimates across Loveland and Greater Cincinnati. Tell us what you're
+      thinking about and we'll give you a straight answer on scope, cost, and timeline —
+      whether or not it turns into a job.
+    </p>
+    <div class="cta__btns">
+      <a href="#contact" class="btn btn--brass">Request a Free Estimate</a>
+      <!-- EDIT: put your real phone number in both places below -->
+      <a href="tel:+15135550100" class="btn btn--ghost btn--onDark">Call (513) 555-0100</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CONTACT ============ -->
+<section class="section contact" id="contact">
+  <div class="wrap">
+    <div class="ct-grid">
+
+      <div class="rv">
+        <p class="eyebrow">Contact</p>
+        <h2 class="h2" style="margin-bottom:18px">Request your free estimate.</h2>
+        <p class="lede" style="margin-bottom:36px">
+          Fill this out and we'll get back to you within one business day to schedule a
+          walkthrough. The more detail you give us, the more useful our first answer will be.
+        </p>
+
+        <!-- ============================================================
+             FORM SETUP — pick ONE of these two options:
+
+             OPTION A (easiest, no PHP): Web3Forms.
+               1. Go to web3forms.com, enter your email, get a free access key.
+               2. Paste that key into the value="" of the access_key field below.
+               Leave action="https://api.web3forms.com/submit" as-is.
+
+             OPTION B (Hostinger PHP): use the included contact.php.
+               1. Open contact.php and set $TO_EMAIL to your address.
+               2. Change the form action below to  action="contact.php"
+               3. Delete the access_key input.
+             ============================================================ -->
+        <form class="form" id="estimateForm"
+              action="https://api.web3forms.com/submit" method="POST">
+
+          <input type="hidden" name="access_key" value="PASTE-YOUR-WEB3FORMS-KEY-HERE"><!-- EDIT -->
+          <input type="hidden" name="subject" value="New estimate request — linkpointelen.com">
+          <input type="hidden" name="from_name" value="Linkpoint Elen Website">
+          <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off">
+
+          <div class="row">
+            <div class="f">
+              <label for="name">Name <span class="req">*</span></label>
+              <input id="name" name="name" type="text" autocomplete="name" required>
+            </div>
+            <div class="f">
+              <label for="phone">Phone <span class="req">*</span></label>
+              <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="f">
+              <label for="email">Email <span class="req">*</span></label>
+              <input id="email" name="email" type="email" autocomplete="email" required>
+            </div>
+            <div class="f">
+              <label for="zip">Project ZIP code</label>
+              <input id="zip" name="zip" type="text" inputmode="numeric" autocomplete="postal-code" placeholder="45140">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="f">
+              <label for="project">Project type</label>
+              <select id="project" name="project">
+                <option value="">Select one…</option>
+                <option>Kitchen remodel</option>
+                <option>Bathroom remodel</option>
+                <option>Custom trim &amp; millwork</option>
+                <option>Tile &amp; stone</option>
+                <option>Basement finishing</option>
+                <option>Whole-home renovation</option>
+                <option>Interior painting / drywall</option>
+                <option>Handyman / smaller repair</option>
+                <option>Something else</option>
+              </select>
+            </div>
+            <div class="f">
+              <label for="timeline">Timeline</label>
+              <select id="timeline" name="timeline">
+                <option value="">Select one…</option>
+                <option>As soon as possible</option>
+                <option>Within 1–3 months</option>
+                <option>3–6 months out</option>
+                <option>Just planning / budgeting</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="f">
+            <label for="details">Tell us about the project</label>
+            <textarea id="details" name="details" placeholder="Rough size of the space, what you'd like done, any materials you have in mind, and a budget range if you have one."></textarea>
+          </div>
+
+          <div class="formmsg" id="formMsg" role="status" aria-live="polite"></div>
+
+          <button type="submit" class="btn btn--brass" id="submitBtn">Send Estimate Request</button>
+
+          <p class="fineprint">
+            We'll only use your details to respond to this request. No spam, and we never
+            sell or share your information.
+          </p>
+        </form>
+      </div>
+
+      <!-- ---- contact details ---- -->
+      <aside class="ct-info rv">
+        <dl>
+          <!-- EDIT: real phone number here and in the CTA band + footer -->
+          <div class="ct-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg>
+            <div><dt>Phone</dt><dd><a href="tel:+15135550100">(513) 555-0100</a><span>Call or text — we answer both.</span></dd></div>
+          </div>
+
+          <!-- EDIT: real email address -->
+          <div class="ct-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2.5 6.5L12 13l9.5-6.5"/></svg>
+            <div><dt>Email</dt><dd><a href="mailto:info@linkpointelen.com">info@linkpointelen.com</a></dd></div>
+          </div>
+
+          <div class="ct-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 21s-7-5.6-7-11a7 7 0 1114 0c0 5.4-7 11-7 11z"/><circle cx="12" cy="10" r="2.6"/></svg>
+            <div><dt>Based In</dt><dd>Loveland, Ohio 45140<span>Serving Greater Cincinnati</span></dd></div>
+          </div>
+
+          <div class="ct-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="M12 6.8V12l3.4 2"/></svg>
+            <!-- EDIT: your real working hours -->
+            <div><dt>Hours</dt><dd>Mon–Sat, 8am–6pm<span>Evening calls welcome.</span></dd></div>
+          </div>
+        </dl>
+
+        <div class="area">
+          <h3>Service area</h3>
+          <p>
+            Loveland &middot; Mason &middot; Montgomery &middot; Madeira &middot; Symmes Township &middot;
+            Blue Ash &middot; Indian Hill &middot; Milford &middot; Maineville &middot; Sycamore Township &middot;
+            Deerfield Township &middot; Kenwood &middot; Terrace Park &middot; Cincinnati
+          </p>
+          <p style="margin-top:12px">
+            Outside this list? Reach out anyway — we travel for the right project.
+          </p>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="ftr">
+  <div class="wrap">
+    <div class="ftr__top">
+      <div>
+        <a href="#top" class="brand" aria-label="Linkpoint Elen Construction — home">
+          <svg class="brand__mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="38" height="38" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+            <path d="M12 10v20h7.5M26.5 10v20M22 10h9" stroke="currentColor" stroke-width="2.6" stroke-linecap="square"/>
+          </svg>
+          <span class="brand__txt">
+            <span class="brand__name">Linkpoint Elen</span>
+            <span class="brand__sub">Construction</span>
+          </span>
+        </a>
+        <p class="ftr__blurb">
+          Owner-led remodeling and high-end interior finish work for homeowners in
+          Loveland and throughout Greater Cincinnati.
+        </p>
+        <div class="social">
+          <!-- EDIT: your real Facebook URL -->
+          <a href="https://www.facebook.com/" aria-label="Linkpoint Elen on Facebook" target="_blank" rel="noopener">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 9h3V5.5h-3c-2.3 0-4 1.9-4 4.2V12H7.5v3.5H10V22h3.5v-6.5H16l.6-3.5H13.5v-2c0-.6.3-1 .5-1z"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div>
+        <h4>Services</h4>
+        <ul>
+          <li><a href="#services">Kitchen Remodeling</a></li>
+          <li><a href="#services">Bathroom Remodeling</a></li>
+          <li><a href="#services">Custom Trim &amp; Millwork</a></li>
+          <li><a href="#services">Tile &amp; Stone</a></li>
+          <li><a href="#services">Basement Finishing</a></li>
+          <li><a href="#services">Whole-Home Renovation</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#about">About Us</a></li>
+          <li><a href="#why">Why Linkpoint Elen</a></li>
+          <li><a href="#work">Our Work</a></li>
+          <li><a href="#contact">Request an Estimate</a></li>
+          <li><a href="tel:+15135550100">(513) 555-0100</a></li><!-- EDIT -->
+          <li><a href="mailto:info@linkpointelen.com">info@linkpointelen.com</a></li><!-- EDIT -->
+        </ul>
+      </div>
+    </div>
+
+    <div class="ftr__bot">
+      <span>&copy; <span id="yr">2026</span> Linkpoint Elen Construction LLC. All rights reserved.</span>
+      <span>Loveland, Ohio &middot; Licensed &amp; Insured</span>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ LOCAL BUSINESS SCHEMA (helps Google) ============ -->
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"GeneralContractor",
+  "name":"Linkpoint Elen Construction LLC",
+  "description":"Owner-led remodeling and high-end interior finish work — kitchens, bathrooms, custom trim and millwork, tile and stone, and whole-home renovations in Loveland and Greater Cincinnati.",
+  "url":"https://www.linkpointelen.com/",
+  "telephone":"+1-513-555-0100",
+  "email":"info@linkpointelen.com",
+  "founder":{"@type":"Person","name":"Vitalii Korostii"},
+  "address":{"@type":"PostalAddress","addressLocality":"Loveland","addressRegion":"OH","postalCode":"45140","addressCountry":"US"},
+  "areaServed":["Loveland OH","Mason OH","Montgomery OH","Madeira OH","Blue Ash OH","Indian Hill OH","Milford OH","Cincinnati OH"],
+  "priceRange":"$$-$$$",
+  "openingHours":"Mo-Sa 08:00-18:00",
+  "knowsAbout":["Kitchen remodeling","Bathroom remodeling","Custom trim and millwork","Tile installation","Basement finishing","Interior renovation"]
+}
+</script>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---- sticky header ---- */
+  var hdr = document.getElementById('hdr');
+  function onScroll(){ hdr.classList.toggle('is-stuck', window.scrollY > 40); }
+  onScroll();
+  window.addEventListener('scroll', onScroll, {passive:true});
+
+  /* ---- mobile drawer ---- */
+  var burger = document.getElementById('burger');
+  var drawer = document.getElementById('drawer');
+  function setMenu(open){
+    drawer.classList.toggle('is-open', open);
+    burger.setAttribute('aria-expanded', String(open));
+    burger.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    document.body.style.overflow = open ? 'hidden' : '';
+  }
+  burger.addEventListener('click', function(){
+    setMenu(burger.getAttribute('aria-expanded') !== 'true');
+  });
+  drawer.addEventListener('click', function(e){
+    if (e.target.tagName === 'A') setMenu(false);
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') setMenu(false);
+  });
+
+  /* ---- scroll reveal ---- */
+  var items = document.querySelectorAll('.rv');
+  if ('IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en, i){
+        if (en.isIntersecting){
+          setTimeout(function(){ en.target.classList.add('in'); }, Math.min(i * 70, 280));
+          io.unobserve(en.target);
+        }
+      });
+    }, {rootMargin:'0px 0px -8% 0px', threshold:0.08});
+    items.forEach(function(el){ io.observe(el); });
+  } else {
+    items.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  /* ---- current year ---- */
+  document.getElementById('yr').textContent = new Date().getFullYear();
+
+  /* ---- AJAX form submit (keeps visitors on the page) ---- */
+  var form = document.getElementById('estimateForm');
+  var msg  = document.getElementById('formMsg');
+  var btn  = document.getElementById('submitBtn');
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    msg.className = 'formmsg';
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+
+    fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: {'Accept':'application/json'}
+    })
+    .then(function(r){ return r.json().catch(function(){ return {success: r.ok}; }); })
+    .then(function(data){
+      if (data.success){
+        msg.className = 'formmsg ok';
+        msg.textContent = "Thank you — your request came through. We'll get back to you within one business day.";
+        form.reset();
+        btn.textContent = 'Request Sent';
+      } else {
+        throw new Error('rejected');
+      }
+    })
+    .catch(function(){
+      msg.className = 'formmsg err';
+      msg.innerHTML = "Something went wrong sending that. Please call us at <a href=\"tel:+15135550100\">(513) 555-0100</a> and we'll take it from there.";
+      btn.disabled = false;
+      btn.textContent = 'Send Estimate Request';
+    });
+  });
+})();
+</script>
+</body>
+</html>
