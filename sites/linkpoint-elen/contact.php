@@ -14,7 +14,7 @@
  * so leave $FROM_EMAIL on your real domain or the mail may be rejected.
  */
 
-$TO_EMAIL   = 'info@linkpointelen.com';              // <-- EDIT
+$TO_EMAIL   = 'alexhelms@lunexmarketing.com';        // <-- EDIT
 $FROM_EMAIL = 'website@linkpointelen.com';           // <-- EDIT (must be your domain)
 $SITE_NAME  = 'Linkpoint Elen Construction';
 

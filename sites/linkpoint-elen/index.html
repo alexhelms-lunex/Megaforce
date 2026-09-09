@@ -131,7 +131,9 @@ p{margin:0}
 .hero__bg{position:absolute;inset:0}
 .hero__bg img{width:100%;height:100%;object-fit:cover}
 .hero__bg::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(180deg,rgba(15,14,11,.62) 0%,rgba(15,14,11,.36) 38%,rgba(15,14,11,.86) 100%)}
+  background:
+    linear-gradient(90deg,rgba(15,14,11,.88) 0%,rgba(15,14,11,.66) 34%,rgba(15,14,11,.30) 68%,rgba(15,14,11,.08) 100%),
+    linear-gradient(180deg,rgba(15,14,11,.46) 0%,rgba(15,14,11,.20) 40%,rgba(15,14,11,.80) 100%)}
 .hero__in{position:relative;z-index:2;width:100%;max-width:var(--wrap);margin-inline:auto;
   padding:0 var(--pad) clamp(52px,7vw,88px)}
 .hero h1{font-size:clamp(38px,6.4vw,76px);max-width:17ch;text-wrap:balance}
@@ -200,22 +202,46 @@ p{margin:0}
 .about-stats .k{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-top:7px}
 
 /* ---------- gallery ---------- */
-.gal{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(8px,1.1vw,14px);margin-top:52px}
-@media(min-width:820px){.gal{grid-template-columns:repeat(6,1fr)}}
-.gal figure{position:relative;margin:0;overflow:hidden;background:var(--line)}
-.gal img{width:100%;height:100%;object-fit:cover;transition:transform .6s cubic-bezier(.2,.7,.3,1)}
-.gal figure:hover img{transform:scale(1.045)}
-.gal figcaption{position:absolute;inset:auto 0 0;padding:26px 22px 18px;color:#fff;font-size:13.5px;
-  font-weight:500;letter-spacing:.02em;
-  background:linear-gradient(180deg,transparent,rgba(15,14,11,.82))}
-.gal .w4{grid-column:span 2;aspect-ratio:16/10}
-.gal .w3{grid-column:span 2;aspect-ratio:3/2}
-.gal .w2{grid-column:span 1;aspect-ratio:4/5}
-@media(min-width:820px){
-  .gal .w4{grid-column:span 4}
-  .gal .w3{grid-column:span 3}
-  .gal .w2{grid-column:span 2}
-}
+/* masonry so every photo keeps its own shape — nothing gets cropped */
+.gal{columns:1;column-gap:clamp(10px,1.2vw,16px);margin-top:52px}
+@media(min-width:620px){.gal{columns:2}}
+@media(min-width:1000px){.gal{columns:3}}
+.gal__i{display:block;width:100%;padding:0;margin:0 0 clamp(10px,1.2vw,16px);
+  border:0;background:var(--line);position:relative;overflow:hidden;cursor:zoom-in;
+  break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid;
+  text-align:left;color:inherit;font:inherit}
+.gal__i img{width:100%;height:auto;display:block;
+  transition:transform .65s cubic-bezier(.2,.7,.3,1),filter .35s}
+.gal__i:hover img,.gal__i:focus-visible img{transform:scale(1.04)}
+.gal__cap{position:absolute;inset:auto 0 0;padding:34px 20px 16px;color:#fff;
+  font-size:13.5px;font-weight:500;letter-spacing:.02em;line-height:1.35;
+  background:linear-gradient(180deg,transparent,rgba(15,14,11,.86));
+  opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s}
+.gal__i:hover .gal__cap,.gal__i:focus-visible .gal__cap{opacity:1;transform:none}
+@media(hover:none){.gal__cap{opacity:1;transform:none}}
+.gal__i::after{content:"";position:absolute;inset:0;
+  box-shadow:inset 0 0 0 1px rgba(27,26,22,.10);pointer-events:none}
+
+/* ---------- lightbox ---------- */
+.lb{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;
+  background:rgba(12,11,9,.94);padding:clamp(16px,4vw,56px);opacity:0;transition:opacity .25s}
+.lb.is-open{opacity:1}
+.lb figure{margin:0;max-width:100%;max-height:100%;display:flex;flex-direction:column;
+  align-items:center;gap:16px}
+.lb img{max-width:100%;max-height:78vh;width:auto;height:auto;object-fit:contain;
+  box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.lb figcaption{color:rgba(255,255,255,.82);font-size:14.5px;text-align:center;max-width:62ch}
+.lb__btn{position:absolute;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);
+  color:#fff;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;
+  cursor:pointer;transition:background .2s,border-color .2s}
+.lb__btn:hover{background:rgba(255,255,255,.2);border-color:rgba(255,255,255,.5)}
+.lb__close{top:clamp(14px,3vw,26px);right:clamp(14px,3vw,26px)}
+.lb__prev{left:clamp(10px,2.5vw,26px);top:50%;transform:translateY(-50%)}
+.lb__next{right:clamp(10px,2.5vw,26px);top:50%;transform:translateY(-50%)}
+.lb__count{position:absolute;left:0;right:0;bottom:clamp(14px,3vw,26px);text-align:center;
+  color:rgba(255,255,255,.5);font-size:12.5px;letter-spacing:.14em}
+@media(max-width:620px){.lb__prev,.lb__next{top:auto;bottom:clamp(14px,3vw,26px);transform:none}
+  .lb__prev{left:24px}.lb__next{right:24px}.lb__count{bottom:32px}}
 
 /* ---------- CTA band ---------- */
 .cta{position:relative;color:#fff;text-align:center;overflow:hidden}
@@ -347,7 +373,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
 <!-- ============ HERO ============ -->
 <section class="hero" id="top">
   <div class="hero__bg">
-    <img src="images/hero.jpg" alt="Finished custom kitchen interior by Linkpoint Elen Construction" fetchpriority="high" width="1600" height="900">
+    <img src="images/hero.jpg" alt="Backlit dimensional signage on a custom panelled accent wall built by Linkpoint Elen Construction" fetchpriority="high" width="1920" height="1080">
   </div>
   <div class="hero__in">
     <p class="eyebrow hero__eyebrow">Loveland, Ohio &middot; Greater Cincinnati</p>
@@ -524,10 +550,14 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
   <div class="wrap">
     <div class="about-grid">
       <figure class="about-fig rv">
-        <img src="images/about-vitalii.jpg" alt="Vitalii Korostii, owner of Linkpoint Elen Construction" width="800" height="1000" loading="lazy">
+        <!-- EDIT: when you have a photo of Vitalii, save it here as images/about.jpg
+             (portrait, roughly 900x1125) and change the caption below back to
+             "Vitalii Korostii" / "Owner & Lead Craftsman". A face in this spot
+             makes the section noticeably stronger. -->
+        <img src="images/about.jpg" alt="Custom oak newel post and wrought-iron balusters installed by Linkpoint Elen Construction" width="900" height="1125" loading="lazy">
         <figcaption>
-          <div class="nm">Vitalii Korostii</div>
-          <div class="rl">Owner &amp; Lead Craftsman</div>
+          <div class="nm">Custom Oak Newel &amp; Iron Balusters</div>
+          <div class="rl">Linkpoint Elen Construction</div>
         </figcaption>
       </figure>
 
@@ -588,15 +618,52 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
       </p>
     </div>
 
-    <!-- EDIT: replace each image file in /images with your real job photos.
-         Keep the same file names and the layout stays exactly as-is. -->
+    <!-- EDIT: to add or swap a photo, drop the file in /images and copy one
+         block below. Keep the width/height attributes matching the real
+         pixel size so the layout does not jump while images load.
+         Order matters: the masonry fills column 1 first, then 2, then 3,
+         so photos 1, 5 and 8 land at the top of a column on desktop. -->
     <div class="gal">
-      <figure class="w4"><img src="images/work-01.jpg" alt="Custom kitchen remodel with full-height cabinetry and tile backsplash" loading="lazy" width="1200" height="750"><figcaption>Full Kitchen Remodel &middot; Loveland, OH</figcaption></figure>
-      <figure class="w2"><img src="images/work-02.jpg" alt="Tiled walk-in shower with custom niche" loading="lazy" width="600" height="750"><figcaption>Master Bath &amp; Tiled Shower</figcaption></figure>
-      <figure class="w2"><img src="images/work-03.jpg" alt="Custom wainscoting and trim detail in a dining room" loading="lazy" width="600" height="750"><figcaption>Wainscoting &amp; Trim</figcaption></figure>
-      <figure class="w4"><img src="images/work-04.jpg" alt="Herringbone tile floor installation" loading="lazy" width="1200" height="750"><figcaption>Herringbone Tile Floor</figcaption></figure>
-      <figure class="w3"><img src="images/work-05.jpg" alt="Finished basement with built-in shelving" loading="lazy" width="900" height="600"><figcaption>Finished Basement</figcaption></figure>
-      <figure class="w3"><img src="images/work-06.jpg" alt="Built-in shelving and cabinetry millwork" loading="lazy" width="900" height="600"><figcaption>Built-Ins &amp; Millwork</figcaption></figure>
+      <button class="gal__i" type="button" data-src="images/work-01-shower-tile.jpg" data-cap="Large-format porcelain shower — waterproofed assembly, flat substrate, level-set with tight grout lines.">
+        <img src="images/work-01-shower-tile.jpg" alt="Large-format marble-look porcelain tile set on a shower wall with levelling clips in place" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Large-Format Porcelain Shower</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-02-signage-backlit.jpg" data-cap="Backlit dimensional signage on a custom panelled wall — halo lighting wired and concealed.">
+        <img src="images/work-02-signage-backlit.jpg" alt="Backlit gold dimensional signage glowing against a navy panelled wall" loading="lazy" width="1300" height="975">
+        <span class="gal__cap">Backlit Signage Wall</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-03-signage-wall.jpg" data-cap="Custom panelled accent wall with dimensional signage and sconce lighting.">
+        <img src="images/work-03-signage-wall.jpg" alt="Navy panelled accent wall with dimensional gold signage and wall sconces" loading="lazy" width="1300" height="975">
+        <span class="gal__cap">Panelled Accent Wall</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-04-signage-install.jpg" data-cap="Setting out dimensional letters to a levelled template and running the wiring behind.">
+        <img src="images/work-04-signage-install.jpg" alt="Installer on a ladder setting out dimensional letters on a navy wall" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Layout &amp; Install</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-05-loft.jpg" data-cap="A-frame loft renovation — exposed beams, vaulted plank ceiling and railing.">
+        <img src="images/work-05-loft.jpg" alt="Interior of an A-frame home showing a loft railing, exposed beams and vaulted ceiling" loading="lazy" width="731" height="1300">
+        <span class="gal__cap">A-Frame Loft Renovation</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-06-outbuilding.jpg" data-cap="Custom outbuilding — floor deck, wall framing, rafters and roof sheathing.">
+        <img src="images/work-06-outbuilding.jpg" alt="Timber-framed outbuilding under construction at dusk with roof sheathing partly installed" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Custom Outbuilding</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-07-deck.jpg" data-cap="Composite decking over pressure-treated framing, blocked and squared before the boards went down.">
+        <img src="images/work-07-deck.jpg" alt="Composite deck under construction showing pressure-treated joists and grey deck boards" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Composite Deck Build</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-08-dormer-window.jpg" data-cap="Dormer window with custom dark-stained trim against white plank walls.">
+        <img src="images/work-08-dormer-window.jpg" alt="Dormer window framed with dark stained trim on a white plank wall" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Dormer Window &amp; Trim</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-09-letters-wiring.jpg" data-cap="Backlit dimensional letters wired and set before the ceiling went back up.">
+        <img src="images/work-09-letters-wiring.jpg" alt="Gold dimensional letters mounted on a wall with wiring run from the ceiling above" loading="lazy" width="975" height="1300">
+        <span class="gal__cap">Backlit Letter Wiring</span>
+      </button>
+      <button class="gal__i" type="button" data-src="images/work-10-attic-framing.jpg" data-cap="Attic conversion — knee-wall framing and insulation ahead of finish work.">
+        <img src="images/work-10-attic-framing.jpg" alt="Attic space with new knee-wall framing against insulated rafters" loading="lazy" width="731" height="1300">
+        <span class="gal__cap">Attic Conversion</span>
+      </button>
     </div>
   </div>
 </section>
@@ -604,7 +671,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
 <!-- ============ CTA BAND ============ -->
 <section class="cta">
   <div class="cta__bg">
-    <img src="images/cta.jpg" alt="" aria-hidden="true" loading="lazy" width="1600" height="700">
+    <img src="images/cta.jpg" alt="" aria-hidden="true" loading="lazy" width="1920" height="840">
   </div>
   <div class="cta__in rv">
     <h2>Have a project in mind?<br>Let's walk through it.</h2>
@@ -616,7 +683,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
     <div class="cta__btns">
       <a href="#contact" class="btn btn--brass">Request a Free Estimate</a>
       <!-- EDIT: put your real phone number in both places below -->
-      <a href="tel:+15135550100" class="btn btn--ghost btn--onDark">Call (513) 555-0100</a>
+      <a href="tel:+15137092118" class="btn btn--ghost btn--onDark">Call (513) 709-2118</a>
     </div>
   </div>
 </section>
@@ -635,25 +702,35 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
         </p>
 
         <!-- ============================================================
-             FORM SETUP — pick ONE of these two options:
+             FORM SETUP
 
-             OPTION A (easiest, no PHP): Web3Forms.
-               1. Go to web3forms.com, enter your email, get a free access key.
-               2. Paste that key into the value="" of the access_key field below.
-               Leave action="https://api.web3forms.com/submit" as-is.
+             Submissions are delivered to alexhelms@lunexmarketing.com through
+             FormSubmit, which needs no account and no API key.
 
-             OPTION B (Hostinger PHP): use the included contact.php.
-               1. Open contact.php and set $TO_EMAIL to your address.
-               2. Change the form action below to  action="contact.php"
-               3. Delete the access_key input.
+             ONE-TIME ACTIVATION (required before any lead arrives):
+               1. Publish the site, then submit the form once yourself.
+               2. FormSubmit emails alexhelms@lunexmarketing.com asking to confirm.
+               3. Click the link in that email. Every later submission is forwarded
+                  automatically. Until you do this, nothing gets delivered.
+
+             TO CHANGE THE DESTINATION: edit the address at the end of the form's
+             action="" below. That is the only place it appears.
+
+             RECOMMENDED AFTER ACTIVATION: the confirmation email contains a random
+             alias (like https://formsubmit.co/ajax/a1b2c3...). Swap that in for the
+             plain address so the inbox is not sitting in the page source for
+             spam bots to scrape.
+
+             ALTERNATIVE (Hostinger PHP): set $TO_EMAIL in contact.php, change the
+             action below to action="contact.php", and delete the _ fields.
              ============================================================ -->
         <form class="form" id="estimateForm"
-              action="https://api.web3forms.com/submit" method="POST">
+              action="https://formsubmit.co/ajax/alexhelms@lunexmarketing.com" method="POST"><!-- EDIT: destination address -->
 
-          <input type="hidden" name="access_key" value="PASTE-YOUR-WEB3FORMS-KEY-HERE"><!-- EDIT -->
-          <input type="hidden" name="subject" value="New estimate request — linkpointelen.com">
-          <input type="hidden" name="from_name" value="Linkpoint Elen Website">
-          <input type="checkbox" name="botcheck" class="hp" tabindex="-1" autocomplete="off">
+          <input type="hidden" name="_subject" value="New estimate request — Linkpoint Elen website">
+          <input type="hidden" name="_template" value="table">
+          <input type="hidden" name="_captcha" value="false">
+          <input type="text" name="_honey" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
 
           <div class="row">
             <div class="f">
@@ -727,13 +804,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
           <!-- EDIT: real phone number here and in the CTA band + footer -->
           <div class="ct-item">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/></svg>
-            <div><dt>Phone</dt><dd><a href="tel:+15135550100">(513) 555-0100</a><span>Call or text — we answer both.</span></dd></div>
-          </div>
-
-          <!-- EDIT: real email address -->
-          <div class="ct-item">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2.5 6.5L12 13l9.5-6.5"/></svg>
-            <div><dt>Email</dt><dd><a href="mailto:info@linkpointelen.com">info@linkpointelen.com</a></dd></div>
+            <div><dt>Phone</dt><dd><a href="tel:+15137092118">(513) 709-2118</a><span>Call or text — we answer both.</span></dd></div>
           </div>
 
           <div class="ct-item">
@@ -764,6 +835,24 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
     </div>
   </div>
 </section>
+
+<!-- ============ LIGHTBOX ============ -->
+<div class="lb" id="lightbox" role="dialog" aria-modal="true" aria-label="Project photo" hidden>
+  <button class="lb__btn lb__close" id="lbClose" type="button" aria-label="Close">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+  </button>
+  <button class="lb__btn lb__prev" id="lbPrev" type="button" aria-label="Previous photo">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 4L7 12l8 8"/></svg>
+  </button>
+  <button class="lb__btn lb__next" id="lbNext" type="button" aria-label="Next photo">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 4l8 8-8 8"/></svg>
+  </button>
+  <figure>
+    <img id="lbImg" alt="">
+    <figcaption id="lbCap"></figcaption>
+  </figure>
+  <p class="lb__count" id="lbCount"></p>
+</div>
 
 </main>
 
@@ -813,8 +902,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
           <li><a href="#why">Why Linkpoint Elen</a></li>
           <li><a href="#work">Our Work</a></li>
           <li><a href="#contact">Request an Estimate</a></li>
-          <li><a href="tel:+15135550100">(513) 555-0100</a></li><!-- EDIT -->
-          <li><a href="mailto:info@linkpointelen.com">info@linkpointelen.com</a></li><!-- EDIT -->
+          <li><a href="tel:+15137092118">(513) 709-2118</a></li><!-- EDIT -->
         </ul>
       </div>
     </div>
@@ -834,8 +922,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
   "name":"Linkpoint Elen Construction LLC",
   "description":"Owner-led remodeling and high-end interior finish work — kitchens, bathrooms, custom trim and millwork, tile and stone, and whole-home renovations in Loveland and Greater Cincinnati.",
   "url":"https://www.linkpointelen.com/",
-  "telephone":"+1-513-555-0100",
-  "email":"info@linkpointelen.com",
+  "telephone":"+1-513-709-2118",
   "founder":{"@type":"Person","name":"Vitalii Korostii"},
   "address":{"@type":"PostalAddress","addressLocality":"Loveland","addressRegion":"OH","postalCode":"45140","addressCountry":"US"},
   "areaServed":["Loveland OH","Mason OH","Montgomery OH","Madeira OH","Blue Ash OH","Indian Hill OH","Milford OH","Cincinnati OH"],
@@ -890,6 +977,53 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
     items.forEach(function(el){ el.classList.add('in'); });
   }
 
+
+  /* ---- gallery lightbox ---- */
+  var tiles = [].slice.call(document.querySelectorAll('.gal__i'));
+  var lb = document.getElementById('lightbox');
+  if (tiles.length && lb){
+    var lbImg   = document.getElementById('lbImg');
+    var lbCap   = document.getElementById('lbCap');
+    var lbCount = document.getElementById('lbCount');
+    var idx = 0, lastFocus = null;
+
+    function show(i){
+      idx = (i + tiles.length) % tiles.length;
+      var t = tiles[idx];
+      lbImg.src = t.getAttribute('data-src');
+      lbImg.alt = t.querySelector('img').alt;
+      lbCap.textContent = t.getAttribute('data-cap');
+      lbCount.textContent = (idx + 1) + ' / ' + tiles.length;
+    }
+    function open(i){
+      lastFocus = document.activeElement;
+      show(i);
+      lb.hidden = false;
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(function(){ lb.classList.add('is-open'); });
+      document.getElementById('lbClose').focus();
+    }
+    function close(){
+      lb.classList.remove('is-open');
+      document.body.style.overflow = '';
+      setTimeout(function(){ lb.hidden = true; lbImg.removeAttribute('src'); }, 250);
+      if (lastFocus) lastFocus.focus();
+    }
+
+    tiles.forEach(function(t, i){ t.addEventListener('click', function(){ open(i); }); });
+    document.getElementById('lbClose').addEventListener('click', close);
+    document.getElementById('lbPrev').addEventListener('click', function(){ show(idx - 1); });
+    document.getElementById('lbNext').addEventListener('click', function(){ show(idx + 1); });
+    lb.addEventListener('click', function(e){ if (e.target === lb || e.target.tagName === 'FIGURE') close(); });
+    document.addEventListener('keydown', function(e){
+      if (lb.hidden) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowLeft') show(idx - 1);
+      else if (e.key === 'ArrowRight') show(idx + 1);
+      else if (e.key === 'Tab') { e.preventDefault(); document.getElementById('lbClose').focus(); }
+    });
+  }
+
   /* ---- current year ---- */
   document.getElementById('yr').textContent = new Date().getFullYear();
 
@@ -911,7 +1045,9 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
     })
     .then(function(r){ return r.json().catch(function(){ return {success: r.ok}; }); })
     .then(function(data){
-      if (data.success){
+      // Web3Forms returns a boolean, FormSubmit returns the string "true"
+      var ok = data.success === true || data.success === 'true';
+      if (ok){
         msg.className = 'formmsg ok';
         msg.textContent = "Thank you — your request came through. We'll get back to you within one business day.";
         form.reset();
@@ -922,7 +1058,7 @@ a.hp:focus{position:fixed!important;top:12px;left:12px;width:auto;height:auto;ma
     })
     .catch(function(){
       msg.className = 'formmsg err';
-      msg.innerHTML = "Something went wrong sending that. Please call us at <a href=\"tel:+15135550100\">(513) 555-0100</a> and we'll take it from there.";
+      msg.innerHTML = "Something went wrong sending that. Please call us at <a href=\"tel:+15137092118\">(513) 709-2118</a> and we'll take it from there.";
       btn.disabled = false;
       btn.textContent = 'Send Estimate Request';
     });

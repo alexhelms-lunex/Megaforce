@@ -1,152 +1,181 @@
 # Linkpoint Elen Construction — Website
 
-A single-page website, built as plain HTML/CSS/JS. No build step, no framework,
-no dependencies. Upload the files and it works.
+A single-page website in plain HTML/CSS/JS. No build step, no framework, no
+dependencies. Upload the files and it works.
 
 ```
-index.html        the entire site (HTML + CSS + JavaScript in one file)
-contact.php       optional form handler (only if you don't use Web3Forms)
-images/           9 placeholder images to replace with real photos
+index.html          the entire site (HTML + CSS + JavaScript in one file)
+contact.php         optional form handler (only if you don't use FormSubmit)
+images/             13 real project photos, already resized and compressed
+README-DEPLOY.md    this file
 ```
 
----
-
-## 1. Before you upload — things you MUST change
-
-Open `index.html` in any text editor and search for the word **EDIT**. Every spot
-that needs your real information is flagged with an `EDIT` comment.
-
-| What | Placeholder currently in the file | Appears in |
-|---|---|---|
-| Phone number | `(513) 555-0100` / `+15135550100` | 4 places |
-| Email address | `info@linkpointelen.com` | 3 places |
-| Domain name | `https://www.linkpointelen.com/` | 4 places (SEO tags) |
-| Facebook URL | `https://www.facebook.com/` | footer |
-| Business hours | `Mon–Sat, 8am–6pm` | contact section |
-| The three stats | `5.0` / `100%` / `Free` | About section |
-
-> **Fastest way:** use Find & Replace. Replace `5135550100` with your real digits,
-> then `(513) 555-0100` with your real formatted number, then `info@linkpointelen.com`
-> with your real email, then `www.linkpointelen.com` with your real domain.
-
-**A note on the copy:** the About section says the trade was learned in Ukraine and
-that the business runs on referrals. Read it over and adjust anything that isn't
-accurate. Same for "Licensed & Insured" in the trust bar and footer — only keep
-that if it's true for your business in Ohio.
+Everything is already wired up with the real phone number and the real form
+destination. **The only mandatory step before launch is activating the contact
+form (section 2).**
 
 ---
 
-## 2. Replace the photos
-
-The `images/` folder has 9 placeholders. Each one has its purpose and ideal size
-printed right on the image. **Replace each file, keeping the exact same file name**,
-and the layout stays exactly as designed.
-
-| File | Size | What it should be |
-|---|---|---|
-| `hero.jpg` | 1600 × 900 | Your single best finished interior. Wide shot. |
-| `about-vitalii.jpg` | 800 × 1000 | Portrait photo of Vitalii, ideally on a job site. |
-| `cta.jpg` | 1600 × 700 | Any wide interior shot (sits behind a dark overlay). |
-| `work-01.jpg` | 1200 × 750 | Kitchen remodel — landscape |
-| `work-02.jpg` | 600 × 750 | Bathroom / tiled shower — portrait |
-| `work-03.jpg` | 600 × 750 | Wainscoting & trim — portrait |
-| `work-04.jpg` | 1200 × 750 | Tile floor — landscape |
-| `work-05.jpg` | 900 × 600 | Finished basement — landscape |
-| `work-06.jpg` | 900 × 600 | Built-ins & millwork — landscape |
-
-They don't have to match those pixel sizes exactly — just get the **orientation**
-right (landscape vs portrait), or the photo will be cropped oddly.
-
-**Compress your photos before uploading.** Phone photos are often 5–10 MB and will
-make the site slow. Run them through [squoosh.app](https://squoosh.app) or
-[tinypng.com](https://tinypng.com) and aim for under 300 KB each.
-
-Also update the captions under each photo in the gallery (search for `figcaption`)
-and the `alt="..."` text, which is what Google reads and what screen readers announce.
-
----
-
-## 3. Make the contact form actually send email
-
-The form is wired up but **will not send anything until you do one of these two.**
-
-### Option A — Web3Forms (recommended, takes 2 minutes)
-
-1. Go to [web3forms.com](https://web3forms.com), enter your email, get a free access key.
-2. In `index.html`, find `PASTE-YOUR-WEB3FORMS-KEY-HERE` and replace it with your key.
-3. Done. Submissions arrive in your inbox. Free tier covers 250/month.
-
-You can then delete `contact.php` — you won't need it.
-
-### Option B — Hostinger's built-in PHP mail
-
-1. Open `contact.php`, set `$TO_EMAIL` to your address and `$FROM_EMAIL` to an
-   address on your own domain (Hostinger rejects sends from other domains).
-2. In `index.html`, change the form tag from
-   `action="https://api.web3forms.com/submit"` to `action="contact.php"`.
-3. Delete the hidden `access_key` input line just below it.
-
-Option A is more reliable — shared-hosting PHP mail often lands in spam.
-
-**Either way: test it.** Submit the form yourself and confirm the email arrives.
-Check your spam folder on the first try.
-
----
-
-## 4. Upload to Hostinger
+## 1. Upload to Hostinger
 
 1. Log in to Hostinger → **hPanel**.
 2. Open **Files → File Manager**.
 3. Go into the `public_html` folder.
-4. Delete anything already in there (a `default.php` placeholder page is usually present).
-5. Upload `index.html`, the whole `images` folder, and `contact.php` if you're using it.
+4. Delete anything already there (Hostinger leaves a `default.php` placeholder).
+5. Upload `index.html` and the whole `images` folder. Add `contact.php` only if
+   you choose Option B in the next section.
 
-Your structure in `public_html` should look like:
+`public_html` should end up looking like:
 
 ```
 public_html/
 ├── index.html
-├── contact.php        (only if using Option B)
 └── images/
     ├── hero.jpg
-    ├── about-vitalii.jpg
+    ├── about.jpg
     ├── cta.jpg
-    └── work-01.jpg … work-06.jpg
+    └── work-01-…  through  work-10-…
 ```
 
-6. Visit your domain. That's it.
+6. Visit your domain.
 
-**Turn on free SSL** in hPanel under **Security → SSL** so the site loads as
-`https://` — Google penalises sites without it, and browsers show a "Not secure"
-warning to visitors.
+**Turn on free SSL** in hPanel under **Security → SSL** so the site loads over
+`https://`. Browsers show a "Not secure" warning without it.
+
+---
+
+## 2. Activate the contact form — REQUIRED
+
+The form posts to **FormSubmit**, which needs no account and no API key, and
+delivers to **alexhelms@lunexmarketing.com**.
+
+FormSubmit requires a one-time confirmation before it will forward anything:
+
+1. Publish the site.
+2. Fill in the form on the live site once and submit it.
+3. FormSubmit emails **alexhelms@lunexmarketing.com** asking you to confirm.
+4. Click the link in that email.
+
+Every submission after that is forwarded automatically. **Until step 4 is done,
+leads are not delivered.** Do this before you send any traffic to the site.
+
+### Two follow-ups worth doing
+
+**Hide the address from the page source.** The confirmation email contains a
+random alias URL like `https://formsubmit.co/ajax/a1b2c3d4e5…`. Paste that into
+the form's `action="..."` in `index.html` in place of the plain email address.
+Right now the address sits in the HTML where spam bots can scrape it.
+
+**Change the destination** by editing that same `action="..."` — it's the only
+place the address appears. Search `index.html` for `formsubmit`.
+
+### Option B — Hostinger PHP instead
+
+If you'd rather not use a third party: set `$TO_EMAIL` in `contact.php`, upload
+it, change the form's `action` to `action="contact.php"`, and delete the four
+hidden `_subject` / `_template` / `_captcha` / `_honey` inputs. Shared-hosting
+PHP mail lands in spam more often, which is why FormSubmit is the default.
+
+---
+
+## 3. Still to fill in
+
+Search `index.html` for the word **EDIT** — every spot that needs attention is
+flagged with a comment.
+
+| What | Currently | Where |
+|---|---|---|
+| Domain name | `https://www.linkpointelen.com/` | 4 SEO tags + the JSON-LD block |
+| Facebook URL | `https://www.facebook.com/` | footer |
+| Business hours | `Mon–Sat, 8am–6pm` | contact section |
+| The three stats | `5.0` / `100%` / `Free` | About section |
+
+The phone number **(513) 709-2118** is already live everywhere it appears.
+
+There is deliberately **no email address shown** on the page, since there's no
+business mailbox yet — visitors get the phone number and the form. When a real
+address exists (`info@` on the domain), add it back to the contact block, the
+footer, and the JSON-LD.
+
+**Read the About section.** It says the trade was learned in Ukraine and that
+the business runs on referrals. Adjust anything that isn't accurate. Same for
+"Licensed & Insured" in the trust bar and footer — only keep it if it's true.
+
+---
+
+## 4. The photos
+
+All 13 photos are real project work, already resized and compressed (about
+1.9 MB total, which is fine for a page this size).
+
+| File | Used for |
+|---|---|
+| `hero.jpg` | Vaulted shiplap ceiling — top of the page |
+| `about.jpg` | Oak newel post & iron balusters — About section |
+| `cta.jpg` | Backlit feature wall — behind the dark call-to-action band |
+| `work-01-shower-tile.jpg` | Large-format porcelain shower |
+| `work-02-signage-backlit.jpg` | Backlit signage wall |
+| `work-03-signage-wall.jpg` | Panelled accent wall |
+| `work-04-signage-install.jpg` | Layout & install |
+| `work-05-loft.jpg` | A-frame loft renovation |
+| `work-06-outbuilding.jpg` | Custom outbuilding |
+| `work-07-deck.jpg` | Composite deck build |
+| `work-08-dormer-window.jpg` | Dormer window & trim |
+| `work-09-letters-wiring.jpg` | Backlit letter wiring |
+| `work-10-attic-framing.jpg` | Attic conversion |
+
+The gallery is a masonry layout, so photos keep their own shape — nothing gets
+cropped, and portrait and landscape can be mixed freely. Clicking any photo
+opens it full-size (arrow keys and Esc work).
+
+### Adding or swapping photos
+
+Drop the file into `images/` and copy one `<button class="gal__i">` block in the
+gallery. Three things matter:
+
+- **Set `width` and `height`** on the `<img>` to the real pixel size, or the
+  page will jump around while images load.
+- **Compress first.** Phone photos are 5–10 MB. Run them through
+  [squoosh.app](https://squoosh.app) or [tinypng.com](https://tinypng.com) and
+  aim for under 300 KB, longest edge around 1300px.
+- **Order matters.** The masonry fills column 1 top-to-bottom, then column 2,
+  then column 3. With 10 photos that means photos **1, 5 and 8** land at the
+  top of a column on desktop — put your strongest work in those slots.
+
+### Worth shooting next
+
+The two things that would most improve this site:
+
+1. **A photo of Vitalii.** The About section currently shows a staircase because
+   there's no portrait available. Save one as `images/about.jpg` (portrait,
+   roughly 900×1125) and change the caption back to his name and title — there's
+   an EDIT comment in the file showing exactly where.
+2. **Finished kitchens and bathrooms.** The services section leads with kitchen
+   and bath remodeling, but the gallery has no finished kitchen. Wide shot of
+   the room, then two or three tight shots of the details. Before/after pairs
+   perform especially well for this kind of work.
 
 ---
 
 ## 5. After launch
 
-- **Google Business Profile.** For a local contractor this matters more than the
-  website itself. Create/claim it at [business.google.com](https://business.google.com),
-  put the website link on it, and ask every happy customer for a review there.
-  The site already includes `LocalBusiness` structured data (the JSON block at the
-  bottom of `index.html`) so Google can connect the two — update the phone, email
-  and domain in that block too.
-- **Ask for reviews.** There's currently no testimonials section on the page,
-  because I wasn't going to write fake ones. Once you have 4–5 real reviews, they're
-  worth adding — that's usually the single highest-converting thing on a
-  contractor's site.
-- **Photos are your marketing.** For this kind of work, the gallery does more
-  selling than any copy. Shoot every finished job: wide shot of the room, then 2–3
-  tight shots of the details you're proud of. Before/after pairs perform especially
-  well.
+- **Google Business Profile** matters more than the website for a local
+  contractor. Claim it at [business.google.com](https://business.google.com),
+  link the site, and ask every happy customer to review there. The site already
+  includes `LocalBusiness` structured data (the JSON block near the bottom of
+  `index.html`) — update the domain in it to match.
+- **Reviews.** There's no testimonials section, because inventing reviews for a
+  real business isn't worth doing. Once there are four or five real ones, that
+  section is usually the highest-converting thing on a contractor's site.
 
 ---
 
 ## Editing tips
 
-Everything is in `index.html`, in the order it appears on the page. Section markers
-look like `<!-- ============ SERVICES ============ -->` so you can find things fast.
+Everything lives in `index.html`, in the order it appears on the page. Section
+markers look like `<!-- ============ SERVICES ============ -->`.
 
-Colours are set once at the very top of the `<style>` block:
+Colours are set once at the top of the `<style>` block:
 
 ```css
 --brass:#8F6F3E;   /* the gold accent colour */
@@ -155,3 +184,7 @@ Colours are set once at the very top of the `<style>` block:
 ```
 
 Change those three and the whole site re-themes.
+
+One gotcha: HTML comments can't be nested. If you comment something out and the
+page suddenly shows stray text, check that you haven't wrapped a comment that
+already contains `-->`.
