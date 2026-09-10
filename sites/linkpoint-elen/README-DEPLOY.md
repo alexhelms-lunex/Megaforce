@@ -105,24 +105,25 @@ the business runs on referrals. Adjust anything that isn't accurate. Same for
 
 ## 4. The photos
 
-All 13 photos are real project work, already resized and compressed (about
-1.9 MB total, which is fine for a page this size).
+All 14 photos are real project work, already resized and compressed (about
+2 MB total, which is fine for a page this size).
 
 | File | Used for |
 |---|---|
 | `hero.jpg` | Vaulted shiplap ceiling — top of the page |
-| `about.jpg` | Oak newel post & iron balusters — About section |
+| `about.jpg` | Vitalii — About section |
 | `cta.jpg` | Backlit feature wall — behind the dark call-to-action band |
 | `work-01-shower-tile.jpg` | Large-format porcelain shower |
 | `work-02-signage-backlit.jpg` | Backlit signage wall |
 | `work-03-signage-wall.jpg` | Panelled accent wall |
 | `work-04-signage-install.jpg` | Layout & install |
-| `work-05-loft.jpg` | A-frame loft renovation |
-| `work-06-outbuilding.jpg` | Custom outbuilding |
-| `work-07-deck.jpg` | Composite deck build |
-| `work-08-dormer-window.jpg` | Dormer window & trim |
-| `work-09-letters-wiring.jpg` | Backlit letter wiring |
-| `work-10-attic-framing.jpg` | Attic conversion |
+| `work-05-letters-wiring.jpg` | Backlit letter wiring |
+| `work-06-newel-balusters.jpg` | Oak newel & iron balusters |
+| `work-07-loft.jpg` | A-frame loft renovation |
+| `work-08-outbuilding.jpg` | Custom outbuilding |
+| `work-09-dormer-window.jpg` | Dormer window & trim |
+| `work-10-deck.jpg` | Composite deck build |
+| `work-11-attic-framing.jpg` | Attic conversion |
 
 The gallery is a masonry layout, so photos keep their own shape — nothing gets
 cropped, and portrait and landscape can be mixed freely. Clicking any photo
@@ -139,21 +140,24 @@ gallery. Three things matter:
   [squoosh.app](https://squoosh.app) or [tinypng.com](https://tinypng.com) and
   aim for under 300 KB, longest edge around 1300px.
 - **Order matters.** The masonry fills column 1 top-to-bottom, then column 2,
-  then column 3. With 10 photos that means photos **1, 5 and 8** land at the
-  top of a column on desktop — put your strongest work in those slots.
+  then column 3. With the current 11 photos that means photos **1, 6 and 9**
+  land at the top of a column on desktop — put your strongest work in those
+  slots. Adding or removing a photo shifts where the columns break, so check
+  the top of each column afterwards.
 
 ### Worth shooting next
 
-The two things that would most improve this site:
+**Finished kitchens and bathrooms.** The services section leads with kitchen and
+bath remodeling, but the gallery still has no finished kitchen, and the shower
+shot is mid-install with levelling clips on. Wide shot of the room, then two or
+three tight shots of the details. Before/after pairs perform especially well for
+this kind of work.
 
-1. **A photo of Vitalii.** The About section currently shows a staircase because
-   there's no portrait available. Save one as `images/about.jpg` (portrait,
-   roughly 900×1125) and change the caption back to his name and title — there's
-   an EDIT comment in the file showing exactly where.
-2. **Finished kitchens and bathrooms.** The services section leads with kitchen
-   and bath remodeling, but the gallery has no finished kitchen. Wide shot of
-   the room, then two or three tight shots of the details. Before/after pairs
-   perform especially well for this kind of work.
+**A photo of Vitalii on a job site** would beat the current one. The About
+section now uses a portrait of him, which is the important part — but a shot of
+him working, in a finished room, would carry the "owner on every job" claim much
+harder than a photo taken in a car. Same file name (`images/about.jpg`, portrait
+around 900×1125) and nothing else needs changing.
 
 ---
 
